@@ -247,6 +247,33 @@ app.get('/api/settings/show_icu', async (c) => {
   return c.json({ show_icu: showIcu })
 })
 
+app.get('/api/settings/announcements', async (c) => {
+  await ensureDbInitialized(c.env.DB)
+  const row = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('site_announcements').first<{ value: string }>()
+
+  if (!row?.value) {
+    return c.json({ announcements: [] })
+  }
+
+  try {
+    const parsed = JSON.parse(row.value)
+    const announcements = Array.isArray(parsed)
+      ? parsed
+          .map((item) => ({
+            id: String(item?.id || ''),
+            type: ['info', 'warning', 'error', 'success'].includes(String(item?.type)) ? String(item?.type) : 'info',
+            content: String(item?.content || '').trim(),
+            enabled: item?.enabled !== false
+          }))
+          .filter((item) => item.id && item.content && item.enabled)
+      : []
+
+    return c.json({ announcements })
+  } catch {
+    return c.json({ announcements: [] })
+  }
+})
+
 // 获取开课单位列表
 app.get('/api/departments', async (c) => {
   try {
