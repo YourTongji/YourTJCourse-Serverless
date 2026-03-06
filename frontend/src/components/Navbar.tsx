@@ -4,7 +4,12 @@ import Logo from './Logo'
 
 type NavItem = { path: string; label: string; external?: boolean }
 
-export default function Navbar() {
+type NavbarProps = {
+  announcementCollapsed?: boolean
+  onToggleAnnouncementCollapsed?: () => void
+}
+
+export default function Navbar({ announcementCollapsed, onToggleAnnouncementCollapsed }: NavbarProps) {
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -116,11 +121,12 @@ export default function Navbar() {
   const navBtnBase = 'w-9 h-9 rounded-2xl flex items-center justify-center border bg-white/60 backdrop-blur hover:bg-white/80 active:scale-95 transition'
   const navBtnEnabled = 'border-slate-200 text-slate-600'
   const navBtnDisabled = 'border-slate-100 text-slate-300 cursor-not-allowed opacity-70'
+  const showAnnouncementBell = Boolean(announcementCollapsed && onToggleAnnouncementCollapsed)
 
   return (
     <nav className="sticky top-4 z-50 px-4 mx-auto max-w-7xl">
       <div className="relative">
-        <div className="flex items-center justify-start md:justify-between px-4 md:px-6 py-3 bg-white/80 backdrop-blur-2xl border border-white/50 shadow-lg shadow-cyan-900/5 rounded-2xl md:rounded-full">
+        <div className="flex items-center justify-start px-4 md:px-6 py-3 bg-white/80 backdrop-blur-2xl border border-white/50 shadow-lg shadow-cyan-900/5 rounded-2xl md:rounded-full">
           <Link to="/" className="flex items-center gap-3 min-w-0 flex-1">
             <Logo size={40} className="shrink-0" />
             <div className="hidden sm:block">
@@ -132,77 +138,98 @@ export default function Navbar() {
             </div>
           </Link>
 
-          {/* In-app navigation arrows (never leave the site) */}
-          <div className="flex items-center gap-1.5 mr-2 md:mr-3 shrink-0">
-            <button
-              type="button"
-              onClick={navBack}
-              disabled={!canBack}
-              className={`${navBtnBase} ${canBack ? navBtnEnabled : navBtnDisabled}`}
-              aria-label="后退"
-              title="后退"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={navForward}
-              disabled={!canForward}
-              className={`${navBtnBase} ${canForward ? navBtnEnabled : navBtnDisabled}`}
-              aria-label="前进"
-              title="前进"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={goHome}
-              disabled={isHome}
-              className={`${navBtnBase} ${!isHome ? navBtnEnabled : navBtnDisabled}`}
-              aria-label="回到首页"
-              title="回到首页"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5l9-7 9 7" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 22V12h6v10" />
-              </svg>
-            </button>
-          </div>
+          <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+            {/* In-app navigation arrows (never leave the site) */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={navBack}
+                disabled={!canBack}
+                className={`${navBtnBase} ${canBack ? navBtnEnabled : navBtnDisabled}`}
+                aria-label="后退"
+                title="后退"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={navForward}
+                disabled={!canForward}
+                className={`${navBtnBase} ${canForward ? navBtnEnabled : navBtnDisabled}`}
+                aria-label="前进"
+                title="前进"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={goHome}
+                disabled={isHome}
+                className={`${navBtnBase} ${!isHome ? navBtnEnabled : navBtnDisabled}`}
+                aria-label="回到首页"
+                title="回到首页"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5l9-7 9 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 22V12h6v10" />
+                </svg>
+              </button>
+            </div>
 
-          <div className="hidden md:flex items-center gap-1 bg-slate-100/50 p-1 rounded-full">
-            {navItems.map((item) => {
-              if (item.external) {
+            <div className="hidden md:flex items-center gap-1 bg-slate-100/50 p-1 rounded-full">
+              {navItems.map((item) => {
+                if (item.external) {
+                  return (
+                    <a
+                      key={item.path}
+                      href={item.path}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-5 py-2 rounded-full text-sm font-semibold transition-all text-slate-600 hover:text-cyan-600 hover:bg-white/60"
+                    >
+                      {item.label}
+                    </a>
+                  )
+                }
+
                 return (
-                  <a
+                  <Link
                     key={item.path}
-                    href={item.path}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-5 py-2 rounded-full text-sm font-semibold transition-all text-slate-600 hover:text-cyan-600 hover:bg-white/60"
+                    to={item.path}
+                    className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
+                      location.pathname === item.path
+                        ? 'bg-white text-cyan-700 shadow-sm'
+                        : 'text-slate-600 hover:text-cyan-600 hover:bg-white/60'
+                    }`}
                   >
                     {item.label}
-                  </a>
+                  </Link>
                 )
-              }
+              })}
+            </div>
 
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
-                    location.pathname === item.path
-                      ? 'bg-white text-cyan-700 shadow-sm'
-                      : 'text-slate-600 hover:text-cyan-600 hover:bg-white/60'
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              )
-            })}
+            {showAnnouncementBell && (
+              <button
+                type="button"
+                onClick={onToggleAnnouncementCollapsed}
+                className={`${navBtnBase} ${navBtnEnabled} shrink-0 relative`}
+                aria-label="展开公告"
+                title="展开公告"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 01-6 0"
+                  />
+                </svg>
+                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-sky-400" />
+              </button>
+            )}
           </div>
         </div>
       </div>
