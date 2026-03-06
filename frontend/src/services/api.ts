@@ -24,6 +24,15 @@ export type CourseAdvancedFilters = {
   faculty?: string
 }
 
+export type AnnouncementType = 'info' | 'warning' | 'error' | 'success'
+
+export interface SiteAnnouncement {
+  id: string
+  type: AnnouncementType
+  content: string
+  enabled?: boolean
+}
+
 export async function fetchCourses(
   keyword?: string,
   legacy?: boolean,
@@ -66,6 +75,12 @@ export async function fetchCourse(id: string, opts?: { clientId?: string; legacy
   const res = await fetchWithTimeout(`${API_BASE}/api/course/${id}${suffix}`, undefined, 15000)
   if (!res.ok) throw new Error('Failed to fetch course')
   return res.json()
+}
+
+export async function fetchSiteAnnouncements() {
+  const res = await fetchWithTimeout(`${API_BASE}/api/settings/announcements`, undefined, 15000)
+  if (!res.ok) throw new Error('Failed to fetch announcements')
+  return res.json() as Promise<{ announcements: SiteAnnouncement[] }>
 }
 
 export async function submitReview(data: {

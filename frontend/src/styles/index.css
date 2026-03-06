@@ -97,3 +97,63 @@ a:hover {
 .yourtj-logo-spin {
   animation: yourtjLogoSpin 2s linear infinite;
 }
+
+@keyframes yourtjPaperReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(-96px) scale(0.94);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translateY(8px) scale(1.01);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.yourtj-share-paper {
+  animation: yourtjPaperReveal 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-origin: top center;
+}
+
+.yourtj-share-printer {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.7) transparent;
+}
+
+.yourtj-share-printer::-webkit-scrollbar {
+  width: 8px;
+}
+
+.yourtj-share-printer::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.7);
+  border-radius: 999px;
+}
+
+.yourtj-printer-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.yourtj-printer-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 0%, rgba(125, 211, 252, 0.28) 25%, rgba(255, 255, 255, 0.85) 50%, rgba(125, 211, 252, 0.28) 75%, transparent 100%);
+  animation: yourtjPrinterSweep 2.2s ease-in-out infinite;
+}
+
+@keyframes yourtjPrinterSweep {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(120%);
+  }
+}

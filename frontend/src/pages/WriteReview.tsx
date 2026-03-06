@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import BoringAvatar from 'boring-avatars'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { fetchCourse, submitReview, updateReview } from '../services/api'
 import GlassCard from '../components/GlassCard'
@@ -22,6 +24,21 @@ const DEFAULT_HINTS: TemplateHints = {
   '## 上课学期：': '填写你上这门课的学期，如 2024春'
 }
 
+const AVATAR_COLORS = ['#0f172a', '#38bdf8', '#f8fafc', '#f59e0b', '#22c55e']
+
+function buildBeamAvatarDataUri(seedText: string, size = 72) {
+  const svg = renderToStaticMarkup(
+    <BoringAvatar
+      size={size}
+      name={seedText || '匿名用户'}
+      variant="beam"
+      colors={AVATAR_COLORS}
+    />
+  )
+
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
 export default function WriteReview() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -40,17 +57,18 @@ export default function WriteReview() {
   const [reviewerName, setReviewerName] = useState('')
   const [avatarType, setAvatarType] = useState<'random' | 'qq'>('random')
   const [qqNumber, setQqNumber] = useState('')
-  const [randomSeed] = useState(() => Math.random().toString(36).slice(2, 10))
 
   const editReview = (location.state as any)?.editReview as any | undefined
   const isEdit = Boolean(editReview?.id) && new URLSearchParams(location.search || '').get('edit') === '1'
+
+  const getAvatarSeed = () => reviewerName.trim() || '匿名用户'
 
   const getAvatarUrl = () => {
     if (!showReviewer) return ''
     if (avatarType === 'qq' && qqNumber) {
       return `https://q1.qlogo.cn/g?b=qq&nk=${qqNumber}&s=640`
     }
-    return `https://api.dicebear.com/7.x/notionists/svg?seed=${randomSeed}`
+    return buildBeamAvatarDataUri(getAvatarSeed(), 96)
   }
 
   useEffect(() => {
