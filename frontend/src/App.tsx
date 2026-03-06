@@ -399,6 +399,7 @@ export default function App() {
   })
   const [startupLeaving, setStartupLeaving] = useState(false)
   const [startupError, setStartupError] = useState('')
+  const [startupVerifying, setStartupVerifying] = useState(false)
   const [announcementCollapsed, setAnnouncementCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem('yourtj_announcement_collapsed')
@@ -421,6 +422,7 @@ export default function App() {
   const showStartupGate = !startupPassed
   const slogan = useTypewriterText('你的，同济的', 55, showStartupGate)
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()
+  const startupVerifyRequestRef = useRef(0)
 
   const passStartupGate = () => {
     setStartupLeaving(true)
@@ -433,6 +435,21 @@ export default function App() {
         // ignore
       }
     }, 360)
+  }
+
+  const verifyStartupToken = async (token: string) => {
+    const apiBase = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '')
+    const url = apiBase ? `${apiBase}/api/startup/verify` : '/api/startup/verify'
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    })
+
+    if (!res.ok) return false
+    const data = await res.json().catch(() => null) as { success?: boolean } | null
+    return data?.success === true
   }
 
   return (
@@ -490,14 +507,35 @@ export default function App() {
                           retry="auto"
                           refreshExpired="auto"
                           action="startup_gate"
-                          onSuccess={() => {
+                          onVerify={(token, boundTurnstile) => {
+                            const requestId = (startupVerifyRequestRef.current += 1)
                             setStartupError('')
-                            passStartupGate()
+                            setStartupVerifying(true)
+
+                            void (async () => {
+                              const ok = await verifyStartupToken(token).catch(() => false)
+                              if (startupVerifyRequestRef.current !== requestId) return
+
+                              setStartupVerifying(false)
+                              if (ok) {
+                                passStartupGate()
+                                return
+                              }
+
+                              setStartupError('验证未通过，请重试')
+                              try {
+                                boundTurnstile?.reset?.()
+                              } catch {
+                                // ignore
+                              }
+                            })()
                           }}
                           onError={() => {
+                            setStartupVerifying(false)
                             setStartupError('验证失败，请稍后重试')
                           }}
                           onExpire={() => {
+                            setStartupVerifying(false)
                             setStartupError('验证已过期，请重新验证')
                           }}
                         />
@@ -507,6 +545,11 @@ export default function App() {
                         </div>
                       )}
                     </div>
+                  {startupVerifying && (
+                    <div className="mt-2 text-center text-xs font-semibold text-slate-500 dark:text-slate-300">
+                      校验中...
+                    </div>
+                  )}
                   {startupError && (
                     <div className="mt-2 text-center text-xs font-semibold text-rose-600 dark:text-rose-300">
                       {startupError}

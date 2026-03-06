@@ -19,3 +19,5 @@ database_id = "ced26cfd-a3a7-4b06-ac3f-587c9c939c1c"
 # wrangler secret put CAPTCHA_SITEVERIFY_URL
 # wrangler secret put ADMIN_SECRET
 # wrangler secret put ONESYSTEM_COOKIE
+# wrangler secret put TURNSTILE_SECRET_KEY
+# （可选）wrangler secret put TURNSTILE_SITEVERIFY_URL
