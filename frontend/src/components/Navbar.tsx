@@ -118,7 +118,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
     navigate('/')
   }
 
-  const navBtnBase = 'w-9 h-9 rounded-2xl flex items-center justify-center border bg-white/60 backdrop-blur hover:bg-white/80 active:scale-95 transition'
+  const navBtnBase = 'w-8 h-8 md:w-9 md:h-9 rounded-xl md:rounded-2xl flex items-center justify-center border bg-white/60 backdrop-blur hover:bg-white/80 active:scale-95 transition'
   const navBtnEnabled = 'border-slate-200 text-slate-600'
   const navBtnDisabled = 'border-slate-100 text-slate-300 cursor-not-allowed opacity-70'
   const showAnnouncementBell = Boolean(announcementCollapsed && onToggleAnnouncementCollapsed)
@@ -138,9 +138,9 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
             </div>
           </Link>
 
-          <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+          <div className="flex items-center gap-1 md:gap-2 shrink-0">
             {/* In-app navigation arrows (never leave the site) */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 md:gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={navBack}
@@ -149,7 +149,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 aria-label="后退"
                 title="后退"
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
                 </svg>
               </button>
@@ -161,7 +161,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 aria-label="前进"
                 title="前进"
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
                 </svg>
               </button>
@@ -173,7 +173,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 aria-label="回到首页"
                 title="回到首页"
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5l9-7 9 7" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 22V12h6v10" />
                 </svg>
@@ -220,14 +220,14 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 aria-label="展开公告"
                 title="展开公告"
               >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="h-4 w-4 md:h-5 md:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 01-6 0"
                   />
                 </svg>
-                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-sky-400" />
+                <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-sky-400 md:h-2 md:w-2" />
               </button>
             )}
           </div>
