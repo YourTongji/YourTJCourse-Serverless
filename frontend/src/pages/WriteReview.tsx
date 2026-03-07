@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import BoringAvatar from 'boring-avatars'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -39,11 +39,33 @@ function buildBeamAvatarDataUri(seedText: string, size = 72) {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
+function formatSemesterLabel(value: string) {
+  const text = String(value || '').trim()
+  const yearMatch = text.match(/(20\\d{2})/)
+
+  if (!yearMatch) return text || '未知学期'
+
+  const shortYear = yearMatch[1].slice(2)
+  if (/第?1学期|秋/i.test(text)) return `${shortYear}秋`
+  if (/第?2学期|春/i.test(text)) return `${shortYear}春`
+
+  return text
+}
+
+function semesterLabelScore(label: string) {
+  const text = String(label || '').trim()
+  const match = text.match(/(\\d{2})\\s*([春秋])/)
+  if (!match) return -1
+  const year = 2000 + Number(match[1])
+  const term = match[2] === '秋' ? 2 : 1
+  return year * 10 + term
+}
+
 export default function WriteReview() {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const [course, setCourse] = useState<{ name: string; code: string } | null>(null)
+  const [course, setCourse] = useState<{ name: string; code: string; semesters?: string[] } | null>(null)
   const [loadError, setLoadError] = useState('')
   const [rating, setRating] = useState(5)
   const [comment, setComment] = useState(REVIEW_TEMPLATE)
@@ -51,6 +73,9 @@ export default function WriteReview() {
   const [token, setToken] = useState('')
   const [loading, setLoading] = useState(false)
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
+  const [semester, setSemester] = useState('其他')
+  const [semesterOpen, setSemesterOpen] = useState(false)
+  const semesterRef = useRef<HTMLDivElement>(null)
 
   // 点评人设置
   const [showReviewer, setShowReviewer] = useState(false)
@@ -85,6 +110,7 @@ export default function WriteReview() {
     if (!editReview) return
     setComment(String(editReview.comment || ''))
     setRating(Number(editReview.rating ?? 5))
+    setSemester(String(editReview.semester || '其他') || '其他')
     setShowReviewer(Boolean(editReview.reviewer_name || editReview.reviewer_avatar))
     setReviewerName(String(editReview.reviewer_name || ''))
     if (String(editReview.reviewer_avatar || '').includes('qlogo.cn')) {
@@ -93,6 +119,45 @@ export default function WriteReview() {
       if (m?.[1]) setQqNumber(m[1])
     }
   }, [isEdit, editReview])
+
+  const semesterOptions = useMemo(() => {
+    const raw = Array.isArray(course?.semesters) ? course?.semesters || [] : []
+    const unique = Array.from(new Set(raw.map((s) => String(s || '').trim()).filter(Boolean)))
+
+    const mapped = unique
+      .map((value) => ({ value, label: formatSemesterLabel(value) }))
+      .sort((left, right) => semesterLabelScore(right.label) - semesterLabelScore(left.label))
+
+    const result = [...mapped]
+
+    const current = String(semester || '').trim()
+    if (current && current !== '其他' && !result.some((item) => item.value === current)) {
+      result.unshift({ value: current, label: formatSemesterLabel(current) })
+    }
+
+    result.push({ value: '其他', label: '其他' })
+    return result
+  }, [course?.semesters, semester])
+
+  const selectedSemesterLabel = useMemo(() => {
+    const current = String(semester || '').trim() || '其他'
+    if (current === '其他') return '其他'
+    const found = semesterOptions.find((item) => item.value === current)
+    return found?.label || formatSemesterLabel(current)
+  }, [semester, semesterOptions])
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      if (!semesterOpen) return
+      const el = semesterRef.current
+      if (!el) return
+      if (event.target instanceof Node && el.contains(event.target)) return
+      setSemesterOpen(false)
+    }
+
+    window.addEventListener('mousedown', handleClick, true)
+    return () => window.removeEventListener('mousedown', handleClick, true)
+  }, [semesterOpen])
 
   // 草稿自动保存
   useEffect(() => {
@@ -106,6 +171,7 @@ export default function WriteReview() {
         const draft = JSON.parse(savedDraft)
         setComment(draft.comment || REVIEW_TEMPLATE)
         setRating(draft.rating || 5)
+        setSemester(String(draft.semester || '其他') || '其他')
         setShowReviewer(draft.showReviewer || false)
         setReviewerName(draft.reviewerName || '')
         setAvatarType(draft.avatarType || 'random')
@@ -125,6 +191,7 @@ export default function WriteReview() {
       const draft = {
         comment,
         rating,
+        semester,
         showReviewer,
         reviewerName,
         avatarType,
@@ -135,7 +202,7 @@ export default function WriteReview() {
     }, 1000) // 1秒防抖
 
     return () => clearTimeout(timer)
-  }, [id, comment, rating, showReviewer, reviewerName, avatarType, qqNumber])
+  }, [id, comment, rating, semester, showReviewer, reviewerName, avatarType, qqNumber])
 
   // Markdown 插入功能
   const handleInsert = (before: string, after?: string) => {
@@ -185,7 +252,7 @@ export default function WriteReview() {
       const payload = {
         rating,
         comment,
-        semester: '',
+        semester: String(semester || '').trim() || '其他',
         turnstile_token: token,
         reviewer_name: showReviewer ? reviewerName : '',
         reviewer_avatar: getAvatarUrl(),
@@ -358,6 +425,82 @@ export default function WriteReview() {
               </div>
               <div className="text-center text-lg font-bold text-slate-700">{rating} 分</div>
             </div>
+          </div>
+        </div>
+
+        {/* Semester */}
+        <div className="mb-6" ref={semesterRef}>
+          <label className="block mb-3 text-sm font-semibold text-slate-600">学期</label>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSemesterOpen((prev) => !prev)}
+              className="w-full flex items-center justify-between gap-3 rounded-2xl border border-white bg-white/60 px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white/75"
+              aria-expanded={semesterOpen}
+              aria-label="选择学期"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="inline-flex shrink-0 items-center rounded-full bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700 ring-1 ring-indigo-100">
+                  {selectedSemesterLabel}
+                </span>
+                <span className="truncate text-slate-500 text-xs md:text-sm">
+                  {semester === '其他' ? '适用于未在列表中的学期' : '将作为评价的学期标签展示'}
+                </span>
+              </div>
+              <svg
+                className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${semesterOpen ? 'rotate-180' : ''}`}
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.2l3.71-3.97a.75.75 0 111.08 1.04l-4.25 4.55a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+
+            {semesterOpen && (
+              <div className="absolute left-0 right-0 mt-2 overflow-hidden rounded-2xl border border-slate-100 bg-white/90 shadow-[0_18px_48px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl z-30">
+                <div className="max-h-64 overflow-auto py-2">
+                  {semesterOptions.map((opt) => {
+                    const active = opt.value === semester
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setSemester(opt.value)
+                          setSemesterOpen(false)
+                        }}
+                        className={`w-full px-4 py-2.5 text-left text-sm transition flex items-center justify-between gap-3 ${
+                          active ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="truncate">{opt.label}</span>
+                          {opt.value !== '其他' && (
+                            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                              系统
+                            </span>
+                          )}
+                        </span>
+                        {active && (
+                          <svg className="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path
+                              fillRule="evenodd"
+                              d="M16.704 5.29a1 1 0 010 1.42l-7.004 7.004a1 1 0 01-1.42 0L3.296 8.728a1 1 0 111.42-1.42l3.274 3.273 6.294-6.293a1 1 0 011.42 0z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

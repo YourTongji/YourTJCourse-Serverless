@@ -51,22 +51,33 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
 
       if (matchedHint && i + 1 < lines.length) {
         // 当前行是标题，显示原文
-        result.push(<div key={i} className="whitespace-pre">{line || '\u00A0'}</div>)
+        result.push(
+          <div key={i} className="yourtj-md-mirror text-slate-700">
+            {line || '\u00A0'}
+          </div>
+        )
         // 下一行显示提示
         i++
         result.push(
-          <div key={i} className="whitespace-pre text-slate-400 italic">
+          <div key={i} className="yourtj-md-mirror text-slate-400 italic">
             {matchedHint}
           </div>
         )
       } else {
-        // 普通行，显示透明占位
-        result.push(<div key={i} className="whitespace-pre text-transparent">{line || '\u00A0'}</div>)
+        // 普通行：显示原文；空行显示透明占位保持高度
+        const isEmpty = trimmedLine.length === 0
+        result.push(
+          <div key={i} className={`yourtj-md-mirror ${isEmpty ? 'text-transparent' : 'text-slate-700'}`}>
+            {isEmpty ? '\u00A0' : line}
+          </div>
+        )
       }
     }
 
     return result
   }, [value, hints])
+
+  const mirrorMode = Boolean(generateOverlayContent)
 
   // 完整的 markdown 渲染函数
   const renderMarkdown = (text: string) => {
@@ -155,7 +166,7 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
               {generateOverlayContent && (
                 <div
                   ref={overlayRef}
-                  className="absolute inset-0 p-4 pointer-events-none overflow-hidden font-mono text-sm leading-relaxed"
+                  className="absolute inset-0 z-10 p-4 pointer-events-none overflow-auto font-mono text-sm leading-relaxed yourtj-md-overlay"
                 >
                   {generateOverlayContent}
                 </div>
@@ -166,7 +177,11 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
                 onChange={(e) => onChange(e.target.value)}
                 onScroll={handleScroll}
                 placeholder={placeholder}
-                className="relative z-10 w-full h-full p-4 border-none bg-transparent resize-none font-mono text-sm leading-relaxed text-slate-700 outline-none min-h-[400px]"
+                className={`relative z-20 w-full h-full p-4 border-none bg-transparent resize-none font-mono text-sm leading-relaxed outline-none min-h-[400px] yourtj-md-mirror ${
+                  mirrorMode
+                    ? 'text-transparent caret-slate-700 selection:bg-cyan-100/80 placeholder:text-slate-400'
+                    : 'text-slate-700 placeholder:text-slate-400'
+                }`}
               />
             </div>
           </div>
@@ -195,7 +210,8 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
                 {/* 提示层 overlay */}
                 {generateOverlayContent && (
                   <div
-                    className="absolute inset-0 p-4 pointer-events-none overflow-hidden font-mono text-sm leading-relaxed"
+                    ref={overlayRef}
+                    className="absolute inset-0 z-10 p-4 pointer-events-none overflow-auto font-mono text-sm leading-relaxed yourtj-md-overlay"
                   >
                     {generateOverlayContent}
                   </div>
@@ -206,7 +222,11 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
                   onChange={(e) => onChange(e.target.value)}
                   onScroll={handleScroll}
                   placeholder={placeholder}
-                  className="relative z-10 w-full p-4 border-none bg-transparent resize-none font-mono text-sm leading-relaxed text-slate-700 outline-none min-h-[300px]"
+                  className={`relative z-20 w-full p-4 border-none bg-transparent resize-none font-mono text-sm leading-relaxed outline-none min-h-[300px] yourtj-md-mirror ${
+                    mirrorMode
+                      ? 'text-transparent caret-slate-700 selection:bg-cyan-100/80 placeholder:text-slate-400'
+                      : 'text-slate-700 placeholder:text-slate-400'
+                  }`}
                 />
               </div>
             </div>
