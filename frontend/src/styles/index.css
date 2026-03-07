@@ -2,6 +2,54 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'YuFanLixing';
+  src: url('/fonts/YuFanLixing.otf') format('opentype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'KKT';
+  src: url('/fonts/kkt.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'AllertaStencil';
+  src: url('/fonts/AllertaStencil-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+
+.yourtj-font-brand {
+  font-family: 'KKT', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+}
+
+.yourtj-font-slogan {
+  font-family: 'YuFanLixing', 'LXGW WenKai', 'HanziPen SC', 'STXingkai', 'Kaiti SC', 'KaiTi',
+    'STKaiti', 'Noto Serif SC', serif;
+}
+
+.yourtj-font-domain {
+  font-family: 'AllertaStencil', 'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono',
+    'SFMono-Regular', 'Menlo', 'Consolas', ui-monospace, monospace;
+}
+
+.yourtj-md-overlay {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.yourtj-md-overlay::-webkit-scrollbar {
+  display: none;
+}
+
+.yourtj-md-mirror {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 * {
   margin: 0;
   padding: 0;

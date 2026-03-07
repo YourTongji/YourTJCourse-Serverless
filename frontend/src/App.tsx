@@ -390,8 +390,12 @@ export default function App() {
   const isSchedule = location.pathname.startsWith('/schedule')
   const hideFloatingTools = isSchedule || location.pathname.startsWith('/feedback')
   const isHome = location.pathname === '/'
+  const bypassStartupGate = Boolean(
+    import.meta.env.DEV && String(import.meta.env.VITE_BYPASS_STARTUP_GATE || '').trim() === '1'
+  )
   const [startupPassed, setStartupPassed] = useState(() => {
     try {
+      if (bypassStartupGate) return true
       return sessionStorage.getItem('yourtj_startup_passed') === '1'
     } catch {
       return false
@@ -419,7 +423,7 @@ export default function App() {
     }
   }
 
-  const showStartupGate = !startupPassed
+  const showStartupGate = !startupPassed && !bypassStartupGate
   const slogan = useTypewriterText('你的，同济的', 55, showStartupGate)
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()
   const startupVerifyRequestRef = useRef(0)
@@ -475,12 +479,12 @@ export default function App() {
                   <Logo size={66} className="drop-shadow" />
                 </div>
 
-                <div className="mt-5 text-[22px] font-black tracking-tight text-slate-900 dark:text-slate-50">
+                <div className="yourtj-font-brand mt-5 text-[26px] font-extrabold tracking-tight text-slate-900 dark:text-slate-50 md:text-[28px]">
                   YourTJ选课社区
                 </div>
 
                 <div className="mt-3 space-y-1">
-                  <div className="flex items-center justify-center gap-1 text-[20px] font-black text-slate-800 dark:text-slate-100 [font-family:'LXGW WenKai','HanziPen SC','STXingkai','Kaiti SC','KaiTi','STKaiti','Noto Serif SC',serif]">
+                  <div className="yourtj-font-slogan flex items-center justify-center gap-1 text-[19px] font-semibold text-slate-800 dark:text-slate-100 md:text-[20px]">
                     <span>{slogan.value}</span>
                     {!slogan.done && (
                       <span
@@ -489,7 +493,7 @@ export default function App() {
                       />
                     )}
                   </div>
-                  <div className="text-[12px] font-semibold tracking-[0.22em] text-slate-500 dark:text-slate-300 [font-family:'Cascadia Mono','Cascadia Code','JetBrains Mono','SFMono-Regular','Menlo','Consolas',ui-monospace,monospace]">
+                  <div className="yourtj-font-domain text-[12px] font-semibold tracking-[0.22em] text-slate-500 dark:text-slate-300">
                     xk.yourtj.de
                   </div>
                 </div>
