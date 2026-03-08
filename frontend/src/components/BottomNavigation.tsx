@@ -84,6 +84,7 @@ export default function BottomNavigation() {
 
   return (
     <nav
+      data-tour="tour-mobile-bottom-nav"
       className={`md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-slate-200 shadow-lg z-50 transition-transform duration-300 ${
         isVisible ? 'translate-y-0' : 'translate-y-full'
       }`}

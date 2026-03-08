@@ -721,6 +721,9 @@ export default function Course() {
           reviews: prev.reviews.map((r) => (r.id === reviewId ? { ...r, liked: nextLiked, like_count: likeCount } : r))
         }
       })
+      if (nextLiked) {
+        window.dispatchEvent(new CustomEvent('yourtj-tour-like-done'))
+      }
     } catch (_e) {
       // revert
       setCourse((prev) => {
@@ -764,6 +767,7 @@ export default function Course() {
       const markdownHtml = await inlineMarkdownImages(renderMarkdownHtml(review.comment))
       const commentRasterUrl = markdownHtml.includes('<img') ? await renderCommentRaster(markdownHtml) : ''
       setSharePreview({ review, avatarUrl, markdownHtml, commentRasterUrl })
+      window.dispatchEvent(new CustomEvent('yourtj-tour-share-opened'))
     } finally {
       setShareBusyId(null)
     }
@@ -796,6 +800,7 @@ export default function Course() {
       link.href = dataUrl
       link.download = `${course?.code || 'yourtj'}-${sharePreview.review.sqid || sharePreview.review.id}.${extension}`
       link.click()
+      window.dispatchEvent(new CustomEvent('yourtj-tour-share-saved'))
     } catch (error) {
       console.error('分享评论导出失败', error)
       window.alert('导出图片失败，请稍后重试。')
@@ -984,6 +989,7 @@ export default function Course() {
           <div className="mt-6 pt-6 border-t border-cyan-100/50">
             <Link
               to={`/write-review/${course.id}`}
+              data-tour="tour-write-review-button"
               className="w-full py-3 bg-slate-800 text-white rounded-2xl font-bold shadow-lg hover:bg-slate-700 hover:shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1005,8 +1011,13 @@ export default function Course() {
 
         {course.reviews?.length > 0 ? (
           <>
-            {course.reviews.slice(0, displayCount).map((review) => (
-              <GlassCard key={review.id} hover={false} className="!p-5">
+            {course.reviews.slice(0, displayCount).map((review, index) => (
+              <GlassCard
+                key={review.id}
+                hover={false}
+                className="!p-5"
+              >
+                <div data-tour={index === 0 ? 'tour-latest-review' : undefined}>
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex items-center gap-3">
                     {getReviewAvatarUrl(review, 36) ? (
@@ -1042,6 +1053,7 @@ export default function Course() {
                   <button
                     type="button"
                     onClick={() => toggleLike(review.id)}
+                    data-tour={index === 0 ? 'tour-like-button' : undefined}
                     className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-extrabold transition-colors ${
                       review.liked
                         ? 'bg-orange-50 border-orange-200 text-orange-700'
@@ -1070,6 +1082,7 @@ export default function Course() {
                   <button
                     type="button"
                     onClick={() => void openSharePreview(review)}
+                    data-tour={index === 0 ? 'tour-share-button' : undefined}
                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white border-slate-200 text-xs font-extrabold text-slate-600 hover:bg-slate-50"
                     title="评论长图"
                   >
@@ -1101,6 +1114,7 @@ export default function Course() {
                       <span className="font-mono">{review.sqid}</span>
                     </div>
                   )}
+                </div>
                 </div>
               </GlassCard>
             ))}
@@ -1148,6 +1162,7 @@ export default function Course() {
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
+                  data-tour="tour-share-save"
                   onClick={() => void saveSharePreview()}
                   className="inline-flex items-center justify-center rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-white transition-colors hover:bg-slate-700"
                 >

@@ -41,7 +41,7 @@ function buildBeamAvatarDataUri(seedText: string, size = 72) {
 
 function formatSemesterLabel(value: string) {
   const text = String(value || '').trim()
-  const yearMatch = text.match(/(20\\d{2})/)
+  const yearMatch = text.match(/(20\d{2})/)
 
   if (!yearMatch) return text || '未知学期'
 
@@ -54,7 +54,7 @@ function formatSemesterLabel(value: string) {
 
 function semesterLabelScore(label: string) {
   const text = String(label || '').trim()
-  const match = text.match(/(\\d{2})\\s*([春秋])/)
+  const match = text.match(/(\d{2})\s*([春秋])/)
   if (!match) return -1
   const year = 2000 + Number(match[1])
   const term = match[2] === '秋' ? 2 : 1
@@ -263,6 +263,7 @@ export default function WriteReview() {
         const res = await updateReview(Number(editReview.id), payload)
         if (res?.success) {
           alert('编辑成功！')
+          window.dispatchEvent(new CustomEvent('yourtj-tour-review-submitted'))
           if (id) localStorage.removeItem(`review_draft_${id}`)
           navigate(`/course/${id}`)
         } else {
@@ -285,6 +286,7 @@ export default function WriteReview() {
           } else {
             alert('点评提交成功！')
           }
+          window.dispatchEvent(new CustomEvent('yourtj-tour-review-submitted'))
           if (id) localStorage.removeItem(`review_draft_${id}`)
           navigate(`/course/${id}`)
         } else {
@@ -381,7 +383,7 @@ export default function WriteReview() {
         </div>
 
         {/* Rating - 移动端优化为紧凑两行布局 */}
-        <div className="mb-6">
+        <div className="mb-6" data-tour="tour-rating-section">
           <label className="block mb-3 text-sm font-semibold text-slate-600">评分</label>
           <div className="p-4 bg-white/60 backdrop-blur rounded-2xl border border-white">
             {/* 桌面端：单行布局 */}
@@ -429,7 +431,7 @@ export default function WriteReview() {
         </div>
 
         {/* Semester */}
-        <div className="mb-6" ref={semesterRef}>
+        <div className="mb-6" ref={semesterRef} data-tour="tour-semester-section">
           <label className="block mb-3 text-sm font-semibold text-slate-600">学期</label>
           <div className="relative">
             <button
@@ -505,7 +507,7 @@ export default function WriteReview() {
         </div>
 
         {/* Comment */}
-        <div className="mb-6">
+        <div className="mb-6" data-tour="tour-editor-section">
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-semibold text-slate-600">
               点评内容 <span className="text-slate-400 font-normal text-xs">(支持 Markdown 格式)</span>
@@ -541,7 +543,7 @@ export default function WriteReview() {
         </div>
 
         {/* 点评人设置 */}
-        <div className="mb-6">
+        <div className="mb-6" data-tour="tour-reviewer-section">
           <div className="flex items-center justify-between mb-3">
             <label className="text-sm font-semibold text-slate-600">显示点评人信息</label>
             <button
@@ -620,13 +622,14 @@ export default function WriteReview() {
         </div>
 
         {/* 人机验证 */}
-        <div className="mb-6">
+        <div className="mb-6" data-tour="tour-captcha-section">
           <label className="block mb-3 text-sm font-semibold text-slate-600">人机验证</label>
           <TongjiCaptchaWidget value={token} onVerify={setToken} />
         </div>
 
         {/* Submit Button */}
         <button
+          data-tour="tour-submit-button"
           onClick={handleSubmit}
           disabled={loading}
           className="w-full py-3.5 bg-slate-800 text-white rounded-2xl font-bold shadow-lg hover:bg-slate-700 hover:shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"

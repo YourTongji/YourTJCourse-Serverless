@@ -319,16 +319,20 @@ const handleBind = async () => {
         >
           <button
             type="button"
+            data-tour="tour-wallet-floating"
             {...(drag.dragHandleProps as any)}
             onClick={() => {
               if (drag.consumeDragFlag()) return
               if (isOpen) setIsOpen(false)
               else openPanel()
             }}
-            className="relative w-full p-3 flex items-center justify-center hover:bg-slate-50 rounded-2xl transition-colors"
+            className="relative h-14 w-full flex items-center justify-center hover:bg-slate-50 rounded-2xl transition-colors"
             title={isOpen ? '收起钱包' : '打开钱包'}
           >
             {icon}
+            <span className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] leading-none text-cyan-700 yourtj-font-brand">
+              积分
+            </span>
             {summary && todayEstimated !== 0 && (
               <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center">
                 {todayEstimated > 0 ? `+${todayEstimated}` : todayEstimated}
@@ -343,11 +347,15 @@ const handleBind = async () => {
       <div className="md:hidden fixed right-4 bottom-40 z-50">
         <button
           type="button"
+          data-tour="tour-wallet-floating"
           onClick={openPanel}
-          className="relative w-14 h-14 rounded-2xl bg-white/90 backdrop-blur-xl border border-white/50 shadow-xl flex items-center justify-center active:scale-95 transition-transform"
+          className="relative h-14 w-14 rounded-2xl bg-white/90 backdrop-blur-xl border border-white/50 shadow-xl flex items-center justify-center active:scale-95 transition-transform"
           aria-label="打开积分钱包"
         >
           {icon}
+          <span className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] leading-none text-cyan-700 yourtj-font-brand">
+            积分
+          </span>
           {summary && todayEstimated !== 0 && (
             <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center">
               {todayEstimated > 0 ? `+${todayEstimated}` : todayEstimated}

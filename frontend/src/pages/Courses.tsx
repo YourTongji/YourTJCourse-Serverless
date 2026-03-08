@@ -160,6 +160,7 @@ export default function Courses() {
   const [typingPlaceholder, setTypingPlaceholder] = useState('')
   const [expandedSemesterCourseId, setExpandedSemesterCourseId] = useState<number | null>(null)
   const [sessionShuffleSeed] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const syncUrl = (nextKeyword: string, nextPage: number, nextFilters: FilterState) => {
     const nextSearch = buildSearchQuery(nextKeyword, nextPage, nextFilters)
@@ -355,6 +356,27 @@ export default function Courses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ keyword?: string }>
+      const nextKeyword = String(custom.detail?.keyword || '').trim()
+      if (!nextKeyword) return
+      setKeyword(nextKeyword)
+      window.setTimeout(() => {
+        searchInputRef.current?.focus()
+        searchInputRef.current?.select()
+      }, 80)
+    }
+
+    window.addEventListener('yourtj-tour-fill-search', handler as EventListener)
+    return () => window.removeEventListener('yourtj-tour-fill-search', handler as EventListener)
+  }, [])
+
+  const tourTargetCourseId = courses.find((course) => (
+    String(course.id) === '1286'
+    || String(course.name || '').includes('评论区测试')
+  ))?.id
+
   return (
     <div className="space-y-4 md:space-y-4">
       <FilterPanel
@@ -379,6 +401,8 @@ export default function Courses() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
+              ref={searchInputRef}
+              data-tour="tour-search-input"
               type="text"
               placeholder={typingPlaceholder || '搜索课程名、代码或教师...'}
               className="h-10 min-w-0 w-full border-none bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
@@ -386,13 +410,16 @@ export default function Courses() {
               onChange={(event) => setKeyword(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
+                  window.dispatchEvent(new CustomEvent('yourtj-tour-search-clicked'))
                   setIsSearching(true)
                   void search(1)
                 }
               }}
             />
             <button
+              data-tour="tour-search-button"
               onClick={() => {
+                window.dispatchEvent(new CustomEvent('yourtj-tour-search-clicked'))
                 setIsSearching(true)
                 void search(1)
               }}
@@ -532,6 +559,7 @@ export default function Courses() {
                   <Link
                     key={course.id}
                     to={`/course/${course.id}`}
+                    data-tour={course.id === tourTargetCourseId ? 'tour-course-target' : undefined}
                     className="block h-full"
                     style={{ contentVisibility: 'auto', containIntrinsicSize: '0 188px' }}
                   >

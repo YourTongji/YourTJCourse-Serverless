@@ -124,7 +124,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
   const showAnnouncementBell = Boolean(announcementCollapsed && onToggleAnnouncementCollapsed)
 
   return (
-    <nav className="sticky top-4 z-50 px-4 mx-auto max-w-7xl">
+    <nav className="sticky top-4 z-50 px-4 mx-auto max-w-7xl" data-tour="tour-navbar">
       <div className="relative">
         <div className="flex items-center justify-start px-4 md:px-6 py-3 bg-white/80 backdrop-blur-2xl border border-white/50 shadow-lg shadow-cyan-900/5 rounded-2xl md:rounded-full">
           <Link to="/" className="flex items-center gap-3 min-w-0 flex-1">
@@ -140,11 +140,12 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
 
           <div className="flex items-center gap-1 md:gap-2 shrink-0">
             {/* In-app navigation arrows (never leave the site) */}
-            <div className="flex items-center gap-1 md:gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 md:gap-1.5 shrink-0" data-tour="tour-nav-controls">
               <button
                 type="button"
                 onClick={navBack}
                 disabled={!canBack}
+                data-tour="tour-nav-back"
                 className={`${navBtnBase} ${canBack ? navBtnEnabled : navBtnDisabled}`}
                 aria-label="后退"
                 title="后退"
@@ -157,6 +158,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 type="button"
                 onClick={navForward}
                 disabled={!canForward}
+                data-tour="tour-nav-forward"
                 className={`${navBtnBase} ${canForward ? navBtnEnabled : navBtnDisabled}`}
                 aria-label="前进"
                 title="前进"
@@ -169,6 +171,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 type="button"
                 onClick={goHome}
                 disabled={isHome}
+                data-tour="tour-nav-home"
                 className={`${navBtnBase} ${!isHome ? navBtnEnabled : navBtnDisabled}`}
                 aria-label="回到首页"
                 title="回到首页"
@@ -215,6 +218,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
             {showAnnouncementBell && (
               <button
                 type="button"
+                data-tour="tour-announcement-bell"
                 onClick={onToggleAnnouncementCollapsed}
                 className={`${navBtnBase} ${navBtnEnabled} shrink-0 relative`}
                 aria-label="展开公告"

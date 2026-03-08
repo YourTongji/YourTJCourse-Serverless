@@ -1,5 +1,5 @@
 ﻿import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
-import { Route, Routes, useLocation } from 'react-router-dom'
+import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import BottomNavigation from './components/BottomNavigation'
 import Footer from './components/Footer'
@@ -15,6 +15,7 @@ import Schedule from './pages/Schedule'
 import Feedback from './pages/Feedback'
 import { fetchSiteAnnouncements, SiteAnnouncement, AnnouncementType } from './services/api'
 import { renderMarkdownHtml } from './components/CollapsibleMarkdown'
+import TourGuide, { TutorialLauncher } from './components/TourGuide'
 
 const Admin = lazy(() => import('./pages/Admin'))
 const CreditWalletPanel = lazy(() => import('./components/CreditWalletPanel'))
@@ -299,11 +300,12 @@ function AnnouncementBar({
                       ))}
                     </div>
                   )}
-                  <button
-                    type="button"
-                    className="rounded-xl border border-amber-200/70 bg-amber-50/70 px-2.5 py-1 text-xs font-black text-amber-800 shadow-sm hover:bg-amber-50"
-                    onClick={() => onCollapsedChange(true)}
-                    aria-label="收起公告"
+                <button
+                  type="button"
+                  data-tour="tour-announcement-collapse"
+                  className="rounded-xl border border-amber-200/70 bg-amber-50/70 px-2.5 py-1 text-xs font-black text-amber-800 shadow-sm hover:bg-amber-50"
+                  onClick={() => onCollapsedChange(true)}
+                  aria-label="收起公告"
                   >
                     收起
                   </button>
@@ -387,6 +389,7 @@ function AnnouncementBar({
 
 export default function App() {
   const location = useLocation()
+  const navigate = useNavigate()
   const isSchedule = location.pathname.startsWith('/schedule')
   const hideFloatingTools = isSchedule || location.pathname.startsWith('/feedback')
   const isHome = location.pathname === '/'
@@ -404,6 +407,7 @@ export default function App() {
   const [startupLeaving, setStartupLeaving] = useState(false)
   const [startupError, setStartupError] = useState('')
   const [startupVerifying, setStartupVerifying] = useState(false)
+  const [tourOpen, setTourOpen] = useState(false)
   const [announcementCollapsed, setAnnouncementCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem('yourtj_announcement_collapsed')
@@ -415,7 +419,12 @@ export default function App() {
   })
 
   const setAnnouncementCollapsedPersist = (nextValue: boolean) => {
-    setAnnouncementCollapsed(nextValue)
+    setAnnouncementCollapsed((prev) => {
+      if (prev !== nextValue) {
+        window.dispatchEvent(new CustomEvent(nextValue ? 'yourtj-tour-announcement-collapsed' : 'yourtj-tour-announcement-opened'))
+      }
+      return nextValue
+    })
     try {
       localStorage.setItem('yourtj_announcement_collapsed', nextValue ? '1' : '0')
     } catch {
@@ -427,6 +436,12 @@ export default function App() {
   const slogan = useTypewriterText('你的，同济的', 55, showStartupGate)
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()
   const startupVerifyRequestRef = useRef(0)
+
+  useEffect(() => {
+    if (showStartupGate && tourOpen) {
+      setTourOpen(false)
+    }
+  }, [showStartupGate, tourOpen])
 
   const passStartupGate = () => {
     setStartupLeaving(true)
@@ -599,6 +614,22 @@ export default function App() {
           <CreditWalletPanel />
         </Suspense>
       )}
+      <TutorialLauncher
+        visible={!showStartupGate && !hideFloatingTools && isHome}
+        onOpen={() => {
+          setAnnouncementCollapsedPersist(true)
+          if (location.pathname !== '/') {
+            navigate('/')
+          }
+          setTourOpen(true)
+        }}
+      />
+      <TourGuide
+        open={tourOpen}
+        onClose={() => setTourOpen(false)}
+        onComplete={() => setTourOpen(false)}
+        onRequestNavigateHome={() => navigate('/')}
+      />
       <BottomNavigation />
       <Footer />
     </div>
