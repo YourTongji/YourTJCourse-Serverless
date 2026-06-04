@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import MaintenanceLogo from './MaintenanceLogo'
 import MaintenanceCard from './MaintenanceCard'
-import { DEFAULT_MAINTENANCE_CONFIG, normalizeMaintenanceDisplayConfig } from './maintenance'
+import {
+  DEFAULT_MAINTENANCE_CONFIG,
+  MAINTENANCE_EVENT,
+  normalizeMaintenanceDisplayConfig,
+  readMaintenanceSnapshot,
+  writeMaintenanceSnapshot
+} from './maintenance'
 import { fetchMaintenanceSettings, fetchSiteAnnouncements, type SiteAnnouncement } from '../services/api'
 
 function StatusIcon() {
@@ -41,7 +47,14 @@ function BellIcon() {
 export default function MaintenancePage() {
   const pageRef = useRef<HTMLDivElement>(null)
   const [announcements, setAnnouncements] = useState<SiteAnnouncement[]>([])
-  const [maintenanceConfig, setMaintenanceConfig] = useState(() => DEFAULT_MAINTENANCE_CONFIG)
+  const [maintenanceConfig, setMaintenanceConfig] = useState(() => {
+    const cached = typeof window !== 'undefined' ? readMaintenanceSnapshot() : null
+    if (!cached?.config) return DEFAULT_MAINTENANCE_CONFIG
+    return {
+      ...DEFAULT_MAINTENANCE_CONFIG,
+      ...cached.config
+    }
+  })
 
   const cfg = useMemo(() => ({
     ...DEFAULT_MAINTENANCE_CONFIG,
@@ -56,6 +69,7 @@ export default function MaintenancePage() {
         if (!active) return
         if (!data?.config) return
         const partial = normalizeMaintenanceDisplayConfig(data.config)
+        writeMaintenanceSnapshot(Boolean(data.enabled), partial)
         setMaintenanceConfig((current) => ({
           ...current,
           ...partial
@@ -74,6 +88,21 @@ export default function MaintenancePage() {
     return () => {
       active = false
     }
+  }, [])
+
+  useEffect(() => {
+    const handleMaintenanceUpdate = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { config?: unknown } | undefined
+      if (!detail?.config) return
+      const partial = normalizeMaintenanceDisplayConfig(detail.config)
+      setMaintenanceConfig((current) => ({
+        ...current,
+        ...partial
+      }))
+    }
+
+    window.addEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
+    return () => window.removeEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
   }, [])
 
   useEffect(() => {

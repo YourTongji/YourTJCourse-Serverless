@@ -56,8 +56,10 @@ function isAllowedTurnstileHostname(hostname: string) {
   const value = String(hostname || '').trim().toLowerCase()
   if (!value) return false
   if (value === 'xk.yourtj.de') return true
+  if (value === 'xk.xialing.icu') return true
   if (value === 'localhost') return true
   if (value.endsWith('.yourtj.de')) return true
+  if (value.endsWith('.xialing.icu')) return true
   if (value.endsWith('.pages.dev')) return true
   return false
 }
@@ -277,6 +279,21 @@ async function ensureLegacyAutoDocsPurged(db: D1Database) {
 }
 
 let showIcuCache: { value: boolean; expiresAt: number } | null = null
+let maintenanceModeCache: { value: boolean; expiresAt: number } | null = null
+let maintenanceConfigCache: { value: any | null; expiresAt: number } | null = null
+
+function invalidateSettingCaches(key?: string) {
+  if (!key || key === 'show_legacy_reviews') {
+    showIcuCache = null
+  }
+  if (!key || key === 'maintenance_mode') {
+    maintenanceModeCache = null
+  }
+  if (!key || key === 'maintenance_config') {
+    maintenanceConfigCache = null
+  }
+}
+
 async function getShowIcuSetting(db: D1Database): Promise<boolean> {
   const now = Date.now()
   if (showIcuCache && showIcuCache.expiresAt > now) return showIcuCache.value
@@ -288,16 +305,28 @@ async function getShowIcuSetting(db: D1Database): Promise<boolean> {
 }
 
 async function getMaintenanceModeSetting(db: D1Database): Promise<boolean> {
+  const now = Date.now()
+  if (maintenanceModeCache && maintenanceModeCache.expiresAt > now) return maintenanceModeCache.value
   const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('maintenance_mode').first<{ value: string }>()
-  return row?.value === 'true'
+  const value = row?.value === 'true'
+  maintenanceModeCache = { value, expiresAt: now + 10_000 }
+  return value
 }
 
 async function getMaintenanceConfigSetting(db: D1Database): Promise<any | null> {
+  const now = Date.now()
+  if (maintenanceConfigCache && maintenanceConfigCache.expiresAt > now) return maintenanceConfigCache.value
   const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('maintenance_config').first<{ value: string }>()
-  if (!row?.value) return null
+  if (!row?.value) {
+    maintenanceConfigCache = { value: null, expiresAt: now + 10_000 }
+    return null
+  }
   try {
-    return JSON.parse(row.value)
+    const value = JSON.parse(row.value)
+    maintenanceConfigCache = { value, expiresAt: now + 10_000 }
+    return value
   } catch {
+    maintenanceConfigCache = { value: null, expiresAt: now + 10_000 }
     return null
   }
 }
@@ -1600,6 +1629,7 @@ admin.put('/settings/:key', async (c) => {
   const body = await c.req.json()
   const { value } = body
   await c.env.DB.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(key, value).run()
+  invalidateSettingCaches(key)
   return c.json({ success: true })
 })
 
