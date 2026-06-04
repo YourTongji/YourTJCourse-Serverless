@@ -1,4 +1,21 @@
-const API_BASE = import.meta.env.VITE_API_URL || ''
+function trimApiBase(value: string | undefined | null) {
+  return String(value || '').trim().replace(/\/+$/, '')
+}
+
+export function resolveApiBase() {
+  const envBase = trimApiBase(import.meta.env.VITE_API_URL)
+  if (envBase) return envBase
+
+  if (typeof window === 'undefined') return ''
+
+  const { hostname } = window.location
+  if (hostname === 'xk.yourtj.de') return 'https://jcourse.yourtj.de'
+  if (hostname === '127.0.0.1' || hostname === 'localhost') return ''
+
+  return trimApiBase(window.location.origin)
+}
+
+const API_BASE = resolveApiBase()
 
 async function fetchWithTimeout(url: string, options?: RequestInit, timeout = 15000) {
   const controller = new AbortController()

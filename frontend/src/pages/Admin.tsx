@@ -3,13 +3,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown from '../components/CollapsibleMarkdown'
 import MarkdownEditor from '../components/MarkdownEditor'
+import { resolveApiBase } from '../services/api'
 import {
   DEFAULT_MAINTENANCE_CONFIG,
   normalizeMaintenanceDisplayConfig,
   writeMaintenanceSnapshot
 } from '../maintenance/maintenance'
 
-const API_BASE = import.meta.env.VITE_API_URL || ''
+const API_BASE = resolveApiBase()
 const ACCESS_KEY = 'tjcourse2026admin'
 
 type AnnouncementType = 'info' | 'warning' | 'error' | 'success'

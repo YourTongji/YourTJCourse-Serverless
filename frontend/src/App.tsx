@@ -13,7 +13,7 @@ import About from './pages/About'
 import FAQ from './pages/FAQ'
 import Schedule from './pages/Schedule'
 import Feedback from './pages/Feedback'
-import { fetchSiteAnnouncements, fetchMaintenanceSettings, SiteAnnouncement, AnnouncementType } from './services/api'
+import { fetchSiteAnnouncements, fetchMaintenanceSettings, resolveApiBase, SiteAnnouncement, AnnouncementType } from './services/api'
 import { renderMarkdownHtml } from './components/CollapsibleMarkdown'
 import TourGuide, { TutorialLauncher } from './components/TourGuide'
 import MaintenancePage from './maintenance/MaintenancePage'
@@ -531,7 +531,7 @@ export default function App() {
   }
 
   const verifyStartupToken = async (token: string) => {
-    const apiBase = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '')
+    const apiBase = resolveApiBase()
     const url = apiBase ? `${apiBase}/api/startup/verify` : '/api/startup/verify'
 
     const res = await fetch(url, {

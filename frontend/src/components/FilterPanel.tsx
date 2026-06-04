@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { resolveApiBase } from '../services/api'
 import { useDraggableDesktop } from '../utils/useDraggableDesktop'
 
 export interface FilterState {
@@ -22,7 +23,7 @@ function uniq(arr: string[]) {
 }
 
 export default function FilterPanel({ value, onFilterChange, departments }: FilterPanelProps) {
-  const API_BASE = import.meta.env.VITE_API_URL || ''
+  const API_BASE = resolveApiBase()
   const [isOpen, setIsOpen] = useState(false)
   const [draft, setDraft] = useState<FilterState>(value)
   const [searchTerm, setSearchTerm] = useState('')
