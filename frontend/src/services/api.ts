@@ -43,11 +43,13 @@ export async function fetchCourses(
   legacy?: boolean,
   page = 1,
   limit = 20,
-  filters?: CourseAdvancedFilters
+  filters?: CourseAdvancedFilters,
+  options?: { includeTotal?: boolean }
 ) {
   let url = `${API_BASE}/api/courses?page=${page}&limit=${limit}&`
   if (keyword) url += `q=${encodeURIComponent(keyword)}&`
   if (legacy) url += `legacy=true&`
+  if (options?.includeTotal) url += 'includeTotal=true&'
   if (filters?.departments && filters.departments.length > 0) url += `departments=${encodeURIComponent(filters.departments.join(','))}&`
   if (filters?.onlyWithReviews) url += `onlyWithReviews=true&`
   if (filters?.courseName) url += `courseName=${encodeURIComponent(filters.courseName)}&`

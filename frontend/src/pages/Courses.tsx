@@ -151,10 +151,8 @@ export default function Courses() {
   const legacyIframeRef = useRef<HTMLIFrameElement | null>(null)
   const legacyUrl = '/wlc/index.html'
   const [page, setPage] = useState(initialStateRef.current.page)
-  const [totalPages, setTotalPages] = useState(1)
-  const [total, setTotal] = useState(0)
-  const [jumpOpen, setJumpOpen] = useState(false)
-  const [jumpValue, setJumpValue] = useState('')
+  const [total, setTotal] = useState<number | null>(null)
+  const [hasMore, setHasMore] = useState(false)
   const [departments, setDepartments] = useState<string[]>([])
   const [filters, setFilters] = useState<FilterState>(initialStateRef.current.filters || DEFAULT_FILTERS)
   const [typingPlaceholder, setTypingPlaceholder] = useState('')
@@ -180,7 +178,6 @@ export default function Courses() {
   const search = async (nextPage = 1, nextKeyword = keyword, nextFilters = filters) => {
     setLoading(true)
     setError('')
-    setJumpOpen(false)
     syncUrl(nextKeyword, nextPage, nextFilters)
 
     try {
@@ -192,19 +189,23 @@ export default function Courses() {
         teacherCode: nextFilters.teacherCode,
         teacherName: nextFilters.teacherName,
         campus: nextFilters.campus
+      }, {
+        includeTotal: false
       })
 
       const nextCourses = Array.isArray(data.data) ? data.data : []
       const shouldShuffle = !nextKeyword.trim() && nextPage === 1 && !hasActiveFilters(nextFilters)
 
       setCourses(shouldShuffle ? shuffleCoursesForSession(nextCourses, sessionShuffleSeed) : nextCourses)
-      setTotalPages(data.totalPages || 1)
-      setTotal(data.total || 0)
+      setHasMore(Boolean(data.hasMore))
+      setTotal(typeof data.total === 'number' ? data.total : null)
       setPage(nextPage)
     } catch (err) {
       console.error('Failed to fetch courses:', err)
       setError('加载失败，请稍后重试')
       setCourses([])
+      setHasMore(false)
+      setTotal(null)
     } finally {
       setLoading(false)
       setIsSearching(false)
@@ -219,16 +220,6 @@ export default function Courses() {
     } catch (err) {
       console.error('Failed to fetch departments:', err)
     }
-  }
-
-  const applyJump = () => {
-    const value = Number(jumpValue)
-    if (!Number.isFinite(value)) return
-    const nextPage = Math.max(1, Math.min(totalPages || 1, Math.trunc(value)))
-    if (nextPage !== page) {
-      void search(nextPage)
-    }
-    setJumpOpen(false)
   }
 
   const handleFilterChange = (nextFilters: FilterState) => {
@@ -541,7 +532,13 @@ export default function Courses() {
           <>
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-bold text-slate-800">课程列表</h3>
-              <span className="text-sm text-slate-400">共 {total} 门课程</span>
+              <span className="text-sm text-slate-400">
+                {typeof total === 'number'
+                  ? `共 ${total} 门课程`
+                  : hasMore
+                  ? `第 ${page} 页，可继续翻页`
+                  : `第 ${page} 页`}
+              </span>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6" style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 500px' }}>
@@ -654,7 +651,7 @@ export default function Courses() {
               </div>
             )}
 
-            {totalPages > 1 && (
+            {(page > 1 || hasMore) && (
               <div className="flex items-center justify-center gap-2 pt-2">
                 <button
                   onClick={() => void search(page - 1)}
@@ -663,42 +660,12 @@ export default function Courses() {
                 >
                   上一页
                 </button>
-                <div className="flex items-center gap-2 text-slate-600">
-                  {jumpOpen ? (
-                    <input
-                      value={jumpValue}
-                      onChange={(event) => setJumpValue(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') applyJump()
-                        if (event.key === 'Escape') setJumpOpen(false)
-                      }}
-                      onBlur={() => setJumpOpen(false)}
-                      inputMode="numeric"
-                      type="number"
-                      min={1}
-                      max={totalPages}
-                      className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center font-semibold outline-none focus:ring-2 focus:ring-cyan-500"
-                      placeholder={String(page)}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setJumpValue(String(page))
-                        setJumpOpen(true)
-                      }}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center font-bold hover:bg-slate-50"
-                      title="跳转到指定页码"
-                    >
-                      {page}
-                    </button>
-                  )}
-                  <span className="font-semibold">/</span>
-                  <span className="font-semibold">{totalPages}</span>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center font-bold text-slate-600">
+                  第 {page} 页
                 </div>
                 <button
                   onClick={() => void search(page + 1)}
-                  disabled={page >= totalPages || loading}
+                  disabled={!hasMore || loading}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   下一页

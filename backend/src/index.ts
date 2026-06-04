@@ -27,11 +27,12 @@ app.use('/*', cors({
   allowMethods: ['POST', 'GET', 'DELETE', 'PUT', 'OPTIONS']
 }))
 
-// 禁用缓存
 app.use('/*', async (c, next) => {
   await next()
-  c.res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
-  c.res.headers.set('Pragma', 'no-cache')
+  if (!c.res.headers.has('Cache-Control')) {
+    c.res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+    c.res.headers.set('Pragma', 'no-cache')
+  }
 })
 
 // redeploy marker (no-op) v2
@@ -182,6 +183,94 @@ function addSqidToReviews(reviews: any[]): any[] {
   }))
 }
 
+const AUX_SCHEMA_VERSION = '20260605-query-opt-v1'
+const COURSE_LIST_CACHE_SECONDS = 60
+const COURSE_LIST_CACHE_SWR_SECONDS = 300
+
+function buildCacheControl(maxAgeSeconds: number, staleWhileRevalidateSeconds = 0) {
+  return staleWhileRevalidateSeconds > 0
+    ? `public, max-age=${maxAgeSeconds}, stale-while-revalidate=${staleWhileRevalidateSeconds}`
+    : `public, max-age=${maxAgeSeconds}`
+}
+
+function buildJsonResponse(payload: unknown, cacheControl: string) {
+  return new Response(JSON.stringify(payload), {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': cacheControl
+    }
+  })
+}
+
+function setPublicCacheHeaders(c: any, maxAgeSeconds: number, staleWhileRevalidateSeconds = 0) {
+  c.header('Cache-Control', buildCacheControl(maxAgeSeconds, staleWhileRevalidateSeconds))
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
+function uniqueText(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)))
+}
+
+function normalizeSearchText(value: string) {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function parseSemesterNames(value: string | null | undefined) {
+  return String(value || '')
+    .split('||')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function buildCourseSearchMatchQuery(keyword: string) {
+  const cleaned = normalizeSearchText(String(keyword || '').replace(/["']/g, ' '))
+  if (!cleaned) return ''
+  return cleaned
+    .split(' ')
+    .filter(Boolean)
+    .map((term) => `"${term.replace(/"/g, '""')}"`)
+    .join(' AND ')
+}
+
+function buildCourseSearchDocument(course: {
+  code?: string | null
+  name?: string | null
+  department?: string | null
+  teacher_name?: string | null
+  teacher_tid?: string | null
+  search_keywords?: string | null
+}, aliases: string[]) {
+  return normalizeSearchText([
+    course.code,
+    course.name,
+    course.department,
+    course.teacher_name,
+    course.teacher_tid,
+    course.search_keywords,
+    ...aliases
+  ].join(' '))
+}
+
+function combineSemesterNames(entries: Array<{ name: string; calendarId: number }>) {
+  const sorted = entries
+    .filter((entry) => entry.name)
+    .sort((left, right) => right.calendarId - left.calendarId)
+
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const entry of sorted) {
+    if (seen.has(entry.name)) continue
+    seen.add(entry.name)
+    names.push(entry.name)
+  }
+  return names.join('||')
+}
+
 async function ensureCourseAliasesTable(db: D1Database) {
   await db.prepare(
     "CREATE TABLE IF NOT EXISTS course_aliases (system TEXT NOT NULL, alias TEXT NOT NULL, course_id INTEGER NOT NULL, created_at INTEGER DEFAULT (strftime('%s','now')), PRIMARY KEY (system, alias))"
@@ -213,6 +302,223 @@ async function ensureCourseSearchIndexes(db: D1Database) {
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_reviews_course_created ON reviews(course_id, created_at DESC)').run() } catch {}
 }
 
+async function ensureCourseAuxiliaryTables(db: D1Database) {
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS course_semesters (
+      course_id INTEGER PRIMARY KEY,
+      semester_names TEXT DEFAULT ''
+    )`
+  ).run()
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_course_semesters_course_id ON course_semesters(course_id)').run()
+
+  try {
+    await db.prepare(
+      "CREATE VIRTUAL TABLE IF NOT EXISTS course_search USING fts5(course_id UNINDEXED, search_doc, tokenize='trigram')"
+    ).run()
+  } catch {
+    await db.prepare(
+      'CREATE VIRTUAL TABLE IF NOT EXISTS course_search USING fts5(course_id UNINDEXED, search_doc)'
+    ).run()
+  }
+}
+
+async function buildCourseAuxiliaryRecords(db: D1Database, courseIds?: number[]) {
+  const validCourseIds = Array.from(new Set((courseIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)))
+  const scoped = validCourseIds.length > 0
+
+  const courseRows: Array<{
+    id: number
+    code: string
+    name: string
+    department: string | null
+    search_keywords: string | null
+    teacher_name: string | null
+    teacher_tid: string | null
+  }> = []
+
+  if (scoped) {
+    for (const part of chunkArray(validCourseIds, 80)) {
+      const placeholders = part.map(() => '?').join(',')
+      const rows = await db
+        .prepare(
+          `SELECT
+             c.id,
+             c.code,
+             c.name,
+             c.department,
+             c.search_keywords,
+             t.name AS teacher_name,
+             t.tid AS teacher_tid
+           FROM courses c
+           LEFT JOIN teachers t ON t.id = c.teacher_id
+           WHERE c.id IN (${placeholders})`
+        )
+        .bind(...part)
+        .all<any>()
+      if (rows.results?.length) courseRows.push(...(rows.results as any[]))
+    }
+  } else {
+    const rows = await db
+      .prepare(
+        `SELECT
+           c.id,
+           c.code,
+           c.name,
+           c.department,
+           c.search_keywords,
+           t.name AS teacher_name,
+           t.tid AS teacher_tid
+         FROM courses c
+         LEFT JOIN teachers t ON t.id = c.teacher_id`
+      )
+      .all<any>()
+    if (rows.results?.length) courseRows.push(...(rows.results as any[]))
+  }
+
+  if (courseRows.length === 0) return []
+
+  const aliasMap = new Map<number, string[]>()
+  if (scoped) {
+    for (const part of chunkArray(validCourseIds, 80)) {
+      const placeholders = part.map(() => '?').join(',')
+      const rows = await db
+        .prepare(
+          `SELECT course_id, alias
+           FROM course_aliases
+           WHERE system = 'onesystem' AND course_id IN (${placeholders})`
+        )
+        .bind(...part)
+        .all<{ course_id: number; alias: string }>()
+      for (const row of rows.results || []) {
+        const courseId = Number((row as any).course_id)
+        if (!aliasMap.has(courseId)) aliasMap.set(courseId, [])
+        aliasMap.get(courseId)!.push(String((row as any).alias || '').trim())
+      }
+    }
+  } else {
+    const rows = await db
+      .prepare("SELECT course_id, alias FROM course_aliases WHERE system = 'onesystem'")
+      .all<{ course_id: number; alias: string }>()
+    for (const row of rows.results || []) {
+      const courseId = Number((row as any).course_id)
+      if (!aliasMap.has(courseId)) aliasMap.set(courseId, [])
+      aliasMap.get(courseId)!.push(String((row as any).alias || '').trim())
+    }
+  }
+
+  const allCodes = uniqueText(courseRows.flatMap((row) => [row.code, ...(aliasMap.get(Number(row.id)) || [])]))
+  const codeSemesterMap = new Map<string, Array<{ name: string; calendarId: number }>>()
+
+  if (allCodes.length > 0) {
+    for (const part of chunkArray(allCodes, 80)) {
+      const placeholders = part.map(() => '?').join(',')
+      const rows = await db
+        .prepare(
+          `SELECT
+             cd.courseCode,
+             cd.newCourseCode,
+             cd.calendarId,
+             ca.calendarIdI18n AS semester_name
+           FROM coursedetail cd
+           JOIN calendar ca ON ca.calendarId = cd.calendarId
+           WHERE cd.courseCode IN (${placeholders})
+              OR cd.newCourseCode IN (${placeholders})`
+        )
+        .bind(...part, ...part)
+        .all<any>()
+
+      for (const row of rows.results || []) {
+        const semesterName = String((row as any).semester_name || '').trim()
+        const calendarId = Number((row as any).calendarId || 0)
+        if (!semesterName || !Number.isFinite(calendarId)) continue
+        for (const code of uniqueText([row.courseCode, row.newCourseCode])) {
+          if (!codeSemesterMap.has(code)) codeSemesterMap.set(code, [])
+          codeSemesterMap.get(code)!.push({ name: semesterName, calendarId })
+        }
+      }
+    }
+  }
+
+  return courseRows.map((row) => {
+    const courseId = Number(row.id)
+    const aliases = uniqueText(aliasMap.get(courseId) || [])
+    const codes = uniqueText([row.code, ...aliases])
+    const semesterEntries = codes.flatMap((code) => codeSemesterMap.get(code) || [])
+    return {
+      courseId,
+      semesterNames: combineSemesterNames(semesterEntries),
+      searchDoc: buildCourseSearchDocument(row, aliases)
+    }
+  })
+}
+
+async function deleteAuxiliaryCourseData(db: D1Database, courseIds: number[]) {
+  const validCourseIds = Array.from(new Set(courseIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)))
+  if (validCourseIds.length === 0) return
+
+  for (const part of chunkArray(validCourseIds, 80)) {
+    const placeholders = part.map(() => '?').join(',')
+    await db.prepare(`DELETE FROM course_semesters WHERE course_id IN (${placeholders})`).bind(...part).run()
+    await db.prepare(`DELETE FROM course_search WHERE course_id IN (${placeholders})`).bind(...part).run()
+  }
+}
+
+async function upsertAuxiliaryCourseData(db: D1Database, courseIds?: number[]) {
+  const records = await buildCourseAuxiliaryRecords(db, courseIds)
+  if (records.length === 0) return
+
+  for (const record of records) {
+    await db
+      .prepare(
+        `INSERT OR REPLACE INTO course_semesters (course_id, semester_names)
+         VALUES (?, ?)`
+      )
+      .bind(record.courseId, record.semesterNames)
+      .run()
+  }
+
+  for (const record of records) {
+    await db
+      .prepare('INSERT INTO course_search (course_id, search_doc) VALUES (?, ?)')
+      .bind(record.courseId, record.searchDoc)
+      .run()
+  }
+}
+
+async function refreshAuxiliaryCourseData(db: D1Database, courseIds: number[]) {
+  await ensureCourseAuxiliaryTables(db)
+  await deleteAuxiliaryCourseData(db, courseIds)
+  await upsertAuxiliaryCourseData(db, courseIds)
+}
+
+async function rebuildAllAuxiliaryCourseData(db: D1Database) {
+  await ensureCourseAuxiliaryTables(db)
+  await db.prepare('DELETE FROM course_semesters').run()
+  await db.prepare('DELETE FROM course_search').run()
+  await upsertAuxiliaryCourseData(db)
+}
+
+async function ensureAuxiliaryCourseData(db: D1Database) {
+  await ensureCourseAuxiliaryTables(db)
+  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('aux_schema_version').first<{ value: string }>()
+  if (row?.value === AUX_SCHEMA_VERSION) return
+
+  await rebuildAllAuxiliaryCourseData(db)
+  await db
+    .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+    .bind('aux_schema_version', AUX_SCHEMA_VERSION)
+    .run()
+}
+
+async function getCourseSemesters(db: D1Database, courseId: number) {
+  let row = await db.prepare('SELECT semester_names FROM course_semesters WHERE course_id = ?').bind(courseId).first<{ semester_names: string | null }>()
+  if (!row) {
+    await refreshAuxiliaryCourseData(db, [courseId])
+    row = await db.prepare('SELECT semester_names FROM course_semesters WHERE course_id = ?').bind(courseId).first<{ semester_names: string | null }>()
+  }
+  return parseSemesterNames(row?.semester_names)
+}
+
 let dbInitPromise: Promise<void> | null = null
 async function ensureDbInitialized(db: D1Database) {
   if (!dbInitPromise) {
@@ -223,6 +529,7 @@ async function ensureDbInitialized(db: D1Database) {
       await ensureReviewLikesTable(db)
       await ensureReviewsWalletColumn(db)
       await ensureLegacyAutoDocsPurged(db)
+      await ensureAuxiliaryCourseData(db)
     })()
   }
   await dbInitPromise
@@ -387,6 +694,7 @@ async function postCreditJcourseEvent(
 app.get('/api/settings/show_icu', async (c) => {
   await ensureDbInitialized(c.env.DB)
   const showIcu = await getShowIcuSetting(c.env.DB)
+  setPublicCacheHeaders(c, 30, 60)
   return c.json({ show_icu: showIcu })
 })
 
@@ -395,6 +703,7 @@ app.get('/api/settings/announcements', async (c) => {
   const row = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('site_announcements').first<{ value: string }>()
 
   if (!row?.value) {
+    setPublicCacheHeaders(c, 60, 300)
     return c.json({ announcements: [] })
   }
 
@@ -411,8 +720,10 @@ app.get('/api/settings/announcements', async (c) => {
           .filter((item) => item.id && item.content && item.enabled)
       : []
 
+    setPublicCacheHeaders(c, 60, 300)
     return c.json({ announcements })
   } catch {
+    setPublicCacheHeaders(c, 60, 300)
     return c.json({ announcements: [] })
   }
 })
@@ -421,6 +732,7 @@ app.get('/api/settings/maintenance', async (c) => {
   await ensureDbInitialized(c.env.DB)
   const enabled = await getMaintenanceModeSetting(c.env.DB)
   const config = await getMaintenanceConfigSetting(c.env.DB)
+  setPublicCacheHeaders(c, 15, 30)
   return c.json({ enabled, config })
 })
 
@@ -446,6 +758,7 @@ app.get('/api/departments', async (c) => {
     const { results } = await c.env.DB.prepare(query).all()
 
     const departments = (results || []).map((row: any) => row.department)
+    setPublicCacheHeaders(c, 300, 900)
     return c.json({ departments })
   } catch (err: any) {
     return c.json({ error: err.message }, 500)
@@ -455,7 +768,7 @@ app.get('/api/departments', async (c) => {
 app.get('/api/courses', async (c) => {
   try {
     await ensureDbInitialized(c.env.DB)
-    const keyword = c.req.query('q')
+    const keyword = (c.req.query('q') || '').trim()
     const departments = c.req.query('departments') // 逗号分隔的开课单位列表
     const onlyWithReviews = c.req.query('onlyWithReviews') === 'true'
     const courseName = (c.req.query('courseName') || '').trim()
@@ -464,16 +777,31 @@ app.get('/api/courses', async (c) => {
     const teacherCode = (c.req.query('teacherCode') || '').trim()
     const campus = (c.req.query('campus') || '').trim()
     const faculty = (c.req.query('faculty') || '').trim()
-    const page = parseInt(c.req.query('page') || '1')
-    const limit = parseInt(c.req.query('limit') || '20')
+    const includeTotal = c.req.query('includeTotal') === 'true'
+    const page = Math.max(1, parseInt(c.req.query('page') || '1', 10) || 1)
+    const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '20', 10) || 20))
     const offset = (page - 1) * limit
 
     // 检查是否显示 is_icu 数据
     const showIcu = await getShowIcuSetting(c.env.DB)
+    const canUseWorkerCache = !includeTotal
 
-    let withClause = ''
+    if (canUseWorkerCache) {
+      const cacheUrl = new URL(c.req.url)
+      cacheUrl.searchParams.set('__showIcu', showIcu ? '1' : '0')
+      const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' })
+      try {
+        const cached = await caches.default.match(cacheKey)
+        if (cached) return cached
+      } catch {
+        // ignore cache failures
+      }
+    }
+
     let baseWhere = ' WHERE 1=1'
-    const params: any[] = []
+    const baseParams: any[] = []
+    const ctes: string[] = []
+    const cteParams: any[] = []
 
     // 当关闭乌龙茶显示时，过滤掉 is_icu=1 的课程
     if (!showIcu) {
@@ -484,9 +812,11 @@ app.get('/api/courses', async (c) => {
     baseWhere += " AND NOT (c.is_legacy = 1 AND c.code LIKE '%AUTO%')"
 
     if (keyword) {
-      baseWhere += ' AND (c.search_keywords LIKE ? OR c.code LIKE ? OR c.name LIKE ? OR t.name LIKE ?)'
-      const likeKey = `%${keyword}%`
-      params.push(likeKey, likeKey, likeKey, likeKey)
+      const ftsQuery = buildCourseSearchMatchQuery(keyword)
+      if (ftsQuery) {
+        baseWhere += ' AND c.id IN (SELECT course_id FROM course_search WHERE search_doc MATCH ?)'
+        baseParams.push(ftsQuery)
+      }
     }
 
     // 课程代码（支持别名）
@@ -494,7 +824,7 @@ app.get('/api/courses', async (c) => {
       baseWhere +=
         " AND (c.code LIKE ? OR EXISTS (SELECT 1 FROM course_aliases a WHERE a.system = 'onesystem' AND a.course_id = c.id AND a.alias LIKE ?))"
       const likeCode = `%${courseCode}%`
-      params.push(likeCode, likeCode)
+      baseParams.push(likeCode, likeCode)
     }
 
     // 高级检索：基于 onesystem/pk 的 coursedetail + teacher 表做过滤（用于按课程名/教师/校区/学院精确筛选）
@@ -526,9 +856,8 @@ app.get('/api/courses', async (c) => {
 
       const pkExtraWhere = pkWhere.length > 0 ? ` AND ${pkWhere.join(' AND ')}` : ''
 
-      // Use a CTE to avoid a correlated EXISTS per course row (much faster on large pk tables).
-      withClause = `
-        WITH pk_match AS (
+      ctes.push(`
+        pk_match AS (
           SELECT DISTINCT c2.id AS id
           FROM courses c2
           JOIN coursedetail cd ON (cd.courseCode = c2.code OR cd.newCourseCode = c2.code)
@@ -539,12 +868,11 @@ app.get('/api/courses', async (c) => {
           JOIN coursedetail cd ON (a.alias = cd.courseCode OR a.alias = cd.newCourseCode)
           WHERE a.system = 'onesystem'${pkExtraWhere}
         )
-      `
+      `)
 
       baseWhere += ` AND c.id IN (SELECT id FROM pk_match)`
 
-      // pkExtraWhere appears twice in the UNION, so bind params twice (and before the main query params).
-      params.unshift(...pkParams, ...pkParams)
+      cteParams.push(...pkParams, ...pkParams)
     }
 
     // 开课单位筛选
@@ -553,75 +881,93 @@ app.get('/api/courses', async (c) => {
       if (deptList.length > 0) {
         const placeholders = deptList.map(() => '?').join(',')
         baseWhere += ` AND c.department IN (${placeholders})`
-        params.push(...deptList)
+        baseParams.push(...deptList)
       }
     }
 
-    // Always include legacy docs into the normal view, and merge by (courseName + teacherName).
-    const reviewJoin = `LEFT JOIN reviews r ON r.course_id = c.id AND r.is_hidden = 0 ${showIcu ? '' : 'AND (r.is_icu = 0 OR r.is_icu IS NULL)'}`
     const groupKey = `c.name, COALESCE(t.name, '')`
-    const having = onlyWithReviews ? 'HAVING COUNT(r.id) > 0' : ''
+    const having = onlyWithReviews ? 'HAVING SUM(COALESCE(c.review_count, 0)) > 0' : ''
+    const representativeValueExpr = `COALESCE(
+      MAX(CASE WHEN c.is_legacy = 0 THEN printf('%010d|%s', c.id, c.code) END),
+      MAX(printf('%010d|%s', c.id, c.code))
+    )`
 
-    const countQuery = `
-      SELECT COUNT(*) as total FROM (
-        SELECT 1
+    ctes.push(`
+      aggregated AS (
+        SELECT
+          CAST(substr(${representativeValueExpr}, 1, 10) AS INTEGER) AS id,
+          substr(${representativeValueExpr}, 12) AS code,
+          c.name AS name,
+          CASE
+            WHEN SUM(COALESCE(c.review_count, 0)) > 0
+              THEN ROUND(SUM(COALESCE(c.review_avg, 0) * COALESCE(c.review_count, 0)) * 1.0 / SUM(COALESCE(c.review_count, 0)), 4)
+            ELSE 0
+          END AS rating,
+          SUM(COALESCE(c.review_count, 0)) AS review_count,
+          CASE WHEN SUM(CASE WHEN c.is_legacy = 0 THEN 1 ELSE 0 END) > 0 THEN 0 ELSE 1 END AS is_legacy,
+          COALESCE(t.name, '') AS teacher_name,
+          COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.department END), MAX(c.department)) AS department,
+          COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.credit END), MAX(c.credit), 0) AS credit
         FROM courses c
         LEFT JOIN teachers t ON c.teacher_id = t.id
-        ${reviewJoin}
         ${baseWhere}
         GROUP BY ${groupKey}
         ${having}
-      ) x
-    `
-    const countResult = await c.env.DB.prepare(`${withClause}${countQuery}`).bind(...params).first<{ total: number }>()
-    const total = countResult?.total || 0
+      )
+    `)
 
-    const query = `
-      SELECT
-        CAST(substr(COALESCE(
-          MAX(CASE WHEN c.is_legacy = 0 THEN printf('%010d|%s', c.id, c.code) END),
-          MAX(printf('%010d|%s', c.id, c.code))
-        ), 1, 10) AS INTEGER) as id,
-        substr(COALESCE(
-          MAX(CASE WHEN c.is_legacy = 0 THEN printf('%010d|%s', c.id, c.code) END),
-          MAX(printf('%010d|%s', c.id, c.code))
-        ), 12) as code,
-        c.name,
-        COALESCE(AVG(CASE WHEN r.rating > 0 THEN r.rating END), 0) as rating,
-        COUNT(r.id) as review_count,
-        CASE WHEN SUM(CASE WHEN c.is_legacy = 0 THEN 1 ELSE 0 END) > 0 THEN 0 ELSE 1 END as is_legacy,
-        COALESCE(t.name, '') as teacher_name,
-        COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.department END), MAX(c.department)) as department,
-        COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.credit END), MAX(c.credit), 0) as credit,
-        (
-          SELECT GROUP_CONCAT(x.calendarName, '||') FROM (
-            SELECT DISTINCT ca.calendarIdI18n as calendarName, cd2.calendarId as calendarId
-            FROM coursedetail cd2
-            JOIN calendar ca ON ca.calendarId = cd2.calendarId
-            WHERE (cd2.courseCode = c.code OR cd2.newCourseCode = c.code)
-            ORDER BY cd2.calendarId DESC
-          ) x
-        ) as semester_names
-      FROM courses c
-      LEFT JOIN teachers t ON c.teacher_id = t.id
-      ${reviewJoin}
-      ${baseWhere}
-      GROUP BY ${groupKey}
-      ${having}
-      ORDER BY review_count DESC
-      LIMIT ? OFFSET ?
-    `
-    const { results } = await c.env.DB.prepare(`${withClause}${query}`).bind(...params, limit, offset).all()
+    const withClause = `WITH ${ctes.join(',\n')}`
+    const queryParams = [...cteParams, ...baseParams]
 
-    const normalized = (results || []).map((r: any) => ({
+    let total: number | undefined
+    if (includeTotal) {
+      const countResult = await c.env.DB
+        .prepare(`${withClause} SELECT COUNT(*) AS total FROM aggregated`)
+        .bind(...queryParams)
+        .first<{ total: number }>()
+      total = Number(countResult?.total || 0)
+    }
+
+    const queryLimit = includeTotal ? limit : limit + 1
+    const { results } = await c.env.DB
+      .prepare(
+        `${withClause}
+         SELECT
+           a.*,
+           COALESCE(cs.semester_names, '') AS semester_names
+         FROM aggregated a
+         LEFT JOIN course_semesters cs ON cs.course_id = a.id
+         ORDER BY a.review_count DESC, a.rating DESC, a.id DESC
+         LIMIT ? OFFSET ?`
+      )
+      .bind(...queryParams, queryLimit, offset)
+      .all()
+
+    const rawRows = (results || []) as any[]
+    const hasMore = !includeTotal && rawRows.length > limit
+    const visibleRows = hasMore ? rawRows.slice(0, limit) : rawRows
+
+    const normalized = visibleRows.map((r: any) => ({
       ...r,
-      semesters: String(r.semester_names || '')
-        .split('||')
-        .map((s: string) => s.trim())
-        .filter(Boolean)
+      semesters: parseSemesterNames(r.semester_names)
     }))
 
-    return c.json({ data: normalized, total, page, limit, totalPages: Math.ceil(total / limit) })
+    const payload: Record<string, any> = { data: normalized, page, limit, hasMore }
+    if (typeof total === 'number') {
+      payload.total = total
+      payload.totalPages = Math.ceil(total / limit)
+    }
+
+    if (!canUseWorkerCache) {
+      setPublicCacheHeaders(c, 15, 30)
+      return c.json(payload)
+    }
+
+    const cacheUrl = new URL(c.req.url)
+    cacheUrl.searchParams.set('__showIcu', showIcu ? '1' : '0')
+    const response = buildJsonResponse(payload, buildCacheControl(COURSE_LIST_CACHE_SECONDS, COURSE_LIST_CACHE_SWR_SECONDS))
+    c.executionCtx.waitUntil(caches.default.put(new Request(cacheUrl.toString(), { method: 'GET' }), response.clone()))
+    return response
   } catch (err: any) {
     return c.json({ error: err.message }, 500)
   }
@@ -772,44 +1118,7 @@ app.get('/api/course/:id', async (c) => {
       .filter((n) => Number.isFinite(n) && n > 0)
     const reviewAvg = ratingNums.length > 0 ? ratingNums.reduce((a, b) => a + b, 0) / ratingNums.length : 0
 
-    let semesters: string[] = []
-    try {
-      const aliasRows = await c.env.DB
-        .prepare(`SELECT alias FROM course_aliases WHERE system = 'onesystem' AND course_id = ?`)
-        .bind(Number((course as any).id))
-        .all<{ alias: string }>()
-
-      const codeList = [
-        String((course as any).code || '').trim(),
-        ...(aliasRows.results || []).map((r: any) => String(r.alias || '').trim())
-      ]
-        .filter(Boolean)
-
-      const uniqueCodes = Array.from(new Set(codeList))
-      if (uniqueCodes.length > 0) {
-        const placeholdersC = uniqueCodes.map(() => '?').join(',')
-        const semestersRow = await c.env.DB
-          .prepare(
-            `SELECT GROUP_CONCAT(x.calendarName, '||') as semester_names FROM (
-              SELECT DISTINCT ca.calendarIdI18n as calendarName, cd2.calendarId as calendarId
-              FROM coursedetail cd2
-              JOIN calendar ca ON ca.calendarId = cd2.calendarId
-              WHERE cd2.courseCode IN (${placeholdersC})
-                 OR cd2.newCourseCode IN (${placeholdersC})
-              ORDER BY cd2.calendarId DESC
-            ) x`
-          )
-          .bind(...uniqueCodes, ...uniqueCodes)
-          .first<{ semester_names: string | null }>()
-
-        semesters = String(semestersRow?.semester_names || '')
-          .split('||')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      }
-    } catch {
-      semesters = []
-    }
+    const semesters = await getCourseSemesters(c.env.DB, Number((course as any).id)).catch(() => [])
 
     const basePayload = {
       ...(course as any),
@@ -950,6 +1259,7 @@ app.get('/api/course/:id/related', async (c) => {
       sameCourseOtherTeachers = res.results || []
     }
 
+    setPublicCacheHeaders(c, 60, 300)
     return c.json({
       teacher_other_courses: teacherOtherCourses,
       same_course_other_teachers: sameCourseOtherTeachers
@@ -1073,6 +1383,7 @@ app.get('/api/course/by-code/:code', async (c) => {
         )
         .bind(code, courseId)
         .run()
+      await refreshAuxiliaryCourseData(c.env.DB, [Number(courseId)])
     }
 
     let course = await c.env.DB.prepare(
@@ -1175,43 +1486,7 @@ app.get('/api/course/by-code/:code', async (c) => {
       .filter((n) => Number.isFinite(n) && n > 0)
     const reviewAvg = ratingNums.length > 0 ? ratingNums.reduce((a, b) => a + b, 0) / ratingNums.length : 0
 
-    let semesters: string[] = []
-    try {
-      const aliasRows = await c.env.DB
-        .prepare(`SELECT alias FROM course_aliases WHERE system = 'onesystem' AND course_id = ?`)
-        .bind(Number(courseId))
-        .all<{ alias: string }>()
-
-      const codeList = [
-        String((course as any).code || '').trim(),
-        ...(aliasRows.results || []).map((r: any) => String(r.alias || '').trim())
-      ].filter(Boolean)
-      const uniqueCodes = Array.from(new Set(codeList))
-
-      if (uniqueCodes.length > 0) {
-        const placeholdersC = uniqueCodes.map(() => '?').join(',')
-        const semestersRow = await c.env.DB
-          .prepare(
-            `SELECT GROUP_CONCAT(x.calendarName, '||') as semester_names FROM (
-              SELECT DISTINCT ca.calendarIdI18n as calendarName, cd2.calendarId as calendarId
-              FROM coursedetail cd2
-              JOIN calendar ca ON ca.calendarId = cd2.calendarId
-              WHERE cd2.courseCode IN (${placeholdersC})
-                 OR cd2.newCourseCode IN (${placeholdersC})
-              ORDER BY cd2.calendarId DESC
-            ) x`
-          )
-          .bind(...uniqueCodes, ...uniqueCodes)
-          .first<{ semester_names: string | null }>()
-
-        semesters = String(semestersRow?.semester_names || '')
-          .split('||')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      }
-    } catch {
-      semesters = []
-    }
+    const semesters = await getCourseSemesters(c.env.DB, Number(courseId)).catch(() => [])
 
     return c.json({
       ...(course as any),
@@ -1429,6 +1704,12 @@ admin.post('/pk/sync', async (c) => {
       depth
     })
 
+    await rebuildAllAuxiliaryCourseData(c.env.DB)
+    await c.env.DB
+      .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      .bind('aux_schema_version', AUX_SCHEMA_VERSION)
+      .run()
+
     return c.json({ success: true, ...result })
   } catch (err: any) {
     return c.json({ error: err.message || 'Sync failed' }, 500)
@@ -1580,6 +1861,8 @@ admin.put('/course/:id', async (c) => {
     'UPDATE courses SET code = ?, name = ?, credit = ?, department = ?, teacher_id = ?, search_keywords = ? WHERE id = ?'
   ).bind(code, name, credit || 0, department || '', teacherId, search_keywords || '', id).run()
 
+  await refreshAuxiliaryCourseData(c.env.DB, [Number(id)])
+
   return c.json({ success: true })
 })
 
@@ -1587,7 +1870,9 @@ admin.delete('/course/:id', async (c) => {
   const id = c.req.param('id')
   // 先删除关联的评论
   await c.env.DB.prepare('DELETE FROM reviews WHERE course_id = ?').bind(id).run()
+  await c.env.DB.prepare('DELETE FROM course_aliases WHERE course_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM courses WHERE id = ?').bind(id).run()
+  await deleteAuxiliaryCourseData(c.env.DB, [Number(id)])
   return c.json({ success: true })
 })
 
@@ -1610,6 +1895,8 @@ admin.post('/course', async (c) => {
   const result = await c.env.DB.prepare(
     'INSERT INTO courses (code, name, credit, department, teacher_id, search_keywords, is_legacy) VALUES (?, ?, ?, ?, ?, ?, 0)'
   ).bind(code, name, credit || 0, department || '', teacherId, search_keywords || `${code} ${name} ${teacher_name || ''}`).run()
+
+  await refreshAuxiliaryCourseData(c.env.DB, [Number(result.meta.last_row_id)])
 
   return c.json({ success: true, id: result.meta.last_row_id })
 })

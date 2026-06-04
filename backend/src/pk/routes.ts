@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { arrangementTextToObj, splitEndline, optCourseQueryListGenerator } from './utils'
+import { arrangementTextToObj, splitEndline } from './utils'
 
 type PkBindings = {
   DB: D1Database
@@ -22,6 +22,7 @@ const CROSS_DISCIPLINE_LABEL_NAMES = [
   '专业特色模块',
   '领域基础课',
 ]
+const PK_AUX_SCHEMA_VERSION = '20260605-pk-query-opt-v2'
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []
@@ -55,6 +56,131 @@ async function getTeachers(db: D1Database, teachingClassId: number) {
     .bind(teachingClassId)
     .all<any>()
   return results || []
+}
+
+let pkAuxInitPromise: Promise<void> | null = null
+
+function getPkTimeSlotsBySection(section: number) {
+  if (section === 1) return [1, 2]
+  if (section === 2) return [3, 4]
+  if (section === 3) return [5, 6]
+  if (section === 4) return [7, 8]
+  if (section === 5) return [9]
+  if (section === 6) return [10]
+  return []
+}
+
+async function ensurePkAuxiliaryTables(db: D1Database) {
+  if (!pkAuxInitPromise) {
+    pkAuxInitPromise = (async () => {
+      const row = await db
+        .prepare('SELECT value FROM settings WHERE key = ?')
+        .bind('pk_aux_schema_version')
+        .first<{ value: string }>()
+
+      if (row?.value !== PK_AUX_SCHEMA_VERSION) {
+        await db.prepare('DROP TABLE IF EXISTS teacher_timeslots').run()
+      }
+
+      await db.prepare(
+        `CREATE TABLE IF NOT EXISTS teacher_timeslots (
+          calendar_id INTEGER NOT NULL,
+          teaching_class_id INTEGER NOT NULL,
+          occupy_day INTEGER NOT NULL,
+          occupy_section INTEGER NOT NULL,
+          teacher_code TEXT DEFAULT '',
+          teacher_name TEXT DEFAULT '',
+          PRIMARY KEY (calendar_id, teaching_class_id, occupy_day, occupy_section, teacher_code, teacher_name)
+        )`
+      ).run()
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_slot ON teacher_timeslots(calendar_id, occupy_day, occupy_section)').run()
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_class ON teacher_timeslots(teaching_class_id)').run()
+      if (row?.value === PK_AUX_SCHEMA_VERSION) return
+
+      await db.prepare('DELETE FROM teacher_timeslots').run()
+      const teacherRows = await db
+        .prepare(
+          `SELECT
+             t.teachingClassId,
+             t.teacherCode,
+             t.teacherName,
+             t.arrangeInfoText,
+             cd.calendarId
+           FROM teacher t
+           JOIN coursedetail cd ON cd.id = t.teachingClassId`
+        )
+        .all<any>()
+
+      const pending = new Set<string>()
+      for (const row of teacherRows.results || []) {
+        const teachingClassId = Number((row as any).teachingClassId || 0)
+        const calendarId = Number((row as any).calendarId || 0)
+        if (!Number.isFinite(teachingClassId) || teachingClassId <= 0) continue
+        if (!Number.isFinite(calendarId) || calendarId <= 0) continue
+        const teacherCode = String((row as any).teacherCode || '').trim()
+        const teacherName = String((row as any).teacherName || '').trim()
+        const lines = splitEndline(String((row as any).arrangeInfoText || ''))
+        for (const line of lines) {
+          const info = arrangementTextToObj(line)
+          const occupyDay = Number(info.occupyDay || 0)
+          const occupyTime = Array.isArray(info.occupyTime) ? info.occupyTime : []
+          if (!Number.isFinite(occupyDay) || occupyDay <= 0 || occupyTime.length === 0) continue
+          for (const occupySection of occupyTime) {
+            if (!Number.isFinite(occupySection) || occupySection <= 0) continue
+            pending.add([calendarId, teachingClassId, occupyDay, occupySection, teacherCode, teacherName].join('|'))
+          }
+        }
+      }
+
+      for (const key of pending) {
+        const [calendarId, teachingClassId, occupyDay, occupySection, teacherCode, teacherName] = key.split('|')
+        await db
+          .prepare(
+            `INSERT OR REPLACE INTO teacher_timeslots (
+              calendar_id,
+              teaching_class_id,
+              occupy_day,
+              occupy_section,
+              teacher_code,
+              teacher_name
+            ) VALUES (?, ?, ?, ?, ?, ?)`
+          )
+          .bind(Number(calendarId), Number(teachingClassId), Number(occupyDay), Number(occupySection), teacherCode, teacherName)
+          .run()
+      }
+
+      await db
+        .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+        .bind('pk_aux_schema_version', PK_AUX_SCHEMA_VERSION)
+        .run()
+    })()
+  }
+  await pkAuxInitPromise
+}
+
+async function getTeachersByClassIds(db: D1Database, classIds: number[]) {
+  const map = new Map<number, any[]>()
+  const validClassIds = Array.from(new Set(classIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)))
+  if (validClassIds.length === 0) return map
+
+  for (const part of chunk(validClassIds, MAX_SQL_VARS)) {
+    const placeholders = part.map(() => '?').join(',')
+    const rows = await db
+      .prepare(
+        `SELECT teachingClassId, teacherCode, teacherName, arrangeInfoText
+         FROM teacher
+         WHERE teachingClassId IN (${placeholders})`
+      )
+      .bind(...part)
+      .all<any>()
+    for (const row of rows.results || []) {
+      const teachingClassId = Number((row as any).teachingClassId || 0)
+      if (!map.has(teachingClassId)) map.set(teachingClassId, [])
+      map.get(teachingClassId)!.push(row)
+    }
+  }
+
+  return map
 }
 
 function mergeArrangementInfo(teachers: any[]) {
@@ -670,11 +796,12 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
     const section = Number(body?.section)
     if (!Number.isFinite(calendarId) || !Number.isFinite(day) || !Number.isFinite(section)) return c.json(jsonErr(400, '输入参数有误'), 400)
 
-    const patterns = optCourseQueryListGenerator(day, section)
-    if (!patterns) return c.json(jsonErr(400, '输入参数有误', []), 400)
+    await ensurePkAuxiliaryTables(c.env.DB)
+    const slotSections = getPkTimeSlotsBySection(section)
+    if (slotSections.length === 0) return c.json(jsonErr(400, '输入参数有误', []), 400)
 
-    const orLike = patterns.map(() => 't.arrangeInfoText LIKE ?').join(' OR ')
     const labelPlaceholders = OPTIONAL_LABEL_NAMES.map(() => '?').join(',')
+    const slotPlaceholders = slotSections.map(() => '?').join(',')
     const query = `
       SELECT
         cd.courseCode as courseCode,
@@ -684,18 +811,20 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
         GROUP_CONCAT(DISTINCT n.courseLabelName) as courseNature,
         GROUP_CONCAT(DISTINCT ca.campusI18n) as campus
       FROM coursedetail cd
-      JOIN teacher t ON t.teachingClassId = cd.id
+      JOIN teacher_timeslots ts ON ts.teaching_class_id = cd.id
       LEFT JOIN faculty f ON f.faculty = cd.faculty
       LEFT JOIN campus ca ON ca.campus = cd.campus
       LEFT JOIN coursenature_by_calendar n ON n.courseLabelId = cd.courseLabelId AND n.calendarId = cd.calendarId
       WHERE cd.calendarId = ?
-        AND (${orLike})
+        AND ts.calendar_id = ?
+        AND ts.occupy_day = ?
+        AND ts.occupy_section IN (${slotPlaceholders})
         AND n.courseLabelName IN (${labelPlaceholders})
       GROUP BY cd.courseCode, cd.courseName, f.facultyI18n
       ORDER BY cd.courseCode ASC
     `
 
-    const { results } = await c.env.DB.prepare(query).bind(calendarId, ...patterns, ...OPTIONAL_LABEL_NAMES).all<any>()
+    const { results } = await c.env.DB.prepare(query).bind(calendarId, calendarId, day, ...slotSections, ...OPTIONAL_LABEL_NAMES).all<any>()
     const data = (results || []).map((r: any) => ({
       courseCode: String(r.courseCode || ''),
       courseName: String(r.courseName || ''),
@@ -736,6 +865,8 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
 
     if (allCodes.length === 0) return c.json(jsonOk(out))
 
+    await ensurePkAuxiliaryTables(c.env.DB)
+
     const cdRowsAll: any[] = []
     for (const part of chunk(allCodes, MAX_SQL_VARS)) {
       const placeholders = part.map(() => '?').join(',')
@@ -767,24 +898,38 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
       targetMajorId = row?.id ?? null
     }
 
+    const classIds = cdRowsAll.map((row) => Number((row as any).id)).filter((id) => Number.isFinite(id) && id > 0)
+    const teachersByClassId = await getTeachersByClassIds(c.env.DB, classIds)
+    const exclusiveCourseIds = new Set<number>()
+
+    if (targetMajorId && majorCourseCodes.length > 0 && classIds.length > 0) {
+      for (const part of chunk(classIds, MAX_SQL_VARS)) {
+        const placeholders = part.map(() => '?').join(',')
+        const rows = await c.env.DB
+          .prepare(
+            `SELECT courseId
+             FROM majorandcourse
+             WHERE majorId = ?
+               AND courseId IN (${placeholders})`
+          )
+          .bind(targetMajorId, ...part)
+          .all<{ courseId: number }>()
+        for (const row of rows.results || []) {
+          exclusiveCourseIds.add(Number((row as any).courseId))
+        }
+      }
+    }
+
     for (const row of cdRowsAll) {
       const cc = String(row.courseCode || '')
       if (!cc) continue
 
-      const teachers = await getTeachers(c.env.DB, row.id)
+      const teachers = teachersByClassId.get(Number(row.id)) || []
       const arrangementInfo = mergeArrangementInfo(teachers)
 
       let isExclusive: boolean | undefined = undefined
       if (majorCourseCodes.includes(cc)) {
-        if (!targetMajorId) {
-          isExclusive = false
-        } else {
-          const ex = await c.env.DB
-            .prepare('SELECT 1 as ok FROM majorandcourse WHERE majorId = ? AND courseId = ? LIMIT 1')
-            .bind(targetMajorId, row.id)
-            .first<{ ok: number }>()
-          isExclusive = Boolean(ex?.ok)
-        }
+        isExclusive = targetMajorId ? exclusiveCourseIds.has(Number(row.id)) : false
       }
 
       out[cc] = out[cc] || []
