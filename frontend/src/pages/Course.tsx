@@ -1154,7 +1154,7 @@ export default function Course() {
               <GlassCard
                 key={review.id}
                 hover={false}
-                className="!p-5"
+                className="!p-5 bg-white/98 md:bg-white/70 border-white/90 md:border-white/60 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.24)] md:shadow-[0_4px_20px_-4px_rgba(6,182,212,0.15)]"
               >
                 <div data-tour={index === 0 ? 'tour-latest-review' : undefined}>
                 <div className="flex justify-between items-start mb-3">
@@ -1184,7 +1184,7 @@ export default function Course() {
                   </div>
                 </div>
 
-                <div className="text-slate-600 text-sm leading-relaxed mb-3">
+                <div className="mb-3 text-sm leading-relaxed text-slate-700">
                   <CollapsibleMarkdown content={review.comment} maxLength={300} />
                 </div>
 
