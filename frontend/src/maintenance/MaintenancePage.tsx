@@ -1,15 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { gsap } from 'gsap'
 import MaintenanceLogo from './MaintenanceLogo'
 import MaintenanceCard from './MaintenanceCard'
 import {
   DEFAULT_MAINTENANCE_CONFIG,
-  MAINTENANCE_EVENT,
-  normalizeMaintenanceDisplayConfig,
-  readMaintenanceSnapshot,
-  writeMaintenanceSnapshot
+  type MaintenanceDisplayConfig
 } from './maintenance'
-import { fetchMaintenanceSettings, fetchSiteAnnouncements, type SiteAnnouncement } from '../services/api'
+import { type SiteAnnouncement } from '../services/api'
 
 function StatusIcon() {
   return (
@@ -44,66 +41,17 @@ function BellIcon() {
   )
 }
 
-export default function MaintenancePage() {
-  const pageRef = useRef<HTMLDivElement>(null)
-  const [announcements, setAnnouncements] = useState<SiteAnnouncement[]>([])
-  const [maintenanceConfig, setMaintenanceConfig] = useState(() => {
-    const cached = typeof window !== 'undefined' ? readMaintenanceSnapshot() : null
-    if (!cached?.config) return DEFAULT_MAINTENANCE_CONFIG
-    return {
-      ...DEFAULT_MAINTENANCE_CONFIG,
-      ...cached.config
-    }
-  })
+type MaintenancePageProps = {
+  announcements?: SiteAnnouncement[]
+  maintenanceConfig?: MaintenanceDisplayConfig | null
+}
 
+export default function MaintenancePage({ announcements = [], maintenanceConfig }: MaintenancePageProps) {
+  const pageRef = useRef<HTMLDivElement>(null)
   const cfg = useMemo(() => ({
     ...DEFAULT_MAINTENANCE_CONFIG,
-    ...maintenanceConfig
+    ...(maintenanceConfig || {})
   }), [maintenanceConfig])
-
-  useEffect(() => {
-    let active = true
-
-    fetchMaintenanceSettings()
-      .then((data) => {
-        if (!active) return
-        if (!data?.config) return
-        const partial = normalizeMaintenanceDisplayConfig(data.config)
-        writeMaintenanceSnapshot(Boolean(data.enabled), partial)
-        setMaintenanceConfig((current) => ({
-          ...current,
-          ...partial
-        }))
-      })
-      .catch(() => {})
-
-    fetchSiteAnnouncements()
-      .then((data) => {
-        if (!active) return
-        const items = Array.isArray(data.announcements) ? data.announcements.filter((item) => item.content?.trim()) : []
-        setAnnouncements(items)
-      })
-      .catch(() => { /* 静默失败，公告为空即可 */ })
-
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleMaintenanceUpdate = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { config?: unknown } | undefined
-      if (!detail?.config) return
-      const partial = normalizeMaintenanceDisplayConfig(detail.config)
-      setMaintenanceConfig((current) => ({
-        ...current,
-        ...partial
-      }))
-    }
-
-    window.addEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
-    return () => window.removeEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
-  }, [])
 
   useEffect(() => {
     if (!pageRef.current) return

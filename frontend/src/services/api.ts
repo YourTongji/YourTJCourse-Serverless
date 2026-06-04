@@ -55,6 +55,12 @@ export interface MaintenanceSettingsResponse {
   config?: unknown
 }
 
+export interface SiteRuntimeStateResponse {
+  maintenance: MaintenanceSettingsResponse
+  announcements: SiteAnnouncement[]
+  updatedAt: number
+}
+
 export async function fetchCourses(
   keyword?: string,
   legacy?: boolean,
@@ -117,9 +123,21 @@ export async function fetchSiteAnnouncements() {
 }
 
 export async function fetchMaintenanceSettings() {
-  const res = await fetchWithTimeout(`${API_BASE}/api/settings/maintenance`, undefined, 15000)
+  const res = await fetchWithTimeout(`${API_BASE}/api/settings/maintenance`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' }
+  }, 15000)
   if (!res.ok) throw new Error('Failed to fetch maintenance settings')
   return res.json() as Promise<MaintenanceSettingsResponse>
+}
+
+export async function fetchSiteRuntimeState() {
+  const res = await fetchWithTimeout(`${API_BASE}/api/settings/runtime-state`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' }
+  }, 15000)
+  if (!res.ok) throw new Error('Failed to fetch runtime state')
+  return res.json() as Promise<SiteRuntimeStateResponse>
 }
 
 export async function submitReview(data: {

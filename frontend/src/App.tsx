@@ -13,15 +13,17 @@ import About from './pages/About'
 import FAQ from './pages/FAQ'
 import Schedule from './pages/Schedule'
 import Feedback from './pages/Feedback'
-import { fetchSiteAnnouncements, fetchMaintenanceSettings, resolveApiBase, SiteAnnouncement, AnnouncementType } from './services/api'
+import { fetchSiteRuntimeState, resolveApiBase, SiteAnnouncement, AnnouncementType } from './services/api'
 import { renderMarkdownHtml } from './components/CollapsibleMarkdown'
 import TourGuide, { TutorialLauncher } from './components/TourGuide'
 import MaintenancePage from './maintenance/MaintenancePage'
 import {
   DEFAULT_MAINTENANCE_CONFIG,
   isMaintenanceSnapshotFresh,
-  MAINTENANCE_EVENT,
+  normalizeMaintenanceDisplayConfig,
+  normalizeRuntimeAnnouncements,
   readMaintenanceSnapshot,
+  subscribeMaintenanceSnapshot,
   writeMaintenanceSnapshot
 } from './maintenance/maintenance'
 
@@ -149,13 +151,14 @@ function useTypewriterText(text: string, speedMs: number, enabled: boolean) {
 }
 
 function AnnouncementBar({
+  announcements,
   collapsed,
   onCollapsedChange
 }: {
+  announcements: SiteAnnouncement[]
   collapsed: boolean
   onCollapsedChange: (nextValue: boolean) => void
 }) {
-  const [announcements, setAnnouncements] = useState<SiteAnnouncement[]>([])
   const [activeIndex, setActiveIndex] = useState(0)
   const [nextIndex, setNextIndex] = useState<number | null>(null)
   const [isSliding, setIsSliding] = useState(false)
@@ -163,23 +166,14 @@ function AnnouncementBar({
   const slideDurationMs = 520
 
   useEffect(() => {
-    let active = true
-
-    fetchSiteAnnouncements()
-      .then((data) => {
-        if (!active) return
-        const items = Array.isArray(data.announcements) ? data.announcements.filter((item) => item.content?.trim()) : []
-        setAnnouncements(items)
-      })
-      .catch(() => {
-        if (!active) return
-        setAnnouncements([])
-      })
-
-    return () => {
-      active = false
+    setActiveIndex((current) => {
+      if (announcements.length === 0) return 0
+      return Math.min(current, announcements.length - 1)
+    })
+    if (openAnnouncementId && !announcements.some((item) => item.id === openAnnouncementId)) {
+      setOpenAnnouncementId(null)
     }
-  }, [])
+  }, [announcements, openAnnouncementId])
 
   const startSlideTo = (targetIndex: number) => {
     if (announcements.length <= 1) return
@@ -427,6 +421,12 @@ export default function App() {
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(
     hardMaintenanceMode || Boolean(cachedMaintenanceSnapshot?.enabled)
   )
+  const [maintenanceConfig, setMaintenanceConfig] = useState(() =>
+    normalizeMaintenanceDisplayConfig(cachedMaintenanceSnapshot?.config || DEFAULT_MAINTENANCE_CONFIG)
+  )
+  const [announcements, setAnnouncements] = useState<SiteAnnouncement[]>(() =>
+    normalizeRuntimeAnnouncements(cachedMaintenanceSnapshot?.announcements)
+  )
   const [maintenanceLoaded, setMaintenanceLoaded] = useState(
     hardMaintenanceMode || isMaintenanceSnapshotFresh(cachedMaintenanceSnapshot)
   )
@@ -464,51 +464,74 @@ export default function App() {
   useEffect(() => {
     if (hardMaintenanceMode) {
       setMaintenanceEnabled(true)
+      setMaintenanceConfig(normalizeMaintenanceDisplayConfig(DEFAULT_MAINTENANCE_CONFIG))
       setMaintenanceLoaded(true)
       return
     }
 
     let active = true
-    fetchMaintenanceSettings()
-      .then((data) => {
+
+    const applySnapshot = (snapshot: ReturnType<typeof readMaintenanceSnapshot>) => {
+      if (!snapshot || !active) return
+      setMaintenanceEnabled(Boolean(snapshot.enabled))
+      setMaintenanceConfig(normalizeMaintenanceDisplayConfig(snapshot.config))
+      setAnnouncements(normalizeRuntimeAnnouncements(snapshot.announcements))
+      setMaintenanceLoaded(true)
+      if (snapshot.enabled) setStartupPassed(true)
+    }
+
+    const refreshRuntimeState = async () => {
+      try {
+        const data = await fetchSiteRuntimeState()
         if (!active) return
-        const enabled = Boolean(data?.enabled)
+        const enabled = Boolean(data?.maintenance?.enabled)
+        const nextConfig = normalizeMaintenanceDisplayConfig(data?.maintenance?.config || DEFAULT_MAINTENANCE_CONFIG)
+        const nextAnnouncements = normalizeRuntimeAnnouncements(data?.announcements)
         setMaintenanceEnabled(enabled)
-        writeMaintenanceSnapshot(enabled, data?.config || DEFAULT_MAINTENANCE_CONFIG)
-      })
-      .catch(() => {
+        setMaintenanceConfig(nextConfig)
+        setAnnouncements(nextAnnouncements)
+        setMaintenanceLoaded(true)
+        if (enabled) setStartupPassed(true)
+        writeMaintenanceSnapshot(enabled, nextConfig, nextAnnouncements)
+      } catch {
         if (!active) return
         const cached = readMaintenanceSnapshot()
         if (cached) {
-          setMaintenanceEnabled(Boolean(cached.enabled))
+          applySnapshot(cached)
           return
         }
         setMaintenanceEnabled(false)
-      })
-      .finally(() => {
-        if (active) setMaintenanceLoaded(true)
-      })
-
-    return () => {
-      active = false
-    }
-  }, [hardMaintenanceMode])
-
-  useEffect(() => {
-    if (hardMaintenanceMode) return
-
-    const handleMaintenanceUpdate = (event: Event) => {
-      const next = (event as CustomEvent).detail as { enabled?: boolean } | undefined
-      if (!next) return
-      setMaintenanceEnabled(Boolean(next.enabled))
-      setMaintenanceLoaded(true)
-      if (next.enabled) {
-        setStartupPassed(true)
+        setMaintenanceLoaded(true)
       }
     }
 
-    window.addEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
-    return () => window.removeEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
+    void refreshRuntimeState()
+
+    const unsubscribe = subscribeMaintenanceSnapshot((snapshot) => {
+      applySnapshot(snapshot)
+    })
+
+    const handleForegroundRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshRuntimeState()
+      }
+    }
+
+    window.addEventListener('focus', handleForegroundRefresh)
+    document.addEventListener('visibilitychange', handleForegroundRefresh)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void refreshRuntimeState()
+      }
+    }, 15000)
+
+    return () => {
+      active = false
+      unsubscribe()
+      window.removeEventListener('focus', handleForegroundRefresh)
+      document.removeEventListener('visibilitychange', handleForegroundRefresh)
+      window.clearInterval(timer)
+    }
   }, [hardMaintenanceMode])
 
   useEffect(() => {
@@ -579,7 +602,7 @@ export default function App() {
   }
 
   if (showMaintenanceGate) {
-    return <MaintenancePage />
+    return <MaintenancePage announcements={announcements} maintenanceConfig={maintenanceConfig} />
   }
 
   return (
@@ -696,7 +719,11 @@ export default function App() {
         onToggleAnnouncementCollapsed={() => setAnnouncementCollapsedPersist(false)}
       />
       {isHome && (
-        <AnnouncementBar collapsed={announcementCollapsed} onCollapsedChange={setAnnouncementCollapsedPersist} />
+        <AnnouncementBar
+          announcements={announcements}
+          collapsed={announcementCollapsed}
+          onCollapsedChange={setAnnouncementCollapsedPersist}
+        />
       )}
       <main
         className={`${isSchedule ? 'max-w-none px-4 mt-4' : `max-w-7xl px-4 ${isHome ? 'mt-2 md:mt-2' : 'mt-6 md:mt-8'}`} mx-auto flex-1 w-full ${isHome ? 'pb-12' : 'pb-20'} md:pb-0`}

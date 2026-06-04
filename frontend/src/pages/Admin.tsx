@@ -363,6 +363,7 @@ export default function Admin() {
         body: JSON.stringify({ value: JSON.stringify(nextAnnouncements) })
       })
       if (!res.ok) throw new Error('save announcements failed')
+      writeMaintenanceSnapshot(maintenanceEnabled, maintenanceConfig, nextAnnouncements)
     } catch (error) {
       console.error(error)
       alert('保存公告失败')
@@ -385,7 +386,7 @@ export default function Admin() {
         throw new Error('unauthorized')
       }
       if (!res.ok) throw new Error('update maintenance mode failed')
-      writeMaintenanceSnapshot(value, maintenanceConfig)
+      writeMaintenanceSnapshot(value, maintenanceConfig, announcements)
     } catch (error) {
       setMaintenanceEnabled(previous)
       console.error(error)
@@ -422,7 +423,7 @@ export default function Admin() {
       }
       if (!res.ok) throw new Error('save maintenance failed')
       setMaintenanceConfig(parseMaintenanceConfig(payload))
-      writeMaintenanceSnapshot(maintenanceEnabled, payload)
+      writeMaintenanceSnapshot(maintenanceEnabled, payload, announcements)
     } catch (error) {
       console.error(error)
       alert('保存维护页配置失败')

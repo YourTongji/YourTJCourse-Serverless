@@ -43,14 +43,23 @@ export interface MaintenanceDisplayConfig {
   lastUpdated: string
 }
 
+export interface RuntimeAnnouncement {
+  id: string
+  type: 'info' | 'warning' | 'error' | 'success'
+  content: string
+  enabled?: boolean
+}
+
 export interface MaintenanceSnapshot {
   enabled: boolean
   config: MaintenanceDisplayConfig
+  announcements: RuntimeAnnouncement[]
   savedAt: number
 }
 
 export const MAINTENANCE_CACHE_KEY = 'yourtj_maintenance_snapshot'
 export const MAINTENANCE_EVENT = 'yourtj:maintenance-updated'
+export const MAINTENANCE_BROADCAST_CHANNEL = 'yourtj:runtime-state'
 export const MAINTENANCE_CACHE_TTL_MS = 60_000
 
 export const DEFAULT_MAINTENANCE_CONFIG: MaintenanceConfig = {
@@ -130,6 +139,35 @@ export function normalizeMaintenanceDisplayConfig(value: unknown): MaintenanceDi
   }
 }
 
+export function normalizeRuntimeAnnouncements(value: unknown): RuntimeAnnouncement[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => ({
+      id: String((item as any)?.id || '').trim(),
+      type: ['info', 'warning', 'error', 'success'].includes(String((item as any)?.type || ''))
+        ? String((item as any)?.type) as RuntimeAnnouncement['type']
+        : 'info',
+      content: String((item as any)?.content || '').trim(),
+      enabled: (item as any)?.enabled !== false
+    }))
+    .filter((item) => item.id && item.content && item.enabled)
+}
+
+let runtimeBroadcastChannel: BroadcastChannel | null | undefined
+
+function getRuntimeBroadcastChannel() {
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return null
+  if (runtimeBroadcastChannel !== undefined) return runtimeBroadcastChannel
+
+  try {
+    runtimeBroadcastChannel = new BroadcastChannel(MAINTENANCE_BROADCAST_CHANNEL)
+  } catch {
+    runtimeBroadcastChannel = null
+  }
+
+  return runtimeBroadcastChannel
+}
+
 export function readMaintenanceSnapshot(): MaintenanceSnapshot | null {
   try {
     const raw = localStorage.getItem(MAINTENANCE_CACHE_KEY)
@@ -140,6 +178,7 @@ export function readMaintenanceSnapshot(): MaintenanceSnapshot | null {
     return {
       enabled: Boolean(parsed.enabled),
       config: normalizeMaintenanceDisplayConfig(parsed.config),
+      announcements: normalizeRuntimeAnnouncements((parsed as any).announcements),
       savedAt: Number(parsed.savedAt || 0)
     }
   } catch {
@@ -152,19 +191,80 @@ export function isMaintenanceSnapshotFresh(snapshot: MaintenanceSnapshot | null,
   return now - snapshot.savedAt <= MAINTENANCE_CACHE_TTL_MS
 }
 
-export function writeMaintenanceSnapshot(enabled: boolean, config?: unknown) {
-  const snapshot: MaintenanceSnapshot = {
-    enabled,
-    config: normalizeMaintenanceDisplayConfig(config),
-    savedAt: Date.now()
-  }
-
+function dispatchMaintenanceSnapshot(snapshot: MaintenanceSnapshot) {
   try {
-    localStorage.setItem(MAINTENANCE_CACHE_KEY, JSON.stringify(snapshot))
     window.dispatchEvent(new CustomEvent(MAINTENANCE_EVENT, { detail: snapshot }))
   } catch {
     // ignore
   }
 
+  try {
+    getRuntimeBroadcastChannel()?.postMessage(snapshot)
+  } catch {
+    // ignore
+  }
+}
+
+export function writeMaintenanceSnapshot(enabled: boolean, config?: unknown, announcements?: unknown) {
+  const previous = readMaintenanceSnapshot()
+  const snapshot: MaintenanceSnapshot = {
+    enabled,
+    config: normalizeMaintenanceDisplayConfig(config),
+    announcements: announcements === undefined
+      ? (previous?.announcements || [])
+      : normalizeRuntimeAnnouncements(announcements),
+    savedAt: Date.now()
+  }
+
+  try {
+    localStorage.setItem(MAINTENANCE_CACHE_KEY, JSON.stringify(snapshot))
+  } catch {
+    // ignore
+  }
+
+  dispatchMaintenanceSnapshot(snapshot)
   return snapshot
+}
+
+export function subscribeMaintenanceSnapshot(listener: (snapshot: MaintenanceSnapshot) => void) {
+  const handleWindowEvent = (event: Event) => {
+    const detail = (event as CustomEvent).detail
+    const snapshot = detail && typeof detail === 'object'
+      ? {
+          enabled: Boolean((detail as any).enabled),
+          config: normalizeMaintenanceDisplayConfig((detail as any).config),
+          announcements: normalizeRuntimeAnnouncements((detail as any).announcements),
+          savedAt: Number((detail as any).savedAt || Date.now())
+        }
+      : null
+    if (snapshot) listener(snapshot)
+  }
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== MAINTENANCE_CACHE_KEY) return
+    const snapshot = readMaintenanceSnapshot()
+    if (snapshot) listener(snapshot)
+  }
+
+  const channel = getRuntimeBroadcastChannel()
+  const handleChannelMessage = (event: MessageEvent<MaintenanceSnapshot>) => {
+    const detail = event.data
+    if (!detail || typeof detail !== 'object') return
+    listener({
+      enabled: Boolean((detail as any).enabled),
+      config: normalizeMaintenanceDisplayConfig((detail as any).config),
+      announcements: normalizeRuntimeAnnouncements((detail as any).announcements),
+      savedAt: Number((detail as any).savedAt || Date.now())
+    })
+  }
+
+  window.addEventListener(MAINTENANCE_EVENT, handleWindowEvent as EventListener)
+  window.addEventListener('storage', handleStorage)
+  channel?.addEventListener('message', handleChannelMessage)
+
+  return () => {
+    window.removeEventListener(MAINTENANCE_EVENT, handleWindowEvent as EventListener)
+    window.removeEventListener('storage', handleStorage)
+    channel?.removeEventListener('message', handleChannelMessage)
+  }
 }
