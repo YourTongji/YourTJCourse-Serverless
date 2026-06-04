@@ -43,6 +43,16 @@ export interface MaintenanceDisplayConfig {
   lastUpdated: string
 }
 
+export interface MaintenanceSnapshot {
+  enabled: boolean
+  config: MaintenanceDisplayConfig
+  savedAt: number
+}
+
+export const MAINTENANCE_CACHE_KEY = 'yourtj_maintenance_snapshot'
+export const MAINTENANCE_EVENT = 'yourtj:maintenance-updated'
+export const MAINTENANCE_CACHE_TTL_MS = 60_000
+
 export const DEFAULT_MAINTENANCE_CONFIG: MaintenanceConfig = {
   title: 'YourTJ选课社区',
   subtitle: '正在维护中，请稍候...',
@@ -118,4 +128,43 @@ export function normalizeMaintenanceDisplayConfig(value: unknown): MaintenanceDi
     progress: progress.length > 0 ? progress : DEFAULT_MAINTENANCE_CONFIG.progress,
     lastUpdated: String(input.lastUpdated || DEFAULT_MAINTENANCE_CONFIG.lastUpdated).trim() || DEFAULT_MAINTENANCE_CONFIG.lastUpdated
   }
+}
+
+export function readMaintenanceSnapshot(): MaintenanceSnapshot | null {
+  try {
+    const raw = localStorage.getItem(MAINTENANCE_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<MaintenanceSnapshot> | null
+    if (!parsed || typeof parsed !== 'object') return null
+
+    return {
+      enabled: Boolean(parsed.enabled),
+      config: normalizeMaintenanceDisplayConfig(parsed.config),
+      savedAt: Number(parsed.savedAt || 0)
+    }
+  } catch {
+    return null
+  }
+}
+
+export function isMaintenanceSnapshotFresh(snapshot: MaintenanceSnapshot | null, now = Date.now()) {
+  if (!snapshot) return false
+  return now - snapshot.savedAt <= MAINTENANCE_CACHE_TTL_MS
+}
+
+export function writeMaintenanceSnapshot(enabled: boolean, config?: unknown) {
+  const snapshot: MaintenanceSnapshot = {
+    enabled,
+    config: normalizeMaintenanceDisplayConfig(config),
+    savedAt: Date.now()
+  }
+
+  try {
+    localStorage.setItem(MAINTENANCE_CACHE_KEY, JSON.stringify(snapshot))
+    window.dispatchEvent(new CustomEvent(MAINTENANCE_EVENT, { detail: snapshot }))
+  } catch {
+    // ignore
+  }
+
+  return snapshot
 }

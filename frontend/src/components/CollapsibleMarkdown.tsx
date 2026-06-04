@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import DOMPurify from 'dompurify'
-import { marked } from 'marked'
+import MarkdownIt from 'markdown-it'
 
 interface CollapsibleMarkdownProps {
   content: string
@@ -14,32 +14,137 @@ const ICU_SECTION_HEADINGS = [
   '授课质量',
 ]
 
+const REVIEW_SECTION_HEADINGS = [
+  ...ICU_SECTION_HEADINGS,
+  '考核方式',
+  '授课质量与给分',
+  '上课学期',
+  '作业与考核',
+  '给分情况',
+  '作业量',
+  '考试难度',
+]
+
+const SECTION_HEADING_PATTERN = REVIEW_SECTION_HEADINGS
+  .map((heading) => heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|')
+
+const INVISIBLE_MARKDOWN_CHARS = /[\u200B\u200C\u200D\uFEFF\u2060]/g
+const LEADING_UNICODE_SPACES = /^[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]+/
+const INDENT_PRESERVE_EXCLUDE_PATTERN =
+  /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s?|\|.*|\*{3,}\s*$|-{3,}\s*$|_{3,}\s*$)/
+
+export const markdownContentClassName = 'yourtj-markdown leading-relaxed text-slate-600 [&_a]:text-cyan-600 [&_a]:underline [&_a]:hover:text-cyan-700 [&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-lg [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_h1]:my-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:my-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h4]:my-2 [&_h4]:text-sm [&_h4]:font-semibold [&_h5]:my-2 [&_h5]:text-sm [&_h5]:font-semibold [&_h6]:my-2 [&_h6]:text-sm [&_h6]:font-semibold [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-sm [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-slate-900 [&_pre]:p-3 [&_pre]:text-slate-100'
+
+const markdownRenderer = new MarkdownIt({
+  html: false,
+  breaks: true,
+  linkify: true,
+  typographer: false,
+})
+
+type MarkdownRenderRule = NonNullable<typeof markdownRenderer.renderer.rules.link_open>
+
+const defaultLinkOpenRule: MarkdownRenderRule =
+  markdownRenderer.renderer.rules.link_open ??
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+
+markdownRenderer.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const href = String(tokens[idx].attrGet('href') || '').trim()
+  if (/^https?:\/\//i.test(href)) {
+    tokens[idx].attrSet('target', '_blank')
+    tokens[idx].attrSet('rel', 'noopener noreferrer')
+  }
+  return defaultLinkOpenRule(tokens, idx, options, env, self)
+}
+
+const defaultImageRule: MarkdownRenderRule =
+  markdownRenderer.renderer.rules.image ??
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+
+markdownRenderer.renderer.rules.image = (tokens, idx, options, env, self) => {
+  tokens[idx].attrSet('loading', 'lazy')
+  tokens[idx].attrSet('decoding', 'async')
+  return defaultImageRule(tokens, idx, options, env, self)
+}
+
+markdownRenderer.renderer.rules.table_open = () => '<div class="yourtj-md-table-wrap"><table>'
+markdownRenderer.renderer.rules.table_close = () => '</table></div>'
+
 function normalizeMarkdownSections(text: string) {
   const raw = typeof text === 'string' ? text : ''
   if (!raw) return ''
 
-  const pattern = new RegExp(`^\\s*(${ICU_SECTION_HEADINGS.join('|')})[：:]?\\s*$`)
+  const standaloneHeadingPattern = new RegExp(`^\\s*(${SECTION_HEADING_PATTERN})[：:]?\\s*$`)
+  const inlineHeadingTestPattern = new RegExp(`(${SECTION_HEADING_PATTERN})[：:]`)
+  const inlineHeadingReplacePattern = new RegExp(`(${SECTION_HEADING_PATTERN})[：:]`, 'g')
+  const lines = raw.replace(/\r\n?/g, '\n').split('\n')
+  const normalized: string[] = []
+  let inFence = false
 
-  return raw
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((line) => {
-      if (/^\s{0,3}#{1,6}\s/.test(line)) return line
-      const match = line.match(pattern)
-      if (!match) return line
-      return `## ${match[1]}`
-    })
-    .join('\n')
+  for (const originalLine of lines) {
+    let line = originalLine
+      .replace(INVISIBLE_MARKDOWN_CHARS, '')
+      .replace(LEADING_UNICODE_SPACES, (spaces) => ' '.repeat(spaces.length))
+    const trimmedStartLine = line.trimStart()
+
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence
+      normalized.push(line.trimEnd())
+      continue
+    }
+
+    if (inFence) {
+      normalized.push(line)
+      continue
+    }
+
+    if (/^\s{0,3}#{1,6}\s/.test(trimmedStartLine)) {
+      normalized.push(trimmedStartLine.trimEnd())
+      continue
+    }
+
+    const standaloneMatch = trimmedStartLine.match(standaloneHeadingPattern)
+    if (standaloneMatch) {
+      normalized.push(`## ${standaloneMatch[1]}`)
+      continue
+    }
+
+    if (inlineHeadingTestPattern.test(trimmedStartLine)) {
+      normalized.push(
+        trimmedStartLine
+          .replace(inlineHeadingReplacePattern, '\n## $1\n')
+          .replace(/^\n+/, '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trimEnd()
+      )
+      continue
+    }
+
+    const leadingWhitespace = line.match(/^[ \t]+/)?.[0] ?? ''
+    const trimmed = line.trimStart()
+    if (
+      leadingWhitespace &&
+      trimmed &&
+      !INDENT_PRESERVE_EXCLUDE_PATTERN.test(trimmed)
+    ) {
+      const indentWidth = leadingWhitespace.replace(/\t/g, '    ').length
+      line = `${'&nbsp;'.repeat(indentWidth)}${trimmed}`
+    }
+
+    normalized.push(line.trimEnd())
+  }
+
+  return normalized.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
 export function renderMarkdownHtml(text: string) {
   const raw = normalizeMarkdownSections(text)
-  marked.setOptions({
-    gfm: true,
-    breaks: true,
+  const html = markdownRenderer.render(raw)
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    ADD_ATTR: ['class', 'target', 'rel', 'loading', 'decoding'],
   })
-  const html = marked.parse(raw) as string
-  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })
 }
 
 export default function CollapsibleMarkdown({ content, maxLength = 300 }: CollapsibleMarkdownProps) {
@@ -53,7 +158,7 @@ export default function CollapsibleMarkdown({ content, maxLength = 300 }: Collap
   return (
     <div>
       <div
-        className="leading-relaxed text-slate-600 [&_a]:text-cyan-600 [&_a]:underline [&_a]:hover:text-cyan-700 [&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-lg [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_h1]:my-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:my-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h4]:my-2 [&_h4]:text-sm [&_h4]:font-semibold [&_h5]:my-2 [&_h5]:text-sm [&_h5]:font-semibold [&_h6]:my-2 [&_h6]:text-sm [&_h6]:font-semibold [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-sm [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-slate-900 [&_pre]:p-3 [&_pre]:text-slate-100"
+        className={markdownContentClassName}
         dangerouslySetInnerHTML={{
           __html: renderMarkdownHtml(displayContent)
         }}

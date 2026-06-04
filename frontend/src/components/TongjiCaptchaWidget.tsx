@@ -20,10 +20,13 @@ export default function TongjiCaptchaWidget({ value, onVerify }: Props) {
   const [selected, setSelected] = useState<number[]>([])
   const [imgFade, setImgFade] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [hasPrefetched, setHasPrefetched] = useState(false)
 
   const openModal = () => {
     setIsOpen(true)
-    fetchCaptcha()
+    if (!data) {
+      void fetchCaptcha()
+    }
   }
 
   const fetchCaptcha = async () => {
@@ -36,6 +39,7 @@ export default function TongjiCaptchaWidget({ value, onVerify }: Props) {
       const json = await res.json()
       setTimeout(() => {
         setData(json)
+        setHasPrefetched(true)
         setStatus('idle')
         setImgFade(true)
       }, 150)
@@ -94,12 +98,18 @@ export default function TongjiCaptchaWidget({ value, onVerify }: Props) {
     }
   }, [isOpen])
 
+  useEffect(() => {
+    if (hasPrefetched || data || status === 'success') return
+    void fetchCaptcha()
+  }, [data, hasPrefetched, status])
+
   // allow parent to reset (e.g., submit failed with captcha expired)
   useEffect(() => {
     if (value === undefined) return
     if (String(value || '').trim()) return
     setStatus('idle')
     setData(null)
+    setHasPrefetched(false)
     setSelected([])
     setMessage(null)
   }, [value])

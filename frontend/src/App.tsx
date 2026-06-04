@@ -17,6 +17,13 @@ import { fetchSiteAnnouncements, fetchMaintenanceSettings, SiteAnnouncement, Ann
 import { renderMarkdownHtml } from './components/CollapsibleMarkdown'
 import TourGuide, { TutorialLauncher } from './components/TourGuide'
 import MaintenancePage from './maintenance/MaintenancePage'
+import {
+  DEFAULT_MAINTENANCE_CONFIG,
+  isMaintenanceSnapshotFresh,
+  MAINTENANCE_EVENT,
+  readMaintenanceSnapshot,
+  writeMaintenanceSnapshot
+} from './maintenance/maintenance'
 
 const Admin = lazy(() => import('./pages/Admin'))
 const CreditWalletPanel = lazy(() => import('./components/CreditWalletPanel'))
@@ -400,9 +407,14 @@ export default function App() {
     import.meta.env.DEV && String(import.meta.env.VITE_BYPASS_STARTUP_GATE || '').trim() === '1'
   )
   const hardMaintenanceMode = String(import.meta.env.VITE_MAINTENANCE_MODE || '').trim() === '1'
+  const cachedMaintenanceSnapshot = !hardMaintenanceMode && typeof window !== 'undefined'
+    ? readMaintenanceSnapshot()
+    : null
   const [startupPassed, setStartupPassed] = useState(() => {
     try {
       if (bypassStartupGate) return true
+      if (hardMaintenanceMode) return true
+      if (isMaintenanceSnapshotFresh(cachedMaintenanceSnapshot) && cachedMaintenanceSnapshot?.enabled) return true
       return sessionStorage.getItem('yourtj_startup_passed') === '1'
     } catch {
       return false
@@ -412,8 +424,12 @@ export default function App() {
   const [startupError, setStartupError] = useState('')
   const [startupVerifying, setStartupVerifying] = useState(false)
   const [tourOpen, setTourOpen] = useState(false)
-  const [maintenanceEnabled, setMaintenanceEnabled] = useState(hardMaintenanceMode)
-  const [maintenanceLoaded, setMaintenanceLoaded] = useState(hardMaintenanceMode)
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(
+    hardMaintenanceMode || Boolean(cachedMaintenanceSnapshot?.enabled)
+  )
+  const [maintenanceLoaded, setMaintenanceLoaded] = useState(
+    hardMaintenanceMode || isMaintenanceSnapshotFresh(cachedMaintenanceSnapshot)
+  )
   const [announcementCollapsed, setAnnouncementCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem('yourtj_announcement_collapsed')
@@ -456,10 +472,17 @@ export default function App() {
     fetchMaintenanceSettings()
       .then((data) => {
         if (!active) return
-        setMaintenanceEnabled(Boolean(data?.enabled))
+        const enabled = Boolean(data?.enabled)
+        setMaintenanceEnabled(enabled)
+        writeMaintenanceSnapshot(enabled, data?.config || DEFAULT_MAINTENANCE_CONFIG)
       })
       .catch(() => {
         if (!active) return
+        const cached = readMaintenanceSnapshot()
+        if (cached) {
+          setMaintenanceEnabled(Boolean(cached.enabled))
+          return
+        }
         setMaintenanceEnabled(false)
       })
       .finally(() => {
@@ -469,6 +492,23 @@ export default function App() {
     return () => {
       active = false
     }
+  }, [hardMaintenanceMode])
+
+  useEffect(() => {
+    if (hardMaintenanceMode) return
+
+    const handleMaintenanceUpdate = (event: Event) => {
+      const next = (event as CustomEvent).detail as { enabled?: boolean } | undefined
+      if (!next) return
+      setMaintenanceEnabled(Boolean(next.enabled))
+      setMaintenanceLoaded(true)
+      if (next.enabled) {
+        setStartupPassed(true)
+      }
+    }
+
+    window.addEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
+    return () => window.removeEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
   }, [hardMaintenanceMode])
 
   useEffect(() => {
@@ -500,9 +540,34 @@ export default function App() {
       body: JSON.stringify({ token })
     })
 
-    if (!res.ok) return false
-    const data = await res.json().catch(() => null) as { success?: boolean } | null
-    return data?.success === true
+    const data = await res.json().catch(() => null) as { success?: boolean; error?: string } | null
+    if (!res.ok) {
+      return { ok: false, error: data?.error || 'network_error' }
+    }
+    return {
+      ok: data?.success === true,
+      error: data?.success === true ? undefined : (data?.error || 'verify_failed')
+    }
+  }
+
+  const formatStartupError = (error?: string) => {
+    switch (String(error || '')) {
+      case 'missing_token':
+        return '缺少验证信息，请重试'
+      case 'hostname_not_allowed':
+        return '当前访问域名的验证配置未对上'
+      case 'action_mismatch':
+        return '验证状态不一致，请重新验证'
+      case 'verify_failed':
+        return '验证未通过，请重试'
+      case 'siteverify_http_error':
+      case 'invalid_response':
+      case 'unknown_error':
+      case 'network_error':
+        return '验证服务暂时不可用，请稍后重试'
+      default:
+        return '验证未通过，请重试'
+    }
   }
 
   if (!maintenanceLoaded && !hardMaintenanceMode) {
@@ -578,16 +643,16 @@ export default function App() {
                             setStartupVerifying(true)
 
                             void (async () => {
-                              const ok = await verifyStartupToken(token).catch(() => false)
+                              const result = await verifyStartupToken(token).catch(() => ({ ok: false, error: 'network_error' }))
                               if (startupVerifyRequestRef.current !== requestId) return
 
                               setStartupVerifying(false)
-                              if (ok) {
+                              if (result.ok) {
                                 passStartupGate()
                                 return
                               }
 
-                              setStartupError('验证未通过，请重试')
+                              setStartupError(formatStartupError(result.error))
                               try {
                                 boundTurnstile?.reset?.()
                               } catch {

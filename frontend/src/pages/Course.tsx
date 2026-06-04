@@ -5,7 +5,7 @@ import { toJpeg, toPng } from 'html-to-image'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview } from '../services/api'
 import GlassCard from '../components/GlassCard'
-import CollapsibleMarkdown, { renderMarkdownHtml } from '../components/CollapsibleMarkdown'
+import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
 import { getOrCreateClientId } from '../utils/clientId'
 import { loadCreditWallet } from '../utils/creditWallet'
 
@@ -935,7 +935,7 @@ export default function Course() {
             {exportMode && sharePreview.commentRasterUrl ? (
               <img src={sharePreview.commentRasterUrl} alt="评论内容" className="w-full rounded-[18px]" />
             ) : (
-              <div dangerouslySetInnerHTML={{ __html: sharePreview.markdownHtml }} />
+              <div className={markdownContentClassName} dangerouslySetInnerHTML={{ __html: sharePreview.markdownHtml }} />
             )}
           </div>
 

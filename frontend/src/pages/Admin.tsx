@@ -3,7 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown from '../components/CollapsibleMarkdown'
 import MarkdownEditor from '../components/MarkdownEditor'
-import { DEFAULT_MAINTENANCE_CONFIG, normalizeMaintenanceDisplayConfig } from '../maintenance/maintenance'
+import {
+  DEFAULT_MAINTENANCE_CONFIG,
+  normalizeMaintenanceDisplayConfig,
+  writeMaintenanceSnapshot
+} from '../maintenance/maintenance'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 const ACCESS_KEY = 'tjcourse2026admin'
@@ -380,6 +384,7 @@ export default function Admin() {
         throw new Error('unauthorized')
       }
       if (!res.ok) throw new Error('update maintenance mode failed')
+      writeMaintenanceSnapshot(value, maintenanceConfig)
     } catch (error) {
       setMaintenanceEnabled(previous)
       console.error(error)
@@ -416,6 +421,7 @@ export default function Admin() {
       }
       if (!res.ok) throw new Error('save maintenance failed')
       setMaintenanceConfig(parseMaintenanceConfig(payload))
+      writeMaintenanceSnapshot(maintenanceEnabled, payload)
     } catch (error) {
       console.error(error)
       alert('保存维护页配置失败')

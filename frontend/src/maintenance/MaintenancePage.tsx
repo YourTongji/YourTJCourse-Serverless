@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import MaintenanceLogo from './MaintenanceLogo'
 import MaintenanceCard from './MaintenanceCard'
-import { DEFAULT_MAINTENANCE_CONFIG, normalizeMaintenanceDisplayConfig } from './maintenance'
+import {
+  DEFAULT_MAINTENANCE_CONFIG,
+  MAINTENANCE_EVENT,
+  normalizeMaintenanceDisplayConfig,
+  readMaintenanceSnapshot,
+  writeMaintenanceSnapshot
+} from './maintenance'
 import { fetchMaintenanceSettings, fetchSiteAnnouncements, type SiteAnnouncement } from '../services/api'
 
 function StatusIcon() {
@@ -41,7 +47,14 @@ function BellIcon() {
 export default function MaintenancePage() {
   const pageRef = useRef<HTMLDivElement>(null)
   const [announcements, setAnnouncements] = useState<SiteAnnouncement[]>([])
-  const [maintenanceConfig, setMaintenanceConfig] = useState(() => DEFAULT_MAINTENANCE_CONFIG)
+  const [maintenanceConfig, setMaintenanceConfig] = useState(() => {
+    const cached = typeof window !== 'undefined' ? readMaintenanceSnapshot() : null
+    if (!cached?.config) return DEFAULT_MAINTENANCE_CONFIG
+    return {
+      ...DEFAULT_MAINTENANCE_CONFIG,
+      ...cached.config
+    }
+  })
 
   const cfg = useMemo(() => ({
     ...DEFAULT_MAINTENANCE_CONFIG,
@@ -56,6 +69,7 @@ export default function MaintenancePage() {
         if (!active) return
         if (!data?.config) return
         const partial = normalizeMaintenanceDisplayConfig(data.config)
+        writeMaintenanceSnapshot(Boolean(data.enabled), partial)
         setMaintenanceConfig((current) => ({
           ...current,
           ...partial
@@ -74,6 +88,21 @@ export default function MaintenancePage() {
     return () => {
       active = false
     }
+  }, [])
+
+  useEffect(() => {
+    const handleMaintenanceUpdate = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { config?: unknown } | undefined
+      if (!detail?.config) return
+      const partial = normalizeMaintenanceDisplayConfig(detail.config)
+      setMaintenanceConfig((current) => ({
+        ...current,
+        ...partial
+      }))
+    }
+
+    window.addEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
+    return () => window.removeEventListener(MAINTENANCE_EVENT, handleMaintenanceUpdate as EventListener)
   }, [])
 
   useEffect(() => {
@@ -171,10 +200,10 @@ export default function MaintenancePage() {
   }, [])
 
   return (
-    <main ref={pageRef} className="fixed inset-0 z-[200] flex flex-col items-center md:justify-center overflow-y-auto bg-sea-50 dark:bg-slate-950">
+    <main ref={pageRef} className="yourtj-scrollbar-hidden fixed inset-0 z-[200] flex flex-col items-center md:justify-center overflow-x-hidden overflow-y-auto bg-sea-50 dark:bg-slate-950">
       {/* Ambient glows */}
-      <div className="ambient-glow-1 pointer-events-none fixed -top-24 left-1/4 w-96 h-96 rounded-full bg-cyan-300/20 dark:bg-cyan-500/10 blur-[100px]" />
-      <div className="ambient-glow-2 pointer-events-none fixed -bottom-32 right-1/4 w-80 h-80 rounded-full bg-sky-300/20 dark:bg-sky-500/10 blur-[100px]" />
+      <div className="ambient-glow-1 pointer-events-none fixed -top-16 left-1/2 h-56 w-56 -translate-x-[70%] rounded-full bg-cyan-300/16 blur-[48px] md:-top-24 md:left-1/4 md:h-96 md:w-96 md:translate-x-0 md:bg-cyan-300/20 md:blur-[100px] dark:bg-cyan-500/10" />
+      <div className="ambient-glow-2 pointer-events-none fixed -bottom-20 right-0 h-48 w-48 translate-x-1/4 rounded-full bg-sky-300/14 blur-[44px] md:-bottom-32 md:right-1/4 md:h-80 md:w-80 md:translate-x-0 md:bg-sky-300/20 md:blur-[100px] dark:bg-sky-500/10" />
 
       <div className="absolute inset-0 opacity-[0.06] dark:opacity-[0.08] pointer-events-none bg-[length:26px_26px]"
         style={{
@@ -182,7 +211,7 @@ export default function MaintenancePage() {
         }}
       />
 
-      <div className="relative w-full max-w-6xl px-4 pt-10 pb-6 md:py-12">
+      <div className="relative w-full max-w-6xl px-3 pt-8 pb-5 md:px-4 md:py-12">
         {/* Logo Animation */}
         <div className="mb-5 md:mb-8">
           <div className="mx-auto flex h-[80px] w-[80px] md:h-[92px] md:w-[92px] items-center justify-center rounded-[20px] md:rounded-[26px] bg-gradient-to-br from-cyan-100 to-sky-50 dark:from-slate-800 dark:to-slate-700 shadow-sm">
@@ -219,7 +248,7 @@ export default function MaintenancePage() {
         </p>
 
         {/* Cards Grid - Flex horizontal */}
-        <div className="flex flex-row flex-wrap gap-3 md:gap-5 justify-center">
+        <div className="flex w-full flex-col gap-3 md:flex-row md:flex-wrap md:justify-center md:gap-5">
           {/* Status Card */}
           <MaintenanceCard className="mcard" icon={<StatusIcon />} title="系统状态">
             <div className="space-y-2">
@@ -238,8 +267,8 @@ export default function MaintenancePage() {
           <MaintenanceCard className="mcard" icon={<ProgressIcon />} title="维护进度">
             <div className="space-y-3">
               {cfg.progress.map((step, idx) => (
-                <div key={step.id} className="progress-step flex items-start gap-3">
-                  <div className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black shrink-0 mt-0.5 ${
+                <div key={step.id} className="progress-step flex items-center gap-3">
+                  <div className={`flex h-5 w-5 items-center justify-center self-center rounded-full text-[10px] font-black shrink-0 ${
                     step.done
                       ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300'
                       : step.active
@@ -248,7 +277,7 @@ export default function MaintenancePage() {
                   }`}>
                     {step.done ? '✓' : idx + 1}
                   </div>
-                  <span className={`text-xs ${
+                  <span className={`min-w-0 flex-1 text-xs leading-5 ${
                     step.done
                       ? 'text-slate-500 dark:text-slate-400 line-through decoration-slate-600 dark:decoration-slate-300'
                       : step.active
@@ -323,7 +352,7 @@ export default function MaintenancePage() {
                   return (
                     <div
                       key={item.id}
-                      className={`announcement-entry rounded-xl border px-3 py-2.5 ${typeStyles[item.type] || typeStyles.info}`}
+                      className={`announcement-entry overflow-hidden rounded-xl border px-3 py-2.5 ${typeStyles[item.type] || typeStyles.info}`}
                     >
                       <div className="flex items-start gap-2">
                         <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${dotStyles[item.type] || dotStyles.info}`} />
