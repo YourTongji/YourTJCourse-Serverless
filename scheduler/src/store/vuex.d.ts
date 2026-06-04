@@ -30,7 +30,9 @@ declare module 'vue' {
         },
         clickedCourseInfo: {
             courseCode: string,
-            courseName: string
+            courseName: string,
+            teacherCode?: string,
+            teacherName?: string
         },
         occupied: Array<Array<occupyCell[]>>, /* 持久化 */
         timeTableData: courseOnTable[], /* 持久化 */

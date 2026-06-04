@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown from '../components/CollapsibleMarkdown'
 import MarkdownEditor from '../components/MarkdownEditor'
+import { DEFAULT_MAINTENANCE_CONFIG, normalizeMaintenanceDisplayConfig } from '../maintenance/maintenance'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 const ACCESS_KEY = 'tjcourse2026admin'
@@ -43,6 +44,43 @@ interface AnnouncementDraft {
   enabled: boolean
 }
 
+interface MaintenanceProgressDraft {
+  id: string
+  label: string
+  done: boolean
+  active: boolean
+}
+
+interface MaintenanceDraft {
+  message: string
+  eta: string
+  progress: MaintenanceProgressDraft[]
+  lastUpdated: string
+}
+
+function normalizeMaintenanceProgress(value: unknown): MaintenanceProgressDraft[] {
+  if (!Array.isArray(value)) return DEFAULT_MAINTENANCE_CONFIG.progress
+  const rows = value
+    .map((item, index) => ({
+      id: String((item as any)?.id || `step-${index + 1}`),
+      label: String((item as any)?.label || '').trim(),
+      done: Boolean((item as any)?.done),
+      active: Boolean((item as any)?.active)
+    }))
+    .filter((item) => item.label)
+  return rows.length > 0 ? rows : DEFAULT_MAINTENANCE_CONFIG.progress
+}
+
+function normalizeMaintenanceDraft(value: unknown): MaintenanceDraft {
+  const normalized = normalizeMaintenanceDisplayConfig(value)
+  return {
+    message: normalized.message,
+    eta: normalized.eta,
+    progress: normalizeMaintenanceProgress(normalized.progress),
+    lastUpdated: normalized.lastUpdated
+  }
+}
+
 const emptyReviewForm = { comment: '', rating: 5, reviewer_name: '', reviewer_avatar: '' }
 const emptyCourseForm = { code: '', name: '', credit: 0, department: '', teacher_name: '', search_keywords: '' }
 
@@ -79,6 +117,9 @@ export default function Admin() {
   const [showLegacyReviews, setShowLegacyReviews] = useState(false)
   const [announcements, setAnnouncements] = useState<AnnouncementDraft[]>([])
   const [isSavingAnnouncements, setIsSavingAnnouncements] = useState(false)
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(false)
+  const [maintenanceConfig, setMaintenanceConfig] = useState<MaintenanceDraft>(DEFAULT_MAINTENANCE_CONFIG)
+  const [isSavingMaintenance, setIsSavingMaintenance] = useState(false)
 
   const getHeaders = () => ({ 'x-admin-secret': secret, 'Content-Type': 'application/json' })
 
@@ -105,6 +146,25 @@ export default function Admin() {
       return []
     }
   }
+
+  const parseMaintenanceConfig = (value: unknown): MaintenanceDraft => {
+    let parsed: unknown = value
+    if (typeof value === 'string') {
+      try {
+        parsed = JSON.parse(value)
+      } catch {
+        parsed = {}
+      }
+    }
+    return normalizeMaintenanceDraft(parsed)
+  }
+
+  const createMaintenanceStep = (): MaintenanceProgressDraft => ({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    label: '',
+    done: false,
+    active: false
+  })
 
   const login = async () => {
     if (!secret) return
@@ -252,25 +312,39 @@ export default function Admin() {
   const fetchSettings = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/admin/settings`, { headers: getHeaders() })
+      if (res.status === 401) {
+        setIsAuth(false)
+        return alert('管理密钥错误')
+      }
       if (!res.ok) throw new Error('fetch settings failed')
       const data = await res.json()
       setShowLegacyReviews(data.show_legacy_reviews === 'true')
       setAnnouncements(parseAnnouncements(data.site_announcements))
+      setMaintenanceEnabled(data.maintenance_mode === 'true')
+      setMaintenanceConfig(parseMaintenanceConfig(data.maintenance_config))
     } catch (error) {
       console.error(error)
     }
   }
 
   const updateShowLegacy = async (value: boolean) => {
+    const previous = showLegacyReviews
     setShowLegacyReviews(value)
     try {
-      await fetch(`${API_BASE}/api/admin/settings/show_legacy_reviews`, {
+      const res = await fetch(`${API_BASE}/api/admin/settings/show_legacy_reviews`, {
         method: 'PUT',
         headers: getHeaders(),
         body: JSON.stringify({ value: value ? 'true' : 'false' })
       })
+      if (res.status === 401) {
+        setIsAuth(false)
+        throw new Error('unauthorized')
+      }
+      if (!res.ok) throw new Error('update legacy failed')
     } catch (error) {
+      setShowLegacyReviews(previous)
       console.error(error)
+      alert('更新旧站评论显示设置失败')
     }
   }
 
@@ -289,6 +363,64 @@ export default function Admin() {
       alert('保存公告失败')
     } finally {
       setIsSavingAnnouncements(false)
+    }
+  }
+
+  const updateMaintenanceMode = async (value: boolean) => {
+    const previous = maintenanceEnabled
+    setMaintenanceEnabled(value)
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/settings/maintenance_mode`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({ value: value ? 'true' : 'false' })
+      })
+      if (res.status === 401) {
+        setIsAuth(false)
+        throw new Error('unauthorized')
+      }
+      if (!res.ok) throw new Error('update maintenance mode failed')
+    } catch (error) {
+      setMaintenanceEnabled(previous)
+      console.error(error)
+      alert('更新维护模式失败')
+    }
+  }
+
+  const saveMaintenanceConfig = async () => {
+    setIsSavingMaintenance(true)
+    try {
+      const nowLabel = new Date().toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).replace(/\//g, '-')
+      const payload = {
+        message: maintenanceConfig.message.trim() || DEFAULT_MAINTENANCE_CONFIG.message,
+        eta: maintenanceConfig.eta.trim() || DEFAULT_MAINTENANCE_CONFIG.eta,
+        progress: maintenanceConfig.progress.filter((item) => item.label.trim()),
+        lastUpdated: nowLabel
+      }
+      const res = await fetch(`${API_BASE}/api/admin/settings/maintenance_config`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({ value: JSON.stringify(payload) })
+      })
+      if (res.status === 401) {
+        setIsAuth(false)
+        throw new Error('unauthorized')
+      }
+      if (!res.ok) throw new Error('save maintenance failed')
+      setMaintenanceConfig(parseMaintenanceConfig(payload))
+    } catch (error) {
+      console.error(error)
+      alert('保存维护页配置失败')
+    } finally {
+      setIsSavingMaintenance(false)
     }
   }
 
@@ -565,6 +697,51 @@ export default function Admin() {
               <button onClick={() => void updateShowLegacy(!showLegacyReviews)} className={`relative h-7 w-14 rounded-full transition-colors ${showLegacyReviews ? 'bg-amber-500' : 'bg-slate-300'}`}>
                 <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${showLegacyReviews ? 'left-8' : 'left-1'}`} />
               </button>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div className="mb-6 flex items-center justify-between rounded-xl border border-sky-100 bg-sky-50 p-4">
+                <div>
+                  <h3 className="font-semibold text-slate-800">维护模式</h3>
+                  <p className="mt-1 text-sm text-slate-500">开启后，进入人机验证会关闭，普通用户只能看到维护页面；管理员仍可通过带 `access` 参数的后台入口访问。</p>
+                </div>
+                <button onClick={() => void updateMaintenanceMode(!maintenanceEnabled)} className={`relative h-7 w-14 rounded-full transition-colors ${maintenanceEnabled ? 'bg-sky-500' : 'bg-slate-300'}`}>
+                  <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${maintenanceEnabled ? 'left-8' : 'left-1'}`} />
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-800">维护页面内容</h3>
+                    <p className="mt-1 text-sm text-slate-500">这里只会更新维护说明、系统状态卡片和维护进度卡片；系统公告始终与首页公告保持一致。</p>
+                  </div>
+                  <button onClick={() => void saveMaintenanceConfig()} disabled={isSavingMaintenance} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-700 disabled:opacity-60">
+                    {isSavingMaintenance ? '保存中...' : '保存维护页'}
+                  </button>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <input value={maintenanceConfig.eta} onChange={(event) => setMaintenanceConfig((current) => ({ ...current, eta: event.target.value }))} placeholder="预计恢复时间" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+                  <textarea value={maintenanceConfig.message} onChange={(event) => setMaintenanceConfig((current) => ({ ...current, message: event.target.value }))} placeholder="维护说明" rows={3} className="min-h-[92px] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-400 md:col-span-2" />
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-bold text-slate-700">维护进度</h4>
+                    <button onClick={() => setMaintenanceConfig((current) => ({ ...current, progress: [...current.progress, createMaintenanceStep()] }))} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700">新增步骤</button>
+                  </div>
+                  {maintenanceConfig.progress.map((item) => (
+                    <div key={item.id} className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_auto_auto_auto]">
+                      <input value={item.label} onChange={(event) => setMaintenanceConfig((current) => ({ ...current, progress: current.progress.map((row) => row.id === item.id ? { ...row, label: event.target.value } : row) }))} placeholder="步骤内容" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+                      <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={item.done} onChange={(event) => setMaintenanceConfig((current) => ({ ...current, progress: current.progress.map((row) => row.id === item.id ? { ...row, done: event.target.checked } : row) }))} />已完成</label>
+                      <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={item.active} onChange={(event) => setMaintenanceConfig((current) => ({ ...current, progress: current.progress.map((row) => row.id === item.id ? { ...row, active: event.target.checked } : row) }))} />当前项</label>
+                      <button onClick={() => setMaintenanceConfig((current) => ({ ...current, progress: current.progress.filter((row) => row.id !== item.id) }))} className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-600">删除</button>
+                    </div>
+                  ))}
+                </div>
+
+              </div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">

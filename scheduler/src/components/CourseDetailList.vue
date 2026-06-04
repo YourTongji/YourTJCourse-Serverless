@@ -78,6 +78,7 @@
             :courseCode="$store.state.clickedCourseInfo.courseCode"
             :courseName="$store.state.clickedCourseInfo.courseName"
             :teacherName="reviewTeacherName"
+            :teacherCode="reviewTeacherCode"
             @close="reviewDrawerOpen = false"
         />
     </a-layout-content>
@@ -95,6 +96,7 @@ import CourseReviewDrawer from './CourseReviewDrawer.vue';
             return {
                 reviewDrawerOpen: false,
                 reviewTeacherName: '',
+                reviewTeacherCode: '',
                 isMobile: typeof window !== 'undefined' ? window.innerWidth < 768 : false,
                 columns: ([
                     {
@@ -147,8 +149,13 @@ import CourseReviewDrawer from './CourseReviewDrawer.vue';
         },
         computed: {
             localDetailList() {
-                // console.log(this.$store.state.commonLists.stagedCourses.find(course => course.courseCode === this.$store.state.clickedCourseInfo.courseCode)?.courseDetail)
-                return this.$store.state.commonLists.stagedCourses.find((course: stagedCourse) => course.courseCode === this.$store.state.clickedCourseInfo.courseCode)?.courseDetail || [];
+                const details = this.$store.state.commonLists.stagedCourses.find((course: stagedCourse) => course.courseCode === this.$store.state.clickedCourseInfo.courseCode)?.courseDetail || [];
+                return [...details].sort((left: any, right: any) => {
+                    const leftExclusive = left?.isExclusive ? 1 : 0;
+                    const rightExclusive = right?.isExclusive ? 1 : 0;
+                    if (leftExclusive !== rightExclusive) return rightExclusive - leftExclusive;
+                    return String(left?.code || '').localeCompare(String(right?.code || ''));
+                });
             },
             title() {
                 const courseInfo = this.$store.state.clickedCourseInfo;
@@ -157,18 +164,53 @@ import CourseReviewDrawer from './CourseReviewDrawer.vue';
             }
         },
         methods: {
-            openReviewDrawer() {
-                // 默认取当前详情列表第一个班号的教师，避免混入同课号不同老师的评价
-                if (!this.reviewTeacherName) {
-                    const first = (this.localDetailList || [])[0] as any
-                    const t0 = first?.teachers?.[0]?.teacherName
-                    if (t0) this.reviewTeacherName = String(t0)
+            syncReviewTeacherFromClickedInfo() {
+                const clickedInfo = this.$store.state.clickedCourseInfo || {}
+                this.reviewTeacherName = clickedInfo.teacherName ? String(clickedInfo.teacherName) : ''
+                this.reviewTeacherCode = clickedInfo.teacherCode ? String(clickedInfo.teacherCode) : ''
+            },
+            findPreferredDetailForReview() {
+                const clickedInfo = this.$store.state.clickedCourseInfo || {}
+                const preferredTeacherCode = String(clickedInfo.teacherCode || '').trim()
+                const preferredTeacherName = String(clickedInfo.teacherName || '').trim()
+                const detailList = this.localDetailList || []
+
+                if (preferredTeacherCode) {
+                    const matchedByCode = detailList.find((detail: any) =>
+                        Array.isArray(detail?.teachers) && detail.teachers.some((teacher: any) => String(teacher?.teacherCode || '').trim() === preferredTeacherCode)
+                    )
+                    if (matchedByCode) return matchedByCode
                 }
+
+                if (preferredTeacherName) {
+                    const matchedByName = detailList.find((detail: any) =>
+                        Array.isArray(detail?.teachers) && detail.teachers.some((teacher: any) => String(teacher?.teacherName || '').trim() === preferredTeacherName)
+                    )
+                    if (matchedByName) return matchedByName
+                }
+
+                const selectedDetail = detailList.find((detail: any) => Number(detail?.status || 0) > 0)
+                if (selectedDetail) return selectedDetail
+
+                return detailList[0]
+            },
+            syncTeacherSelection(courseDetaillet: courseDetaillet) {
+                const teacher0 = (courseDetaillet as any)?.teachers?.[0]
+                this.reviewTeacherName = teacher0?.teacherName ? String(teacher0.teacherName) : ''
+                this.reviewTeacherCode = teacher0?.teacherCode ? String(teacher0.teacherCode) : ''
+                this.$store.commit('setClickedCourseInfo', {
+                    ...this.$store.state.clickedCourseInfo,
+                    teacherName: this.reviewTeacherName,
+                    teacherCode: this.reviewTeacherCode
+                })
+            },
+            openReviewDrawer() {
+                const preferredDetail = this.findPreferredDetailForReview() as any
+                if (preferredDetail) this.syncTeacherSelection(preferredDetail)
                 this.reviewDrawerOpen = true;
             },
             selectDetail(courseDetaillet: courseDetaillet) {
-                const t0 = (courseDetaillet as any)?.teachers?.[0]?.teacherName
-                this.reviewTeacherName = t0 ? String(t0) : ''
+                this.syncTeacherSelection(courseDetaillet)
                 this.$store.commit('updateTimeTable', courseDetaillet);
             },
             getCampusClass(campus: string) {
@@ -186,9 +228,7 @@ import CourseReviewDrawer from './CourseReviewDrawer.vue';
             onRowEvent(courseDetaillet: courseDetaillet) {
                 return {
                     onClick: () => {
-                        // console.log("记录", courseDetaillet);
-                        const t0 = (courseDetaillet as any)?.teachers?.[0]?.teacherName
-                        this.reviewTeacherName = t0 ? String(t0) : ''
+                        this.syncTeacherSelection(courseDetaillet)
                         this.$store.commit('updateTimeTable', courseDetaillet);
                     }
                 }
@@ -239,6 +279,26 @@ import CourseReviewDrawer from './CourseReviewDrawer.vue';
         beforeUnmount() {
             const fn = (this as any)._onResize
             if (fn) window.removeEventListener('resize', fn)
+        },
+        watch: {
+            '$store.state.clickedCourseInfo.courseCode': {
+                handler() {
+                    this.syncReviewTeacherFromClickedInfo()
+                },
+                immediate: true
+            },
+            '$store.state.clickedCourseInfo.teacherCode': {
+                handler() {
+                    this.syncReviewTeacherFromClickedInfo()
+                },
+                immediate: true
+            },
+            '$store.state.clickedCourseInfo.teacherName': {
+                handler() {
+                    this.syncReviewTeacherFromClickedInfo()
+                },
+                immediate: true
+            }
         }
     }
 </script>

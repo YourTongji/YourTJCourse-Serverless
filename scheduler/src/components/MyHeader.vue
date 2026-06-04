@@ -26,7 +26,7 @@
                 </a-button>
             </div>
 
-            <div class="grid grid-cols-3 gap-2 md:flex md:gap-2 md:justify-end">
+            <div class="grid grid-cols-3 gap-2 md:flex md:flex-row md:items-center md:gap-4 md:justify-end">
                 <div>
                     <a-dropdown>
                         <template #overlay>
@@ -43,18 +43,18 @@
                             </a-menu>
                         </template>
                         <a-button size="small" class="w-full">
-                            <div class="flex flex-row space-x-2 items-center justify-center">
-                                <p class="text-xs md:text-sm">导出</p>
-                                <div><ExportOutlined /></div>
+                            <div class="inline-flex w-full items-center justify-center gap-1.5 leading-none">
+                                <span class="text-xs md:text-sm leading-none">导出为</span>
+                                <span class="inline-flex items-center leading-none"><ExportOutlined /></span>
                             </div>
                         </a-button>
                     </a-dropdown>
                 </div>
                 <div>
                     <a-button size="small" class="w-full" @click="readTheDocs">
-                        <div class="flex flex-row space-x-2 items-center justify-center">
-                            <p class="text-xs md:text-sm">帮助</p>
-                            <div><ReadOutlined /></div>
+                        <div class="inline-flex w-full items-center justify-center gap-1.5 leading-none">
+                            <span class="text-xs md:text-sm leading-none">帮助文档</span>
+                            <span class="inline-flex items-center leading-none"><ReadOutlined /></span>
                         </div>
                     </a-button>
                 </div>
@@ -80,9 +80,9 @@
                             </a-menu>
                         </template>
                         <a-button size="small" class="w-full">
-                            <div class="flex flex-row space-x-2 items-center justify-center">
-                                <p class="text-xs md:text-sm">链接</p>
-                                <div><LinkOutlined /></div>
+                            <div class="inline-flex w-full items-center justify-center gap-1.5 leading-none">
+                                <span class="text-xs md:text-sm leading-none">友情链接</span>
+                                <span class="inline-flex items-center leading-none"><LinkOutlined /></span>
                             </div>
                         </a-button>
                     </a-dropdown>
@@ -296,7 +296,7 @@ export default {
             downloadXLS(xlsBlob);
         },
         readTheDocs() {
-            errorNotify("敬请期待");
+            window.open('https://xk.xialing.icu/docs/', '_blank');
         }
     }
 }

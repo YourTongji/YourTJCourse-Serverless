@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import BoringAvatar from 'boring-avatars'
 import { toJpeg, toPng } from 'html-to-image'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { fetchCourse, likeReview, unlikeReview } from '../services/api'
+import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview } from '../services/api'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { renderMarkdownHtml } from '../components/CollapsibleMarkdown'
 import { getOrCreateClientId } from '../utils/clientId'
@@ -36,6 +36,22 @@ interface CourseData {
   reviews: Review[]
 }
 
+interface RelatedCourseItem {
+  id: number
+  code: string
+  name: string
+  teacher_name: string
+  review_avg: number
+  review_count: number
+}
+
+interface RelatedCourseData {
+  teacher_other_courses: RelatedCourseItem[]
+  same_course_other_teachers: RelatedCourseItem[]
+}
+
+const MOBILE_RELATED_BREAKPOINT = 1024
+
 type SharePreviewState = {
   review: Review
   avatarUrl: string
@@ -65,6 +81,10 @@ function formatSemesterLabel(value: string) {
   if (/2/i.test(text)) return `${shortYear}春`
 
   return text
+}
+
+function formatRating(value: number) {
+  return Number(value || 0) > 0 ? value.toFixed(1) : '-'
 }
 
 function buildBeamAvatarDataUri(seedText: string, size = 72) {
@@ -669,6 +689,13 @@ export default function Course() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [course, setCourse] = useState<CourseData | null>(null)
+  const [related, setRelated] = useState<RelatedCourseData>({ teacher_other_courses: [], same_course_other_teachers: [] })
+  const [isMobileRelatedPanel, setIsMobileRelatedPanel] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < MOBILE_RELATED_BREAKPOINT : false
+  )
+  const [isRelatedPanelCollapsed, setIsRelatedPanelCollapsed] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < MOBILE_RELATED_BREAKPOINT : false
+  )
   const [loadError, setLoadError] = useState('')
   const [displayCount, setDisplayCount] = useState(20) // 初始显示20条评论
   const clientId = useMemo(() => getOrCreateClientId(), [])
@@ -680,11 +707,66 @@ export default function Course() {
   useEffect(() => {
     if (!id) return
     setCourse(null)
+    setRelated({ teacher_other_courses: [], same_course_other_teachers: [] })
     setLoadError('')
-    fetchCourse(id, { clientId })
-      .then(setCourse)
+    Promise.all([
+      fetchCourse(id, { clientId }),
+      fetchCourseRelated(id).catch(() => ({ teacher_other_courses: [], same_course_other_teachers: [] }))
+    ])
+      .then(([courseData, relatedData]) => {
+        setCourse(courseData)
+        setRelated(relatedData)
+      })
       .catch(() => setLoadError('加载失败，请重试'))
   }, [id, clientId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const syncRelatedPanelMode = () => {
+      const mobile = window.innerWidth < MOBILE_RELATED_BREAKPOINT
+      setIsMobileRelatedPanel(mobile)
+      setIsRelatedPanelCollapsed((prev) => (mobile ? prev : false))
+    }
+
+    syncRelatedPanelMode()
+    window.addEventListener('resize', syncRelatedPanelMode, { passive: true })
+    return () => window.removeEventListener('resize', syncRelatedPanelMode)
+  }, [])
+
+  const renderRelatedList = (items: RelatedCourseItem[], type: 'course' | 'teacher') => {
+    if (!items.length) {
+      return <p className="text-sm text-slate-400">暂无相关内容</p>
+    }
+
+    return (
+      <div className="space-y-2">
+        {items.slice(0, 5).map((item) => (
+          <Link
+            key={`${type}-${item.id}`}
+            to={`/course/${item.id}`}
+            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white/80 px-3 py-2 transition hover:border-cyan-200 hover:bg-cyan-50/60"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-slate-700">
+                {type === 'course' ? item.name : item.teacher_name || '未知教师'}
+              </p>
+              <p className="truncate text-xs text-slate-400">
+                {type === 'course' ? (item.code || '无课程代码') : (item.name || item.code || '未命名课程')}
+              </p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-sm font-black text-amber-500">{formatRating(item.review_avg)}</p>
+              <p className="text-[10px] text-slate-400">{item.review_count || 0} 评</p>
+            </div>
+          </Link>
+        ))}
+      </div>
+    )
+  }
+
+  const relatedItemCount = related.teacher_other_courses.length + related.same_course_other_teachers.length
+  const showCollapsedRelatedPanel = isMobileRelatedPanel && isRelatedPanelCollapsed
 
   const handleLoadMore = () => {
     setDisplayCount(prev => prev + 20)
@@ -969,7 +1051,7 @@ export default function Course() {
               </div>
               <div>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">综合评分</p>
-                <p className="text-sm font-bold text-slate-700">{course.review_avg?.toFixed(1) || '-'} / 5.0</p>
+                <p className="text-sm font-bold text-slate-700">{formatRating(course.review_avg)} / 5.0</p>
               </div>
             </div>
 
@@ -998,6 +1080,63 @@ export default function Course() {
               撰写评价
             </Link>
           </div>
+        </GlassCard>
+
+        <GlassCard className="bg-white/90" hover={false}>
+          {showCollapsedRelatedPanel ? (
+            <button
+              type="button"
+              onClick={() => setIsRelatedPanelCollapsed(false)}
+              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white/80 px-3 py-2.5 text-left transition hover:border-cyan-200 hover:bg-cyan-50/60"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="h-2 w-2 shrink-0 rounded-full bg-cyan-500"></div>
+                <p className="truncate text-sm font-black text-slate-700">
+                  相关课程
+                  <span className="ml-2 text-xs font-bold text-slate-400">
+                    {relatedItemCount > 0 ? `${relatedItemCount} 项，点此展开` : '点此查看'}
+                  </span>
+                </p>
+              </div>
+              <svg className="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          ) : (
+            <div className="space-y-5">
+              {isMobileRelatedPanel && (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="h-2 w-2 shrink-0 rounded-full bg-cyan-500"></div>
+                    <p className="truncate text-sm font-black text-slate-700">相关课程</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsRelatedPanelCollapsed(true)}
+                    className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    收起
+                  </button>
+                </div>
+              )}
+
+              <div>
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-cyan-500"></div>
+                  <h3 className="text-sm font-black text-slate-700">该老师的其他课程</h3>
+                </div>
+                {renderRelatedList(related.teacher_other_courses, 'course')}
+              </div>
+
+              <div className="border-t border-slate-100 pt-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-amber-400"></div>
+                  <h3 className="text-sm font-black text-slate-700">该课程其他老师</h3>
+                </div>
+                {renderRelatedList(related.same_course_other_teachers, 'teacher')}
+              </div>
+            </div>
+          )}
         </GlassCard>
       </div>
 
@@ -1195,4 +1334,3 @@ export default function Course() {
     </>
   )
 }
-

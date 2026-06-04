@@ -61,7 +61,8 @@ export default {
     },
     methods: {
         filteredCourses(courses: courseInfo[]) {
-            return courses.filter((course: courseInfo) => {
+            const safeCourses = Array.isArray(courses) ? courses : [];
+            return safeCourses.filter((course: courseInfo) => {
                 return !this.$store.state.commonLists.stagedCourses.some((stagedCourse: stagedCourse) => stagedCourse.courseCode === course.courseCode);
             });
         },

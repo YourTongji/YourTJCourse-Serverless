@@ -3,14 +3,16 @@
         <a-card
             title="专业选择"
         >
-        <div class="flex flex-col md:flex-row gap-4 md:gap-8 items-stretch md:items-center">
-            <div class="flex flex-row gap-3 items-center">
-                <p>学期</p>
+        <div class="flex flex-col md:flex-row md:flex-wrap gap-4 md:gap-8 items-stretch md:items-center">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <div class="flex h-8 items-center shrink-0 min-w-[2.5rem]">
+                    <p class="mb-0 whitespace-nowrap text-sm">学期</p>
+                </div>
                 <a-select
                     :value="$store.state.majorSelected.calendarId"
                     placeholder="请选择学期"
                     @change="findGradeByCalendarId"
-                    class="w-full md:w-48"
+                    class="w-full md:w-48 major-select"
                 >
                     <a-select-option
                         v-for="calendar in rawList.calendars"
@@ -21,13 +23,15 @@
                     </a-select-option>
                 </a-select>
             </div>
-            <div class="flex flex-row gap-3 items-center">
-                <p>年级</p>
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <div class="flex h-8 items-center shrink-0 min-w-[2.5rem]">
+                    <p class="mb-0 whitespace-nowrap text-sm">年级</p>
+                </div>
                 <a-select
                     :value="$store.state.majorSelected.grade"
                     placeholder="请选择年级"
                     @change="findMajorByGrade"
-                    class="w-full md:w-32"
+                    class="w-full md:w-32 major-select"
                 >
                     <a-select-option
                         v-for="grade in rawList.grades"
@@ -38,9 +42,9 @@
                     </a-select-option>
                 </a-select>
             </div>
-            <div class="flex flex-col sm:flex-row gap-3 sm:items-center">
-                <div class="flex items-center space-x-2">
-                    <p>专业</p>
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <div class="flex h-8 items-center gap-2 shrink-0 min-w-[4.25rem] whitespace-nowrap">
+                    <p class="mb-0 whitespace-nowrap text-sm">专业</p>
                     <a-tooltip placement="topLeft" overlayClassName="max-w-md major-help-tooltip">
                         <template #title>
                             <div class="text-sm space-y-2">
@@ -79,7 +83,7 @@
                     show-search
                     allow-clear
                     @change="onMajorChange"
-                    class="w-full md:w-[420px]"
+                    class="w-full md:w-[420px] major-select"
                     :filter-option="filterMajor"
                 >
                     <a-select-option
@@ -91,7 +95,12 @@
                             {{ major.name }}
                         </a-select-option>
                 </a-select>
-            </div>            
+            </div>
+            <div class="flex items-center md:flex-1">
+                <div class="w-full rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm leading-6 text-cyan-900 md:ml-2">
+                    如需跨学科选课，在“选择课程”-“高级检索”中直接检索想选择的课程即可
+                </div>
+            </div>
         </div>
         </a-card>
     </a-layout-content>
@@ -111,7 +120,7 @@ export default {
         return {
             rawList: {
                 calendars: [] as { calendarId: number, calendarName: string }[],
-                grades: [],
+                grades: [] as number[],
                 majors: [] as { code: string, name: string }[]
             }
         }
@@ -124,6 +133,15 @@ export default {
         }
     },
     methods: {
+        ensureCalendarList(value: unknown) {
+            return Array.isArray(value) ? value : [];
+        },
+        ensureGradeList(value: unknown) {
+            return Array.isArray(value) ? value : [];
+        },
+        ensureMajorList(value: unknown) {
+            return Array.isArray(value) ? value : [];
+        },
         async getAllCalendar() {
             this.$store.commit("setSpin", true);
 
@@ -132,7 +150,7 @@ export default {
                     url: '/api/getAllCalendar',
                     method: 'get'
                 });
-                this.rawList.calendars = res.data.data;
+                this.rawList.calendars = this.ensureCalendarList(res.data?.data);
             }
             catch (error: unknown) {
                 // console.log("error:", error);
@@ -161,7 +179,7 @@ export default {
                         calendarId: this.$store.state.majorSelected.calendarId
                     }
                 });
-                this.rawList.grades = res.data.data.gradeList;
+                this.rawList.grades = this.ensureGradeList(res.data?.data?.gradeList);
                 // 在年级更改时清空专业
                 this.rawList.majors = [];
             }
@@ -192,7 +210,7 @@ export default {
                         grade: this.$store.state.majorSelected.grade
                     }
                 });
-                this.rawList.majors = res.data.data;
+                this.rawList.majors = this.ensureMajorList(res.data?.data);
             }
             catch (error: unknown) {
                 // console.log("error:", error);
@@ -250,7 +268,7 @@ export default {
                         calendarId: this.$store.state.majorSelected.calendarId
                     }
                 });
-                this.rawList.grades = res.data.data.gradeList;
+                this.rawList.grades = this.ensureGradeList(res.data?.data?.gradeList);
                 // 在年级更改时清空专业
                 this.rawList.majors = [];
             }
@@ -274,7 +292,7 @@ export default {
                         grade: this.$store.state.majorSelected.grade
                     }
                 });
-                this.rawList.majors = res.data.data;
+                this.rawList.majors = this.ensureMajorList(res.data?.data);
             }
             catch (error: unknown) {
                 const err = error as { response?: { data?: { msg?: string } } };
@@ -285,7 +303,7 @@ export default {
             }
         }
 },
-    emit: ['changeMajor']
+    emits: ['changeMajor']
 }
 </script>
 
@@ -300,5 +318,23 @@ export default {
 .major-help-tooltip .ant-tooltip-arrow-content {
     background-color: white;
     border: 1px solid #e8e8e8;
+}
+
+.major-select :deep(.ant-select-selector) {
+    height: 32px !important;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+}
+
+.major-select :deep(.ant-select-selection-item),
+.major-select :deep(.ant-select-selection-placeholder),
+.major-select :deep(.ant-select-selection-search-input) {
+    line-height: 32px !important;
+}
+
+.major-select :deep(.ant-select-selection-search) {
+    display: flex;
+    align-items: center;
 }
 </style>

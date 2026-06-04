@@ -134,6 +134,37 @@ export default {
     }
   },
   methods: {
+    normalizeDetailCourse(detail: Record<string, unknown>) {
+      const teachers = Array.isArray(detail?.teachers) ? detail.teachers : [];
+      const teacherAndCode = teachers
+        .map((teacher: any) => `${String(teacher?.teacherName || '')}(${String(teacher?.teacherCode || '')})`)
+        .filter((value: string) => value !== '()')
+        .join(', ');
+
+      const arrangementInfo = Array.isArray(detail?.arrangementInfo)
+        ? detail.arrangementInfo.map((arrangement: any) => ({
+          ...arrangement,
+          teacherAndCode: String(arrangement?.teacherAndCode || teacherAndCode || '').trim()
+        }))
+        : [];
+
+      return {
+        ...detail,
+        status: 0,
+        arrangementInfo,
+      };
+    },
+    findCompulsoryCourseByRowKey(rowKey: string) {
+      const parts = String(rowKey || '').split('_');
+      const gradeText = parts[1] || '';
+      const courseCode = parts.slice(2).join('_');
+      const grade = Number(gradeText);
+
+      return this.$store.state.commonLists.compulsoryCourses.find((course: any) => {
+        return String(course?.courseCode || '') === courseCode
+          && Number(course?.grade || 0) === grade;
+      });
+    },
     handleOpen() {
       this.openOverview = true;
       // console.log("openOverview", this.openOverview);
@@ -169,7 +200,7 @@ export default {
           compulsoryCourses.push(key);
         }
         else if (type === '选') {
-          const _courseCode = key.split('_')[2];
+          const _courseCode = key.split('_').slice(2).join('_');
           optionalCodes.push(_courseCode);
         }
         else if (type === '查') {
@@ -180,8 +211,11 @@ export default {
 
       // 第二步：处理必修课（直接从 vuex 获取）
       for (const key of compulsoryCourses) {
-        const _courseCode = key.split('_')[2];
-        const originalCourse = this.$store.state.commonLists.compulsoryCourses.find((course: courseInfo) => course.courseCode === _courseCode);
+        const originalCourse = this.findCompulsoryCourseByRowKey(key);
+        if (!originalCourse) {
+          errorNotify(`找不到计划内课程 ${key} 的基本信息`);
+          continue;
+        }
         
         const _courseObject = {
           courseCode: originalCourse.courseCode,
@@ -191,10 +225,8 @@ export default {
           courseType: "必",
           teacher: [],
           status: 0,
-          courseDetail: originalCourse.courses.map((course: Record<string, unknown>) => ({
-            ...course,
-            status: 0
-          }))
+          grade: Number((originalCourse as any).grade || this.$store.state.majorSelected.grade || 0),
+          courseDetail: (originalCourse.courses || []).map((course: Record<string, unknown>) => this.normalizeDetailCourse(course))
         }
 
         this.$store.commit("pushStagedCourse", _courseObject);
@@ -236,13 +268,11 @@ export default {
                 courseName: _roughCourse.courseName + '(' + _roughCourse.courseCode + ')',
                 courseNameReserved: _roughCourse.courseName,
                 credit: _roughCourse.credit,
-                courseType: "选",
+                courseType: String((_roughCourse as any).crossDiscipline ? '跨' : '选'),
                 teacher: [],
                 status: 0,
-                courseDetail: _detailCourse.map((course: Record<string, unknown>) => ({
-                  ...course,
-                  status: 0
-                }))
+                grade: Number((_roughCourse as any).grade || 0),
+                courseDetail: _detailCourse.map((course: Record<string, unknown>) => this.normalizeDetailCourse(course))
               }
 
               this.$store.commit("pushStagedCourse", _courseObject);
@@ -292,10 +322,8 @@ export default {
                 courseType: "查",
                 teacher: [],
                 status: 0,
-                courseDetail: _detailCourse.map((course: Record<string, unknown>) => ({
-                  ...course,
-                  status: 0
-                }))
+                grade: Number((_roughCourse as any).grade || 0),
+                courseDetail: _detailCourse.map((course: Record<string, unknown>) => this.normalizeDetailCourse(course))
               }
 
               this.$store.commit("pushStagedCourse", _courseObject);
@@ -316,7 +344,7 @@ export default {
       this.selectedRowKeys = [];
       this.$store.commit("setSpin", false);
     },
-    async findCourseByTime(cell: { day: number; class: number }) {
+    async findCourseByTime(cell: { day: number; class: number; calendarId: number }) {
       this.$store.commit("setSpin", true);
       console.log("cell", cell);
 
@@ -325,9 +353,9 @@ export default {
           url: '/api/findCourseByTime',
           method: 'post',
           data: {
-            calendarId: this.$store.state.majorSelected.calendarId,
+            calendarId: cell.calendarId,
             day: cell.day,
-            section: getRowSection(cell.class)
+            section: getRowSection(cell.class, cell.calendarId)
           }
         });
 
