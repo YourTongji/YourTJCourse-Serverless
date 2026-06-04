@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import SegmentedControl from './SegmentedControl'
 import { TemplateHints } from './TemplateSelector'
+import { markdownContentClassName, renderMarkdownHtml } from './CollapsibleMarkdown'
 
 interface MarkdownEditorProps {
   value: string
@@ -78,30 +79,6 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
   }, [value, hints])
 
   const mirrorMode = Boolean(generateOverlayContent)
-
-  // 完整的 markdown 渲染函数
-  const renderMarkdown = (text: string) => {
-    return text
-      // 图片
-      .replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto; border-radius: 8px; margin: 8px 0;" />')
-      // 标题
-      .replace(/^### (.*$)/gim, '<h3 style="font-size: 1em; font-weight: 600; margin: 12px 0 6px; color: #334155;">$1</h3>')
-      .replace(/^## (.*$)/gim, '<h2 style="font-size: 1.1em; font-weight: 600; margin: 14px 0 6px; color: #334155;">$1</h2>')
-      .replace(/^# (.*$)/gim, '<h1 style="font-size: 1.2em; font-weight: 600; margin: 16px 0 8px; color: #334155;">$1</h1>')
-      // 链接
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #0891b2; text-decoration: underline;">$1</a>')
-      // 粗体和斜体
-      .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      // 代码块
-      .replace(/`([^`]+)`/g, '<code style="background: rgba(168, 218, 220, 0.15); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;">$1</code>')
-      // 列表
-      .replace(/^- (.*$)/gim, '<li style="margin-left: 20px;">$1</li>')
-      // 换行
-      .replace(/\n\n/g, '</p><p style="margin: 6px 0; font-size: 0.95em; line-height: 1.6;">')
-      .replace(/\n/g, '<br />')
-  }
 
   // 暴露插入方法给父组件
   useEffect(() => {
@@ -192,8 +169,8 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
               <span className="text-sm font-semibold text-slate-600">预览</span>
             </div>
             <div
-              className="flex-1 p-4 overflow-y-auto text-sm leading-relaxed text-slate-700 min-h-[400px]"
-              dangerouslySetInnerHTML={{ __html: '<p style="margin: 6px 0; font-size: 0.95em; line-height: 1.6;">' + renderMarkdown(value) + '</p>' }}
+              className={`flex-1 overflow-y-auto p-4 text-sm min-h-[400px] ${markdownContentClassName}`}
+              dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(value) }}
             />
           </div>
         </div>
@@ -239,8 +216,8 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
                 <span className="text-sm font-semibold text-slate-600">预览效果</span>
               </div>
               <div
-                className="p-4 overflow-y-auto text-sm leading-relaxed text-slate-700 min-h-[300px]"
-                dangerouslySetInnerHTML={{ __html: '<p style="margin: 6px 0; font-size: 0.95em; line-height: 1.6;">' + renderMarkdown(value) + '</p>' }}
+                className={`min-h-[300px] overflow-y-auto p-4 text-sm ${markdownContentClassName}`}
+                dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(value) }}
               />
             </div>
           )}
