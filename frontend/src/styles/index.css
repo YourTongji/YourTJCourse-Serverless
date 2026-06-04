@@ -44,6 +44,17 @@
   display: none;
 }
 
+.yourtj-scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.yourtj-scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .yourtj-md-mirror {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
