@@ -183,10 +183,19 @@ function addSqidToReviews(reviews: any[]): any[] {
   }))
 }
 
-const AUX_SCHEMA_VERSION = '20260605-query-opt-v1'
+const AUX_SCHEMA_VERSION = '20260605-query-opt-v2'
 const COURSE_LIST_CACHE_SECONDS = 60
 const COURSE_LIST_CACHE_SWR_SECONDS = 300
 const D1_SAFE_BATCH_SIZE = 40
+const SEARCH_ALIAS_MAP: Record<string, string[]> = {
+  高数: ['高等数学'],
+  线代: ['线性代数'],
+  军理: ['军事理论'],
+  复变: ['复变函数与积分变换'],
+  思法: ['思想道德与法治'],
+  毛概: ['毛泽东思想和中国特色社会主义理论体系概论'],
+  近纲: ['中国近现代史纲要']
+}
 
 function buildCacheControl(maxAgeSeconds: number, staleWhileRevalidateSeconds = 0) {
   return staleWhileRevalidateSeconds > 0
@@ -221,6 +230,12 @@ function normalizeSearchText(value: string) {
   return value.replace(/\s+/g, ' ').trim()
 }
 
+function normalizeLooseSearchText(value: string) {
+  return normalizeSearchText(value)
+    .replace(/[\s()（）[\]【】{}<>《》"'`“”‘’、,，.。:：;；!！?？\-—_\\/·]/g, '')
+    .toLowerCase()
+}
+
 function parseSemesterNames(value: string | null | undefined) {
   return String(value || '')
     .split('||')
@@ -236,6 +251,29 @@ function buildCourseSearchMatchQuery(keyword: string) {
     .filter(Boolean)
     .map((term) => `"${term.replace(/"/g, '""')}"`)
     .join(' AND ')
+}
+
+function buildKeywordSearchVariants(keyword: string) {
+  const cleaned = normalizeSearchText(String(keyword || ''))
+  if (!cleaned) return []
+
+  const variants = new Set<string>([cleaned])
+  const aliasValues = SEARCH_ALIAS_MAP[cleaned]
+  if (aliasValues) {
+    for (const alias of aliasValues) variants.add(alias)
+  }
+
+  const bracketed = cleaned.match(/^(.+?)([0-9]+|[一二三四五六七八九十]+)$/)
+  if (bracketed && !/[()（）]/.test(cleaned)) {
+    variants.add(`${bracketed[1]}(${bracketed[2]})`)
+    variants.add(`${bracketed[1]}（${bracketed[2]}）`)
+  }
+
+  return Array.from(variants)
+}
+
+function buildLooseSqlExpr(column: string) {
+  return `LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(${column}, ''), ' ', ''), '(', ''), ')', ''), '（', ''), '）', ''), '-', ''), '_', ''), '/', ''), '\\\\', ''), '·', ''))`
 }
 
 function buildCourseSearchDocument(course: {
@@ -623,18 +661,10 @@ async function ensureLegacyAutoDocsPurged(db: D1Database) {
 }
 
 let showIcuCache: { value: boolean; expiresAt: number } | null = null
-let maintenanceModeCache: { value: boolean; expiresAt: number } | null = null
-let maintenanceConfigCache: { value: any | null; expiresAt: number } | null = null
 
 function invalidateSettingCaches(key?: string) {
   if (!key || key === 'show_legacy_reviews') {
     showIcuCache = null
-  }
-  if (!key || key === 'maintenance_mode') {
-    maintenanceModeCache = null
-  }
-  if (!key || key === 'maintenance_config') {
-    maintenanceConfigCache = null
   }
 }
 
@@ -649,28 +679,16 @@ async function getShowIcuSetting(db: D1Database): Promise<boolean> {
 }
 
 async function getMaintenanceModeSetting(db: D1Database): Promise<boolean> {
-  const now = Date.now()
-  if (maintenanceModeCache && maintenanceModeCache.expiresAt > now) return maintenanceModeCache.value
   const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('maintenance_mode').first<{ value: string }>()
-  const value = row?.value === 'true'
-  maintenanceModeCache = { value, expiresAt: now + 10_000 }
-  return value
+  return row?.value === 'true'
 }
 
 async function getMaintenanceConfigSetting(db: D1Database): Promise<any | null> {
-  const now = Date.now()
-  if (maintenanceConfigCache && maintenanceConfigCache.expiresAt > now) return maintenanceConfigCache.value
   const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('maintenance_config').first<{ value: string }>()
-  if (!row?.value) {
-    maintenanceConfigCache = { value: null, expiresAt: now + 10_000 }
-    return null
-  }
+  if (!row?.value) return null
   try {
-    const value = JSON.parse(row.value)
-    maintenanceConfigCache = { value, expiresAt: now + 10_000 }
-    return value
+    return JSON.parse(row.value)
   } catch {
-    maintenanceConfigCache = { value: null, expiresAt: now + 10_000 }
     return null
   }
 }
@@ -769,7 +787,7 @@ app.get('/api/settings/maintenance', async (c) => {
   await ensureDbInitialized(c.env.DB)
   const enabled = await getMaintenanceModeSetting(c.env.DB)
   const config = await getMaintenanceConfigSetting(c.env.DB)
-  setPublicCacheHeaders(c, 15, 30)
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate')
   return c.json({ enabled, config })
 })
 
@@ -822,6 +840,9 @@ app.get('/api/courses', async (c) => {
     // 检查是否显示 is_icu 数据
     const showIcu = await getShowIcuSetting(c.env.DB)
     const courseAuxReady = await isAuxiliaryCourseDataReady(c.env.DB)
+    if (!courseAuxReady) {
+      c.executionCtx.waitUntil(triggerAuxiliaryCourseDataBuild(c.env.DB))
+    }
     const canUseWorkerCache = !includeTotal
 
     if (canUseWorkerCache) {
@@ -851,13 +872,41 @@ app.get('/api/courses', async (c) => {
 
     if (keyword) {
       const ftsQuery = courseAuxReady ? buildCourseSearchMatchQuery(keyword) : ''
+      const rawVariants = buildKeywordSearchVariants(keyword)
+      const looseVariants = Array.from(new Set(rawVariants.map((item) => normalizeLooseSearchText(item)).filter(Boolean)))
+      const keywordClauses: string[] = []
+
       if (courseAuxReady && ftsQuery) {
-        baseWhere += ' AND c.id IN (SELECT course_id FROM course_search WHERE search_doc MATCH ?)'
+        keywordClauses.push('c.id IN (SELECT course_id FROM course_search WHERE search_doc MATCH ?)')
         baseParams.push(ftsQuery)
-      } else {
-        baseWhere += ' AND (c.search_keywords LIKE ? OR c.code LIKE ? OR c.name LIKE ? OR t.name LIKE ?)'
-        const likeKey = `%${keyword}%`
-        baseParams.push(likeKey, likeKey, likeKey, likeKey)
+      }
+
+      if (rawVariants.length > 0) {
+        const perVariant = '(c.search_keywords LIKE ? OR c.code LIKE ? OR c.name LIKE ? OR t.name LIKE ?)'
+        keywordClauses.push(rawVariants.map(() => perVariant).join(' OR '))
+        for (const variant of rawVariants) {
+          const likeKey = `%${variant}%`
+          baseParams.push(likeKey, likeKey, likeKey, likeKey)
+        }
+      }
+
+      if (looseVariants.length > 0) {
+        const looseExprs = [
+          buildLooseSqlExpr('c.search_keywords'),
+          buildLooseSqlExpr('c.code'),
+          buildLooseSqlExpr('c.name'),
+          buildLooseSqlExpr('t.name')
+        ]
+        const perVariant = `(${looseExprs.map((expr) => `${expr} LIKE ?`).join(' OR ')})`
+        keywordClauses.push(looseVariants.map(() => perVariant).join(' OR '))
+        for (const variant of looseVariants) {
+          const likeKey = `%${variant}%`
+          baseParams.push(likeKey, likeKey, likeKey, likeKey)
+        }
+      }
+
+      if (keywordClauses.length > 0) {
+        baseWhere += ` AND (${keywordClauses.join(' OR ')})`
       }
     }
 
@@ -927,7 +976,7 @@ app.get('/api/courses', async (c) => {
       }
     }
 
-    const groupKey = `c.name, COALESCE(t.name, '')`
+    const groupKey = `c.code, c.name, COALESCE(t.name, '')`
     const having = onlyWithReviews ? 'HAVING SUM(COALESCE(c.review_count, 0)) > 0' : ''
     const representativeValueExpr = `COALESCE(
       MAX(CASE WHEN c.is_legacy = 0 THEN printf('%010d|%s', c.id, c.code) END),
