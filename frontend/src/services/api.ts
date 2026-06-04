@@ -33,6 +33,11 @@ export interface SiteAnnouncement {
   enabled?: boolean
 }
 
+export interface MaintenanceSettingsResponse {
+  enabled: boolean
+  config?: unknown
+}
+
 export async function fetchCourses(
   keyword?: string,
   legacy?: boolean,
@@ -77,10 +82,25 @@ export async function fetchCourse(id: string, opts?: { clientId?: string; legacy
   return res.json()
 }
 
+export async function fetchCourseRelated(id: string, opts?: { legacy?: boolean }) {
+  const q = new URLSearchParams()
+  if (opts?.legacy) q.set('legacy', 'true')
+  const suffix = q.toString() ? `?${q.toString()}` : ''
+  const res = await fetchWithTimeout(`${API_BASE}/api/course/${id}/related${suffix}`, undefined, 15000)
+  if (!res.ok) throw new Error('Failed to fetch related course data')
+  return res.json()
+}
+
 export async function fetchSiteAnnouncements() {
   const res = await fetchWithTimeout(`${API_BASE}/api/settings/announcements`, undefined, 15000)
   if (!res.ok) throw new Error('Failed to fetch announcements')
   return res.json() as Promise<{ announcements: SiteAnnouncement[] }>
+}
+
+export async function fetchMaintenanceSettings() {
+  const res = await fetchWithTimeout(`${API_BASE}/api/settings/maintenance`, undefined, 15000)
+  if (!res.ok) throw new Error('Failed to fetch maintenance settings')
+  return res.json() as Promise<MaintenanceSettingsResponse>
 }
 
 export async function submitReview(data: {

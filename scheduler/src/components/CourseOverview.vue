@@ -34,7 +34,7 @@
                 :title="() => courses.grade + '级'"
                 :row-selection="{ 
                     selectedRowKeys: localSelectedRowKeys.filter((key: string) => key.startsWith('必_' + courses.grade + '_')), 
-                    onChange: (keys: any[]) => onCompulsorySelectChange(keys)
+                    onChange: (keys: any[]) => onCompulsorySelectChange(courses.grade, keys)
                 }"
                 :row-key="(record: any) => '必_' + courses.grade + '_' + record.courseCode"
                 :row-class-name="(_record: any, index: number) => index % 2 === 1 ? 'bg-gray-50' : ''"
@@ -44,17 +44,17 @@
         </div>
         <div v-else-if="selectedType === 'optional'">
             <a-tabs v-model:activeKey="selectedOptionalType">
-                <a-tab-pane v-for="type in $store.state.commonLists.optionalTypes" :key="type.courseLabelId" :tab="type.courseLabelName">
+                <a-tab-pane v-for="type in mergedOptionalTypes" :key="type.courseLabelName" :tab="type.courseLabelName">
                     <div class="max-h-[60vh] md:h-150 overflow-auto">
                         <a-table
                         :columns="columns.optional"
-                        :data-source="filteredCourses($store.state.commonLists.optionalCourses.find((item: any) => item.courseLabelId === type.courseLabelId)?.courses)"
+                        :data-source="filteredCourses(type.courses)"
                         :pagination="false"
                         :row-selection="{ 
-                            selectedRowKeys: localSelectedRowKeys.filter((key: string) => key.startsWith('选_' + type.courseLabelId + '_')), 
-                            onChange: (keys: any[]) => onOptionalSelectChange(keys) 
+                            selectedRowKeys: localSelectedRowKeys.filter((key: string) => key.startsWith('选_' + type.courseLabelName + '_')), 
+                            onChange: (keys: any[]) => onOptionalSelectChange(type.courseLabelName, keys) 
                         }"
-                        :row-key="(record: any) => '选_' + type.courseLabelId + '_' + record.courseCode"
+                        :row-key="(record: any) => '选_' + type.courseLabelName + '_' + record.courseCode"
                         :row-class-name="(_record: any, index: number) => index % 2 === 1 ? 'bg-gray-50' : ''"
                     >
                     </a-table>
@@ -153,36 +153,36 @@ export default {
     },
     props: ['selectedRowKeys'],
     methods: {
-        onCompulsorySelectChange(localSelectedRowKeys: any[]) {
-            this.localSelectedRowKeys = (localSelectedRowKeys || []).map((k: any) => String(k));
-            // console.log('localSelectedRowKeys changed: ', this.localSelectedRowKeys);
+        replaceKeysByPrefix(prefix: string, localSelectedRowKeys: any[]) {
+            const nextKeys = (localSelectedRowKeys || []).map((key: any) => String(key));
+            const remainedKeys = (this.localSelectedRowKeys || []).filter((key: string) => !key.startsWith(prefix));
+            this.localSelectedRowKeys = [...remainedKeys, ...nextKeys];
         },
-        onOptionalSelectChange(localSelectedRowKeys: any[]) {
-            this.localSelectedRowKeys = (localSelectedRowKeys || []).map((k: any) => String(k));
-            // console.log('localSelectedRowKeys changed: ', this.localSelectedRowKeys);
+        onCompulsorySelectChange(grade: string | number, localSelectedRowKeys: any[]) {
+            this.replaceKeysByPrefix(`必_${grade}_`, localSelectedRowKeys);
+        },
+        onOptionalSelectChange(labelName: string, localSelectedRowKeys: any[]) {
+            this.replaceKeysByPrefix(`选_${labelName}_`, localSelectedRowKeys);
         },
         filteredCourses(courses: courseInfo[]) {
+            const safeCourses = Array.isArray(courses) ? courses : [];
             // 根据已选课程来过滤，德摩根律啊！思考一下为什么是 && 而不是 ||
-            courses = courses.filter((course: courseInfo) => {
+            const visibleCourses = safeCourses.filter((course: courseInfo) => {
                 return !this.$store.state.commonLists.stagedCourses.some((stagedCourse: stagedCourse) => stagedCourse.courseCode === course.courseCode);
                 // && !this.$store.state.commonLists.selectedCourses.some(selectedCourse => selectedCourse.courseCode === course.courseCode) // 这句不需要，因为被上面的包含了
             });
 
             // 保留表格中和 this.searchValue 代码或者名称匹配的课程
             if (this.searchValue === '') {
-                return courses;
+                return visibleCourses;
             }
             else {
                 // 根据检索条件过滤课程
-                return courses.filter(course => course.courseCode.includes(this.searchValue) || course.courseName.includes(this.searchValue));
+                return visibleCourses.filter(course => course.courseCode.includes(this.searchValue) || course.courseName.includes(this.searchValue));
             }
         }
     },
     mounted() {
-        // 设置默认选修课类型
-        if (this.$store.state.commonLists.optionalTypes.length > 0) {
-            this.selectedOptionalType = this.$store.state.commonLists.optionalTypes[0].courseLabelId;
-        }
     },
     components: {
         SearchOutlined,
@@ -192,7 +192,70 @@ export default {
         ARadioGroup: (Radio as any).Group,
         ARadioButton: (Radio as any).Button
     },
+    watch: {
+        mergedOptionalTypes: {
+            handler(newTypes: any[]) {
+                if (!newTypes || newTypes.length === 0) {
+                    this.selectedOptionalType = ''
+                    return
+                }
+                if (!newTypes.some((item: any) => item.courseLabelName === this.selectedOptionalType)) {
+                    this.selectedOptionalType = newTypes[0].courseLabelName
+                }
+            },
+            immediate: true
+        }
+    },
     computed: {
+        mergedOptionalTypes() {
+            const rawOptionalCourses = this.$store.state.commonLists.optionalCourses || []
+            const rawOptionalTypes = this.$store.state.commonLists.optionalTypes || []
+            const mergedMap: Record<string, Map<string, any>> = {}
+            const orderedLabels: string[] = []
+
+            for (const typeItem of rawOptionalTypes) {
+                const labelName = String(typeItem?.courseLabelName || '').trim()
+                if (!labelName || orderedLabels.includes(labelName)) continue
+                orderedLabels.push(labelName)
+            }
+
+            for (const typeItem of rawOptionalCourses) {
+                const labelName = String(typeItem.courseLabelName || '').trim()
+                if (!labelName) continue
+                if (!orderedLabels.includes(labelName)) {
+                    orderedLabels.push(labelName)
+                }
+
+                if (!mergedMap[labelName]) {
+                    mergedMap[labelName] = new Map()
+                }
+
+                const courseMap = mergedMap[labelName]
+                const currentCourses = Array.isArray(typeItem.courses) ? typeItem.courses : []
+
+                for (const course of currentCourses) {
+                    const uniqueKey = `${course.courseCode}_${course.faculty}_${course.credit}`
+                    if (!courseMap.has(uniqueKey)) {
+                        courseMap.set(uniqueKey, {
+                            ...course,
+                            campus: Array.isArray(course.campus) ? [...course.campus] : []
+                        })
+                        continue
+                    }
+
+                    const existingCourse = courseMap.get(uniqueKey)
+                    const nextCampus = Array.isArray(course.campus) ? course.campus : []
+                    existingCourse.campus = Array.from(new Set([...(existingCourse.campus || []), ...nextCampus]))
+                }
+            }
+
+            return orderedLabels
+                .filter((labelName) => Boolean(mergedMap[labelName]))
+                .map((courseLabelName) => ({
+                    courseLabelName,
+                    courses: Array.from(mergedMap[courseLabelName].values()).sort((a, b) => String(a.courseCode).localeCompare(String(b.courseCode)))
+                }))
+        },
         localSelectedRowKeys: {
             get() {
                 // console.log("本地的！", this.selectedRowKeys);

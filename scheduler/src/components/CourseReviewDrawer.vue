@@ -179,6 +179,7 @@ export default {
     courseCode: { type: String, required: true },
     courseName: { type: String, required: true },
     teacherName: { type: String, default: '' },
+    teacherCode: { type: String, default: '' },
   },
   emits: ['close'],
   data() {
@@ -228,6 +229,16 @@ export default {
         this.currentIndex = 0
         await this.fetchReviews()
       }
+    },
+    teacherCode() {
+      if (!this.open) return
+      this.currentIndex = 0
+      void this.fetchReviews()
+    },
+    teacherName() {
+      if (!this.open) return
+      this.currentIndex = 0
+      void this.fetchReviews()
     }
   },
   mounted() {
@@ -287,7 +298,9 @@ export default {
       try {
         const code = encodeURIComponent(this.courseCode)
         const tn = String(this.teacherName || '').trim()
+        const tc = String(this.teacherCode || '').trim()
         const params: any = {}
+        if (tc) params.teacherCode = tc
         if (tn) params.teacherName = tn
         if (this.clientId) params.clientId = this.clientId
         const qs = new URLSearchParams(params).toString()

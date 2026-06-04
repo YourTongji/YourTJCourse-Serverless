@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { encodeReviewId, decodeReviewId } from './sqids'
 import { registerPkRoutes } from './pk/routes'
 import { syncOnesystemToPkTables } from './pk/sync'
+import { refreshCourseStats } from './courseStats'
 
 type Bindings = {
   DB: D1Database
@@ -119,6 +120,12 @@ async function verifyTurnstile(token: string, env: Bindings, opts?: { expectedAc
 
 // 启动前检查：服务端验证 Turnstile token（避免纯前端放行被自动化绕过）
 app.post('/api/startup/verify', async (c) => {
+  await ensureDbInitialized(c.env.DB)
+  const maintenanceMode = await getMaintenanceModeSetting(c.env.DB)
+  if (maintenanceMode) {
+    return c.json({ success: true, bypassed: 'maintenance_mode' })
+  }
+
   const body = await c.req.json().catch(() => ({} as any))
   const token = String(body?.token || '').trim()
   if (!token) return c.json({ success: false, error: 'missing_token' }, 400)
@@ -280,6 +287,21 @@ async function getShowIcuSetting(db: D1Database): Promise<boolean> {
   return value
 }
 
+async function getMaintenanceModeSetting(db: D1Database): Promise<boolean> {
+  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('maintenance_mode').first<{ value: string }>()
+  return row?.value === 'true'
+}
+
+async function getMaintenanceConfigSetting(db: D1Database): Promise<any | null> {
+  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('maintenance_config').first<{ value: string }>()
+  if (!row?.value) return null
+  try {
+    return JSON.parse(row.value)
+  } catch {
+    return null
+  }
+}
+
 async function postCreditJcourseEvent(
   env: Bindings,
   payload: any
@@ -364,6 +386,13 @@ app.get('/api/settings/announcements', async (c) => {
   } catch {
     return c.json({ announcements: [] })
   }
+})
+
+app.get('/api/settings/maintenance', async (c) => {
+  await ensureDbInitialized(c.env.DB)
+  const enabled = await getMaintenanceModeSetting(c.env.DB)
+  const config = await getMaintenanceConfigSetting(c.env.DB)
+  return c.json({ enabled, config })
 })
 
 // 获取开课单位列表
@@ -801,6 +830,106 @@ app.get('/api/course/:id', async (c) => {
   }
 })
 
+app.get('/api/course/:id/related', async (c) => {
+  try {
+    await ensureDbInitialized(c.env.DB)
+    const id = Number(c.req.param('id') || '0')
+    if (!Number.isFinite(id) || id <= 0) return c.json({ error: 'Invalid course id' }, 400)
+
+    const showIcu = await getShowIcuSetting(c.env.DB)
+
+    const course = await c.env.DB.prepare(
+      `SELECT c.id, c.code, c.name, c.teacher_id, c.is_icu
+       FROM courses c
+       WHERE c.id = ?`
+    ).bind(id).first<any>()
+
+    if (!course) return c.json({ error: 'Course not found' }, 404)
+    if (!showIcu && Number(course.is_icu || 0) === 1) return c.json({ error: 'Course not found' }, 404)
+
+    const sourceFilter = showIcu ? '' : ' AND (c.is_icu = 0 OR c.is_icu IS NULL)'
+    const otherSourceFilter = showIcu ? '' : ' AND (other.is_icu = 0 OR other.is_icu IS NULL)'
+
+    let teacherOtherCourses: any[] = []
+    if (course.teacher_id) {
+      const res = await c.env.DB.prepare(
+        `SELECT
+           c.id,
+           c.code,
+           c.name,
+           COALESCE(t.name, '') AS teacher_name,
+           COALESCE(c.review_avg, 0) AS review_avg,
+           COALESCE(c.review_count, 0) AS review_count
+         FROM courses c
+         LEFT JOIN teachers t ON t.id = c.teacher_id
+         WHERE c.teacher_id = ?
+           AND c.id != ?
+           AND NOT (c.is_legacy = 1 AND c.code LIKE '%AUTO%')
+           ${sourceFilter}
+         ORDER BY c.review_count DESC, c.review_avg DESC, c.id DESC
+         LIMIT 5`
+      ).bind(course.teacher_id, id).all()
+      teacherOtherCourses = res.results || []
+    }
+
+    let sameCourseOtherTeachers: any[] = []
+    if (course.code && !String(course.code).startsWith('AUTO')) {
+      const res = await c.env.DB.prepare(
+        `SELECT
+           other.id,
+           other.code,
+           other.name,
+           COALESCE(t.name, '') AS teacher_name,
+           COALESCE(other.review_avg, 0) AS review_avg,
+           COALESCE(other.review_count, 0) AS review_count
+         FROM courses other
+         LEFT JOIN teachers t ON t.id = other.teacher_id
+         WHERE other.code = ?
+           AND other.id != ?
+           AND COALESCE(other.teacher_id, -1) != COALESCE(?, -1)
+           AND NOT (other.is_legacy = 1 AND other.code LIKE '%AUTO%')
+           ${otherSourceFilter}
+         ORDER BY other.review_count DESC, other.review_avg DESC, other.id DESC
+         LIMIT 5`
+      ).bind(course.code, id, course.teacher_id ?? null).all()
+      sameCourseOtherTeachers = res.results || []
+    }
+
+    if (sameCourseOtherTeachers.length === 0) {
+      const res = await c.env.DB.prepare(
+        `SELECT
+           other.id,
+           other.code,
+           other.name,
+           COALESCE(t.name, '') AS teacher_name,
+           COALESCE(other.review_avg, 0) AS review_avg,
+           COALESCE(other.review_count, 0) AS review_count
+         FROM courses other
+         LEFT JOIN teachers t ON t.id = other.teacher_id
+         WHERE other.name = ?
+           AND other.id != ?
+           AND COALESCE(other.teacher_id, -1) != COALESCE(?, -1)
+           AND NOT (other.is_legacy = 1 AND other.code LIKE '%AUTO%')
+           ${otherSourceFilter}
+         ORDER BY
+           CASE WHEN other.code = ? THEN 0 ELSE 1 END,
+           other.review_count DESC,
+           other.review_avg DESC,
+           other.id DESC
+         LIMIT 5`
+      ).bind(course.name, id, course.teacher_id ?? null, course.code || '').all()
+      sameCourseOtherTeachers = res.results || []
+    }
+
+    return c.json({
+      teacher_other_courses: teacherOtherCourses,
+      same_course_other_teachers: sameCourseOtherTeachers
+    })
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 // 给排课模拟器侧边弹窗使用：按课号/新课号查找课程评价
 app.get('/api/course/by-code/:code', async (c) => {
   try {
@@ -808,13 +937,67 @@ app.get('/api/course/by-code/:code', async (c) => {
     const code = (c.req.param('code') || '').trim()
     if (!code) return c.json({ error: 'Missing code' }, 400)
     const teacherName = (c.req.query('teacherName') || '').trim()
+    const teacherCode = (c.req.query('teacherCode') || '').trim()
     const clientId = (c.req.query('clientId') || '').trim()
+    const hasTeacherFilter = Boolean(teacherCode || teacherName)
+
+    const buildTeacherFilter = (codeColumn: string, nameColumn: string) => {
+      if (teacherCode && teacherName) {
+        return {
+          sql: ` AND (${codeColumn} = ? OR ${nameColumn} = ?)`,
+          args: [teacherCode, teacherName] as string[]
+        }
+      }
+      if (teacherCode) {
+        return {
+          sql: ` AND ${codeColumn} = ?`,
+          args: [teacherCode] as string[]
+        }
+      }
+      if (teacherName) {
+        return {
+          sql: ` AND ${nameColumn} = ?`,
+          args: [teacherName] as string[]
+        }
+      }
+      return {
+        sql: '',
+        args: [] as string[]
+      }
+    }
 
     // ICU 显示开关
     const showIcu = await getShowIcuSetting(c.env.DB)
 
-    // 若带 teacherName：优先命中“课号/别名 + 教师”，避免同课号不同老师的评价混在一起
-    const preferredRow = teacherName
+    const pkTeacherFilter = buildTeacherFilter('pt.teacherCode', 'pt.teacherName')
+    const courseTeacherFilter = buildTeacherFilter('t.tid', 't.name')
+
+    // 先用排课库里的课名 + 教师做一次精确定位，避免像体育课这种同总课号下多个老师都落到旧 canonical 课程上
+    const pkNamedRow = hasTeacherFilter
+      ? await c.env.DB
+          .prepare(
+            `SELECT c.id as id
+             FROM courses c
+             LEFT JOIN teachers t ON c.teacher_id = t.id
+             WHERE c.name IN (
+               SELECT DISTINCT cd.courseName
+               FROM coursedetail cd
+               LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
+               WHERE (cd.code = ? OR cd.courseCode = ? OR cd.newCourseCode = ?)
+               ${pkTeacherFilter.sql}
+             )
+             ${courseTeacherFilter.sql}
+             ORDER BY COALESCE(c.review_count, 0) DESC, c.id DESC
+             LIMIT 1`
+          )
+          .bind(code, code, code, ...pkTeacherFilter.args, ...courseTeacherFilter.args)
+          .first<{ id: number }>()
+      : null
+
+    // 若带 teacherName / teacherCode：再尝试命中“课号/别名 + 教师”，避免同课号不同老师的评价混在一起
+    const preferredRow = pkNamedRow?.id
+      ? pkNamedRow
+      : hasTeacherFilter
       ? await c.env.DB
           .prepare(
             `SELECT c.id as id
@@ -829,10 +1012,10 @@ app.get('/api/course/by-code/:code', async (c) => {
                    AND a.course_id = c.id
                )
              )
-               AND t.name = ?
+             ${courseTeacherFilter.sql}
              LIMIT 1`
           )
-          .bind(code, code, teacherName)
+          .bind(code, code, ...courseTeacherFilter.args)
           .first<{ id: number }>()
       : null
 
@@ -846,7 +1029,7 @@ app.get('/api/course/by-code/:code', async (c) => {
         ? null
         : await c.env.DB.prepare('SELECT id FROM courses WHERE code = ? LIMIT 1').bind(code).first<{ id: number }>()
 
-    const courseId = preferredRow?.id ?? aliasRow?.id ?? directRow?.id ?? null
+    let courseId = preferredRow?.id ?? aliasRow?.id ?? directRow?.id ?? null
 
     if (!courseId) return c.json({ error: 'Course not found' }, 404)
 
@@ -863,7 +1046,7 @@ app.get('/api/course/by-code/:code', async (c) => {
         .run()
     }
 
-    const course = await c.env.DB.prepare(
+    let course = await c.env.DB.prepare(
       `SELECT c.*, t.name as teacher_name FROM courses c
        LEFT JOIN teachers t ON c.teacher_id = t.id
        WHERE c.id = ?`
@@ -877,29 +1060,48 @@ app.get('/api/course/by-code/:code', async (c) => {
 
     // 评价匹配策略（跨学期）：
     // - 默认：同课程 code（含 alias 命中后的 canonical code）+ 同课程名同教师
-    // - 若带 teacherName：只按“同课程名 + 同教师”聚合（避免同课号不同老师混入）
-    const matchedIds = new Set<number>([Number(courseId)])
+    // - 若带 teacherCode / teacherName：只按“同课程名 + 同教师”聚合（避免同课号不同老师混入）
+    const matchedIds = new Set<number>()
 
-    if (!teacherName) {
+    if (!hasTeacherFilter) {
+      matchedIds.add(Number(courseId))
       const sameCodeRows = await c.env.DB.prepare('SELECT id FROM courses WHERE code = ?').bind((course as any).code).all<{ id: number }>()
       for (const r of sameCodeRows.results || []) matchedIds.add(Number((r as any).id))
     }
 
-    if ((course as any).teacher_id) {
-      const sameNameTeacherRows = await c.env.DB
-        .prepare('SELECT id FROM courses WHERE name = ? AND teacher_id = ?')
-        .bind((course as any).name, (course as any).teacher_id)
-        .all<{ id: number }>()
-      for (const r of sameNameTeacherRows.results || []) matchedIds.add(Number((r as any).id))
-    } else if (teacherName) {
+    if (hasTeacherFilter) {
       const sameNameTeacherRows = await c.env.DB
         .prepare(
           `SELECT c.id as id
            FROM courses c
            LEFT JOIN teachers t ON c.teacher_id = t.id
-           WHERE c.name = ? AND t.name = ?`
+           WHERE c.name = ?
+           ${courseTeacherFilter.sql}
+           ORDER BY COALESCE(c.review_count, 0) DESC, c.id DESC`
         )
-        .bind((course as any).name, teacherName)
+        .bind((course as any).name, ...courseTeacherFilter.args)
+        .all<{ id: number }>()
+
+      for (const r of sameNameTeacherRows.results || []) matchedIds.add(Number((r as any).id))
+
+      const primaryMatchedId = Number((sameNameTeacherRows.results || [])[0]?.id || 0)
+      if (primaryMatchedId && primaryMatchedId !== Number(courseId)) {
+        const matchedCourse = await c.env.DB.prepare(
+          `SELECT c.*, t.name as teacher_name FROM courses c
+           LEFT JOIN teachers t ON c.teacher_id = t.id
+           WHERE c.id = ?`
+        ).bind(primaryMatchedId).first()
+        if (matchedCourse) {
+          course = matchedCourse
+          courseId = primaryMatchedId
+        }
+      }
+
+      if (matchedIds.size === 0) matchedIds.add(Number(courseId))
+    } else if ((course as any).teacher_id) {
+      const sameNameTeacherRows = await c.env.DB
+        .prepare('SELECT id FROM courses WHERE name = ? AND teacher_id = ?')
+        .bind((course as any).name, (course as any).teacher_id)
         .all<{ id: number }>()
       for (const r of sameNameTeacherRows.results || []) matchedIds.add(Number((r as any).id))
     }
@@ -1012,13 +1214,7 @@ app.post('/api/review', async (c) => {
 
   const reviewId = Number((insert as any)?.meta?.last_row_id || 0)
 
-  // 更新课程统计（只统计非legacy且rating>0的评价）
-  await c.env.DB.prepare(`
-    UPDATE courses SET
-      review_count = (SELECT COUNT(*) FROM reviews WHERE course_id = ? AND is_hidden = 0),
-      review_avg = (SELECT AVG(rating) FROM reviews WHERE course_id = ? AND is_hidden = 0 AND rating > 0)
-    WHERE id = ?
-  `).bind(course_id, course_id, course_id).run()
+  await refreshCourseStats(c.env.DB, Number(course_id))
 
   const creditRewardEligible = walletHash && /^[a-f0-9]{64}$/i.test(walletHash) && String(comment || '').trim().length >= 50
   const creditReward = creditRewardEligible
@@ -1078,13 +1274,7 @@ app.put('/api/review/:id', async (c) => {
     .bind(safeRating, safeComment, safeSemester, safeName, safeAvatar, id)
     .run()
 
-  // 更新课程统计（只统计非legacy且rating>0的评价）
-  await c.env.DB.prepare(`
-    UPDATE courses SET
-      review_count = (SELECT COUNT(*) FROM reviews WHERE course_id = ? AND is_hidden = 0),
-      review_avg = (SELECT AVG(rating) FROM reviews WHERE course_id = ? AND is_hidden = 0 AND rating > 0)
-    WHERE id = ?
-  `).bind(existing.course_id, existing.course_id, existing.course_id).run()
+  await refreshCourseStats(c.env.DB, Number(existing.course_id))
 
   return c.json({ success: true })
 })
@@ -1273,11 +1463,7 @@ admin.put('/review/:id', async (c) => {
   // 获取course_id并更新统计
   const review = await c.env.DB.prepare('SELECT course_id FROM reviews WHERE id = ?').bind(id).first<{course_id: number}>()
   if (review) {
-    await c.env.DB.prepare(`
-      UPDATE courses SET
-        review_avg = (SELECT AVG(rating) FROM reviews WHERE course_id = ? AND is_hidden = 0 AND rating > 0)
-      WHERE id = ?
-    `).bind(review.course_id, review.course_id).run()
+    await refreshCourseStats(c.env.DB, Number(review.course_id))
   }
 
   return c.json({ success: true })
@@ -1291,13 +1477,7 @@ admin.post('/review/:id/toggle', async (c) => {
 
   await c.env.DB.prepare('UPDATE reviews SET is_hidden = NOT is_hidden WHERE id = ?').bind(id).run()
 
-  // 更新课程统计
-  await c.env.DB.prepare(`
-    UPDATE courses SET
-      review_count = (SELECT COUNT(*) FROM reviews WHERE course_id = ? AND is_hidden = 0),
-      review_avg = (SELECT AVG(rating) FROM reviews WHERE course_id = ? AND is_hidden = 0 AND rating > 0)
-    WHERE id = ?
-  `).bind(review.course_id, review.course_id, review.course_id).run()
+  await refreshCourseStats(c.env.DB, Number(review.course_id))
 
   return c.json({ success: true })
 })
@@ -1310,13 +1490,7 @@ admin.delete('/review/:id', async (c) => {
 
   await c.env.DB.prepare('DELETE FROM reviews WHERE id = ?').bind(id).run()
 
-  // 更新课程统计
-  await c.env.DB.prepare(`
-    UPDATE courses SET
-      review_count = (SELECT COUNT(*) FROM reviews WHERE course_id = ? AND is_hidden = 0),
-      review_avg = (SELECT AVG(rating) FROM reviews WHERE course_id = ? AND is_hidden = 0 AND rating > 0)
-    WHERE id = ?
-  `).bind(review.course_id, review.course_id, review.course_id).run()
+  await refreshCourseStats(c.env.DB, Number(review.course_id))
 
   return c.json({ success: true })
 })

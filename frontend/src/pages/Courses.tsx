@@ -630,6 +630,7 @@ export default function Courses() {
                             </div>
                           )}
                         </div>
+
                       </div>
 
                       <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
@@ -710,4 +711,3 @@ export default function Courses() {
     </div>
   )
 }
-

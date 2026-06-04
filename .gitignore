@@ -53,6 +53,7 @@ Thumbs.db
 .tmp-run-lighthouse*.ps1
 .cache/
 **/.vitepress/cache/
+backend/generated/
 
 # Python
 __pycache__/

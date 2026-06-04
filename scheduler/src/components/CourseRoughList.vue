@@ -138,11 +138,17 @@ export default {
         }
     },
     methods: {
-        selectCourse(record: any) {
-            this.$store.commit('setClickedCourseInfo', {
+        buildClickedCourseInfo(record: any) {
+            const teacher0 = Array.isArray(record?.teacher) ? record.teacher[0] : undefined
+            return {
                 courseCode: record.courseCode,
-                courseName: (record as any).courseNameReserved || record.courseName
-            });
+                courseName: (record as any).courseNameReserved || record.courseName,
+                teacherCode: teacher0?.teacherCode ? String(teacher0.teacherCode) : '',
+                teacherName: teacher0?.teacherName ? String(teacher0.teacherName) : ''
+            }
+        },
+        selectCourse(record: any) {
+            this.$store.commit('setClickedCourseInfo', this.buildClickedCourseInfo(record));
         },
         async getCompulsoryCourses() {
             // 如果没选择专业
@@ -227,11 +233,7 @@ export default {
         onRowEvent(record: any) {
             return {
                 onClick: () => {
-                    // console.log(record)
-                    this.$store.commit('setClickedCourseInfo', {
-                        courseCode: record.courseCode,
-                        courseName: record.courseNameReserved
-                    });
+                    this.$store.commit('setClickedCourseInfo', this.buildClickedCourseInfo(record));
                 },
             }
         },

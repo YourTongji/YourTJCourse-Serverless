@@ -1,23 +1,45 @@
 import { useState } from 'react'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 
 interface CollapsibleMarkdownProps {
   content: string
   maxLength?: number
 }
 
+const ICU_SECTION_HEADINGS = [
+  '课程内容',
+  '上课自由度',
+  '考核标准',
+  '授课质量',
+]
+
+function normalizeMarkdownSections(text: string) {
+  const raw = typeof text === 'string' ? text : ''
+  if (!raw) return ''
+
+  const pattern = new RegExp(`^\\s*(${ICU_SECTION_HEADINGS.join('|')})[：:]?\\s*$`)
+
+  return raw
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => {
+      if (/^\s{0,3}#{1,6}\s/.test(line)) return line
+      const match = line.match(pattern)
+      if (!match) return line
+      return `## ${match[1]}`
+    })
+    .join('\n')
+}
+
 export function renderMarkdownHtml(text: string) {
-  return text
-    .replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto; border-radius: 8px; margin: 8px 0;" />')
-    .replace(/^### (.*$)/gim, '<h3 class="text-base font-semibold my-2 text-slate-700">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-lg font-semibold my-3 text-slate-700">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-xl font-semibold my-4 text-slate-700">$1</h1>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-cyan-600 underline hover:text-cyan-700">$1</a>')
-    .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm font-mono">$1</code>')
-    .replace(/\n\n/g, '</p><p class="my-2 leading-relaxed">')
-    .replace(/\n/g, '<br />')
+  const raw = normalizeMarkdownSections(text)
+  marked.setOptions({
+    gfm: true,
+    breaks: true,
+  })
+  const html = marked.parse(raw) as string
+  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })
 }
 
 export default function CollapsibleMarkdown({ content, maxLength = 300 }: CollapsibleMarkdownProps) {
@@ -31,9 +53,9 @@ export default function CollapsibleMarkdown({ content, maxLength = 300 }: Collap
   return (
     <div>
       <div
-        className="leading-relaxed text-slate-600"
+        className="leading-relaxed text-slate-600 [&_a]:text-cyan-600 [&_a]:underline [&_a]:hover:text-cyan-700 [&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-lg [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_h1]:my-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:my-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h4]:my-2 [&_h4]:text-sm [&_h4]:font-semibold [&_h5]:my-2 [&_h5]:text-sm [&_h5]:font-semibold [&_h6]:my-2 [&_h6]:text-sm [&_h6]:font-semibold [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-sm [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-slate-900 [&_pre]:p-3 [&_pre]:text-slate-100"
         dangerouslySetInnerHTML={{
-          __html: '<p class="my-2 leading-relaxed">' + renderMarkdownHtml(displayContent) + '</p>'
+          __html: renderMarkdownHtml(displayContent)
         }}
       />
       {shouldCollapse && (

@@ -22,6 +22,32 @@ const app = createApp(App);
 
 axios.defaults.baseURL = (import.meta as any).env?.VITE_API_URL || ''
 
+function cleanupSchedulerStorage() {
+  const keys = ['majorSelected', 'stagedCourses', 'selectedCourses', 'occupied', 'timeTableData']
+  let touched = false
+
+  for (const key of keys) {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) continue
+
+    try {
+      JSON.parse(raw)
+    } catch {
+      window.localStorage.removeItem(key)
+      touched = true
+    }
+  }
+
+  return touched
+}
+
+if (typeof window !== 'undefined') {
+  cleanupSchedulerStorage()
+  window.addEventListener('error', (event) => {
+    console.error('[scheduler] runtime error', event.error || event.message)
+  })
+}
+
 app
   .use(Button)
   .use(Card)

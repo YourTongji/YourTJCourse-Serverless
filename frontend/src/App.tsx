@@ -13,9 +13,10 @@ import About from './pages/About'
 import FAQ from './pages/FAQ'
 import Schedule from './pages/Schedule'
 import Feedback from './pages/Feedback'
-import { fetchSiteAnnouncements, SiteAnnouncement, AnnouncementType } from './services/api'
+import { fetchSiteAnnouncements, fetchMaintenanceSettings, SiteAnnouncement, AnnouncementType } from './services/api'
 import { renderMarkdownHtml } from './components/CollapsibleMarkdown'
 import TourGuide, { TutorialLauncher } from './components/TourGuide'
+import MaintenancePage from './maintenance/MaintenancePage'
 
 const Admin = lazy(() => import('./pages/Admin'))
 const CreditWalletPanel = lazy(() => import('./components/CreditWalletPanel'))
@@ -393,9 +394,12 @@ export default function App() {
   const isSchedule = location.pathname.startsWith('/schedule')
   const hideFloatingTools = isSchedule || location.pathname.startsWith('/feedback')
   const isHome = location.pathname === '/'
+  const isAdminPath = location.pathname.startsWith('/admin')
+  const hasAdminAccessParam = new URLSearchParams(location.search).get('access') === 'tjcourse2026admin'
   const bypassStartupGate = Boolean(
     import.meta.env.DEV && String(import.meta.env.VITE_BYPASS_STARTUP_GATE || '').trim() === '1'
   )
+  const hardMaintenanceMode = String(import.meta.env.VITE_MAINTENANCE_MODE || '').trim() === '1'
   const [startupPassed, setStartupPassed] = useState(() => {
     try {
       if (bypassStartupGate) return true
@@ -408,6 +412,8 @@ export default function App() {
   const [startupError, setStartupError] = useState('')
   const [startupVerifying, setStartupVerifying] = useState(false)
   const [tourOpen, setTourOpen] = useState(false)
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(hardMaintenanceMode)
+  const [maintenanceLoaded, setMaintenanceLoaded] = useState(hardMaintenanceMode)
   const [announcementCollapsed, setAnnouncementCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem('yourtj_announcement_collapsed')
@@ -433,9 +439,37 @@ export default function App() {
   }
 
   const showStartupGate = !startupPassed && !bypassStartupGate
+  const shouldBypassMaintenance = isAdminPath && hasAdminAccessParam
+  const showMaintenanceGate = maintenanceEnabled && !shouldBypassMaintenance
   const slogan = useTypewriterText('你的，同济的', 55, showStartupGate)
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()
   const startupVerifyRequestRef = useRef(0)
+
+  useEffect(() => {
+    if (hardMaintenanceMode) {
+      setMaintenanceEnabled(true)
+      setMaintenanceLoaded(true)
+      return
+    }
+
+    let active = true
+    fetchMaintenanceSettings()
+      .then((data) => {
+        if (!active) return
+        setMaintenanceEnabled(Boolean(data?.enabled))
+      })
+      .catch(() => {
+        if (!active) return
+        setMaintenanceEnabled(false)
+      })
+      .finally(() => {
+        if (active) setMaintenanceLoaded(true)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [hardMaintenanceMode])
 
   useEffect(() => {
     if (showStartupGate && tourOpen) {
@@ -471,9 +505,21 @@ export default function App() {
     return data?.success === true
   }
 
+  if (!maintenanceLoaded && !hardMaintenanceMode) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-sky-50 text-sm text-slate-500">
+        页面加载中...
+      </div>
+    )
+  }
+
+  if (showMaintenanceGate) {
+    return <MaintenancePage />
+  }
+
   return (
     <div className="min-h-screen text-slate-800 flex flex-col">
-      {showStartupGate && (
+      {showStartupGate && !showMaintenanceGate && (
         <div
           className={`fixed inset-0 z-[100] flex items-center justify-center px-5 py-10 transition-opacity duration-300 ${
             startupLeaving ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -635,5 +681,3 @@ export default function App() {
     </div>
   )
 }
-
-

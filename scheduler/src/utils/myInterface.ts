@@ -72,6 +72,8 @@ export interface optionalCourseType {
 export interface clickedCourseInfo {
     courseCode: string;
     courseName: string;
+    teacherCode?: string;
+    teacherName?: string;
 }
 
 // 待选/已选课程

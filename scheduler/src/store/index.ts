@@ -8,12 +8,138 @@ import type {
     stagedCourse,
     optionalCourseType,
     occupyCell,
-    courseOnTable
+    courseOnTable,
+    teacherlet,
+    arrangementInfolet
  } from "@/utils/myInterface";
 import { errorNotify } from "@/utils/notify";
 import type { State } from "vue";
 
 type StoreState = State;
+
+function safeParseJson<T = unknown>(value: string | null): T | undefined {
+    if (!value) return undefined;
+    try {
+        return JSON.parse(value) as T;
+    }
+    catch {
+        return undefined;
+    }
+}
+
+function createEmptyOccupied() {
+    return Array(12).fill(null).map(() => Array(7).fill(undefined).map(() => []));
+}
+
+function ensureArray<T = unknown>(value: unknown): T[] {
+    return Array.isArray(value) ? value as T[] : [];
+}
+
+function sanitizeTeachers(raw: unknown): teacherlet[] {
+    return ensureArray(raw).map((item: any) => ({
+        teacherName: typeof item?.teacherName === "string" ? item.teacherName : "",
+        teacherCode: typeof item?.teacherCode === "string" ? item.teacherCode : ""
+    })).filter((item) => item.teacherName || item.teacherCode);
+}
+
+function sanitizeArrangementInfo(raw: unknown): arrangementInfolet[] {
+    return ensureArray(raw).map((item: any) => ({
+        arrangementText: typeof item?.arrangementText === "string" ? item.arrangementText : "",
+        occupyDay: typeof item?.occupyDay === "number" ? item.occupyDay : 0,
+        occupyTime: ensureArray<number>(item?.occupyTime).filter((slot) => typeof slot === "number" && slot >= 1 && slot <= 12),
+        occupyWeek: ensureArray(item?.occupyWeek).filter((week: unknown) => typeof week === "number"),
+        occupyRoom: typeof item?.occupyRoom === "string" ? item.occupyRoom : "",
+        teacherAndCode: typeof item?.teacherAndCode === "string" ? item.teacherAndCode : ""
+    })).filter((item) => item.occupyDay >= 1 && item.occupyDay <= 7 && item.occupyTime.length > 0);
+}
+
+function sanitizeCourseDetail(raw: unknown): courseDetaillet[] {
+    return ensureArray(raw).map((detail: any) => ({
+        arrangementInfo: sanitizeArrangementInfo(detail?.arrangementInfo),
+        campus: typeof detail?.campus === "string" ? detail.campus : "",
+        code: typeof detail?.code === "string" ? detail.code : "",
+        isExclusive: typeof detail?.isExclusive === "boolean" ? detail.isExclusive : undefined,
+        status: typeof detail?.status === "number" ? detail.status : 0,
+        teachers: sanitizeTeachers(detail?.teachers),
+        teachingLanguage: typeof detail?.teachingLanguage === "string" ? detail.teachingLanguage : ""
+    })).filter((detail) => detail.code);
+}
+
+function sanitizeMajorSelected(value: unknown) {
+    const input = (value && typeof value === "object") ? value as Record<string, unknown> : {};
+    return {
+        calendarId: typeof input.calendarId === "number" ? input.calendarId : undefined,
+        grade: typeof input.grade === "number" ? input.grade : undefined,
+        major: typeof input.major === "string" ? input.major : undefined
+    };
+}
+
+function sanitizeStagedCourse(raw: unknown) {
+    const input = (raw && typeof raw === "object") ? raw as Record<string, unknown> : {};
+    return {
+        ...input,
+        courseCode: typeof input.courseCode === "string" ? input.courseCode : "",
+        courseName: typeof input.courseName === "string" ? input.courseName : "",
+        courseNameReserved: typeof input.courseNameReserved === "string" ? input.courseNameReserved : "",
+        credit: typeof input.credit === "number" ? input.credit : 0,
+        courseType: typeof input.courseType === "string" ? input.courseType : "",
+        teacher: sanitizeTeachers(input.teacher),
+        status: typeof input.status === "number" ? input.status : 0,
+        courseDetail: sanitizeCourseDetail(input.courseDetail)
+    };
+}
+
+function sanitizeTimeTableData(raw: unknown) {
+    return ensureArray(raw).map((item: any) => ({
+        ...item,
+        showText: typeof item?.showText === "string" ? item.showText : "",
+        courseName: typeof item?.courseName === "string" ? item.courseName : "",
+        code: typeof item?.code === "string" ? item.code : "",
+        occupyTime: ensureArray(item?.occupyTime).filter((slot: unknown) => typeof slot === "number" && slot >= 1 && slot <= 12),
+        occupyDay: typeof item?.occupyDay === "number" && item.occupyDay >= 1 && item.occupyDay <= 7 ? item.occupyDay : 0
+    })).filter((item) => item.code && item.courseName && item.occupyDay > 0 && item.occupyTime.length > 0);
+}
+
+function sanitizeOccupied(raw: unknown) {
+    const rows = ensureArray(raw);
+    if (rows.length !== 12) return createEmptyOccupied();
+    return rows.map((row: any) => {
+        const cols = ensureArray(row);
+        if (cols.length !== 7) return Array(7).fill(undefined).map(() => []);
+        return cols.map((cell: any) => ensureArray(cell).map((item: any) => ({
+            code: typeof item?.code === "string" ? item.code : "",
+            courseName: typeof item?.courseName === "string" ? item.courseName : "",
+            occupyWeek: ensureArray(item?.occupyWeek).filter((week: unknown) => typeof week === "number")
+        })).filter((item: any) => item.code));
+    });
+}
+
+function sanitizeOptionalTypes(raw: unknown) {
+    return ensureArray(raw).map((item: any) => ({
+        courseLabelId: typeof item?.courseLabelId === "number" ? item.courseLabelId : 0,
+        courseLabelName: typeof item?.courseLabelName === "string" ? item.courseLabelName : ""
+    })).filter((item) => item.courseLabelId > 0 && item.courseLabelName);
+}
+
+function sanitizeCourseCollection(raw: unknown) {
+    return ensureArray(raw).map((item: any) => ({
+        ...item,
+        courseCode: typeof item?.courseCode === "string" ? item.courseCode : "",
+        courseName: typeof item?.courseName === "string" ? item.courseName : "",
+        courseNameReserved: typeof item?.courseNameReserved === "string" ? item.courseNameReserved : "",
+        faculty: typeof item?.faculty === "string" ? item.faculty : "",
+        credit: typeof item?.credit === "number" ? item.credit : 0,
+        courseNature: ensureArray(item?.courseNature).filter((nature: unknown) => typeof nature === "string"),
+        campus: ensureArray(item?.campus).filter((campus: unknown) => typeof campus === "string"),
+        courses: ensureArray(item?.courses).map((course: any) => ({
+            ...course,
+            code: typeof course?.code === "string" ? course.code : "",
+            campus: typeof course?.campus === "string" ? course.campus : "",
+            teachers: sanitizeTeachers(course?.teachers),
+            arrangementInfo: sanitizeArrangementInfo(course?.arrangementInfo)
+        }))
+    })).filter((item) => item.courseCode || ensureArray(item?.courses).length > 0);
+}
 
 const store = createStore<StoreState>({
     state() {
@@ -39,10 +165,12 @@ const store = createStore<StoreState>({
             // 点击的课程信息
             clickedCourseInfo: {
                 courseCode: '',
-                courseName: ''
+                courseName: '',
+                teacherCode: '',
+                teacherName: ''
             },
             // 课程表数据
-            occupied: Array(12).fill(null).map(() => Array(7).fill(undefined).map(() => [])), // 12 * 7 的二维数组，每个元素是一个数组
+            occupied: createEmptyOccupied(), // 12 * 7 的二维数组，每个元素是一个数组
             timeTableData: [], // 课程表数据
             // 标志位
             flags: {
@@ -60,20 +188,20 @@ const store = createStore<StoreState>({
             state.flags.majorNotChanged = false;
         },
         setCompulsoryCourses(state: StoreState, payload: courseInfo[]) {
-            state.commonLists.compulsoryCourses = payload;
+            state.commonLists.compulsoryCourses = sanitizeCourseCollection(payload);
             state.flags.majorNotChanged = true;
         },
         setOptionalTypes(state: StoreState, payload: optionalCourseType[]) {
             // console.log(payload);
-            state.commonLists.optionalTypes = payload;
+            state.commonLists.optionalTypes = sanitizeOptionalTypes(payload);
         },
         setOptionalCourses(state: StoreState, payload: courseInfo[]) {
-            state.commonLists.optionalCourses = payload;
+            state.commonLists.optionalCourses = sanitizeCourseCollection(payload);
             // console.log(state.commonLists.optionalCourses);
         },
         setSearchedCourses(state: StoreState, payload: courseInfo[]) {
             // console.log(payload);
-            state.commonLists.searchCourses = payload;
+            state.commonLists.searchCourses = sanitizeCourseCollection(payload);
         },
         pushStagedCourse(state: StoreState, payload: stagedCourse) {
             state.commonLists.stagedCourses.push(payload);
@@ -94,7 +222,9 @@ const store = createStore<StoreState>({
             // 点击课程清空
             state.clickedCourseInfo = {
                 courseCode: '',
-                courseName: ''
+                courseName: '',
+                teacherCode: '',
+                teacherName: ''
             };
 
             // console.log(state.clickedCourseInfo);
@@ -107,10 +237,12 @@ const store = createStore<StoreState>({
             state.commonLists.stagedCourses = [];
             state.commonLists.selectedCourses = [];
             state.timeTableData = [];
-            state.occupied = Array(12).fill(null).map(() => Array(7).fill(undefined).map(() => []));
+            state.occupied = createEmptyOccupied();
             state.clickedCourseInfo = {
                 courseCode: '',
-                courseName: ''
+                courseName: '',
+                teacherCode: '',
+                teacherName: ''
             };
         },
         updateTimeTable(state: StoreState, payload: courseDetaillet) {      
@@ -224,10 +356,12 @@ const store = createStore<StoreState>({
             state.commonLists.stagedCourses = [];
             state.commonLists.selectedCourses = [];
             state.timeTableData = [];
-            state.occupied = Array(12).fill(null).map(() => Array(7).fill(undefined).map(() => []));
+            state.occupied = createEmptyOccupied();
             state.clickedCourseInfo = {
                 courseCode: '',
-                courseName: ''
+                courseName: '',
+                teacherCode: '',
+                teacherName: ''
             };
             state.updateTime = state.latestUpdateTime;
             localStorage.setItem("updateTime", state.updateTime);
@@ -263,27 +397,25 @@ const store = createStore<StoreState>({
             localStorage.setItem("timeTableData", JSON.stringify(state.timeTableData));
         },
         loadSolidify(state: StoreState) {
-            const majorSelected = localStorage.getItem("majorSelected");
+            const majorSelected = safeParseJson(localStorage.getItem("majorSelected"));
             if (majorSelected) {
-                console.log(majorSelected);
-                state.majorSelected = JSON.parse(majorSelected);
-                console.log(state.majorSelected);
+                state.majorSelected = sanitizeMajorSelected(majorSelected);
             }
-            const stagedCourses = localStorage.getItem("stagedCourses");
+            const stagedCourses = safeParseJson(localStorage.getItem("stagedCourses"));
             if (stagedCourses) {
-                state.commonLists.stagedCourses = JSON.parse(stagedCourses);
+                state.commonLists.stagedCourses = ensureArray(stagedCourses).map(sanitizeStagedCourse);
             }
-            const selectedCourses = localStorage.getItem("selectedCourses");
+            const selectedCourses = safeParseJson(localStorage.getItem("selectedCourses"));
             if (selectedCourses) {
-                state.commonLists.selectedCourses = JSON.parse(selectedCourses);
+                state.commonLists.selectedCourses = ensureArray(selectedCourses).filter((item: unknown) => typeof item === "string");
             }
-            const occupied = localStorage.getItem("occupied");
+            const occupied = safeParseJson(localStorage.getItem("occupied"));
             if (occupied) {
-                state.occupied = JSON.parse(occupied);
+                state.occupied = sanitizeOccupied(occupied);
             }
-            const timeTableData = localStorage.getItem("timeTableData");
+            const timeTableData = safeParseJson(localStorage.getItem("timeTableData"));
             if (timeTableData) {
-                state.timeTableData = JSON.parse(timeTableData);
+                state.timeTableData = sanitizeTimeTableData(timeTableData);
             }
         },
         clearSolidify() {
