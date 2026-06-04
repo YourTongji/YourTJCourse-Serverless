@@ -59,6 +59,7 @@ async function getTeachers(db: D1Database, teachingClassId: number) {
 }
 
 let pkAuxInitPromise: Promise<void> | null = null
+let pkAuxReadyCache: { value: boolean; expiresAt: number } | null = null
 
 function getPkTimeSlotsBySection(section: number) {
   if (section === 1) return [1, 2]
@@ -95,7 +96,10 @@ async function ensurePkAuxiliaryTables(db: D1Database) {
       ).run()
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_slot ON teacher_timeslots(calendar_id, occupy_day, occupy_section)').run()
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_class ON teacher_timeslots(teaching_class_id)').run()
-      if (row?.value === PK_AUX_SCHEMA_VERSION) return
+      if (row?.value === PK_AUX_SCHEMA_VERSION) {
+        pkAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
+        return
+      }
 
       await db.prepare('DELETE FROM teacher_timeslots').run()
       const teacherRows = await db
@@ -153,9 +157,51 @@ async function ensurePkAuxiliaryTables(db: D1Database) {
         .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
         .bind('pk_aux_schema_version', PK_AUX_SCHEMA_VERSION)
         .run()
+      pkAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
     })()
   }
   await pkAuxInitPromise
+}
+
+async function ensurePkAuxiliarySchema(db: D1Database) {
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS teacher_timeslots (
+      calendar_id INTEGER NOT NULL,
+      teaching_class_id INTEGER NOT NULL,
+      occupy_day INTEGER NOT NULL,
+      occupy_section INTEGER NOT NULL,
+      teacher_code TEXT DEFAULT '',
+      teacher_name TEXT DEFAULT '',
+      PRIMARY KEY (calendar_id, teaching_class_id, occupy_day, occupy_section, teacher_code, teacher_name)
+    )`
+  ).run()
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_slot ON teacher_timeslots(calendar_id, occupy_day, occupy_section)').run()
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_class ON teacher_timeslots(teaching_class_id)').run()
+}
+
+async function isPkAuxiliaryReady(db: D1Database) {
+  const now = Date.now()
+  if (pkAuxReadyCache && pkAuxReadyCache.expiresAt > now) return pkAuxReadyCache.value
+
+  await ensurePkAuxiliarySchema(db)
+  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('pk_aux_schema_version').first<{ value: string }>()
+  const ready = row?.value === PK_AUX_SCHEMA_VERSION
+  pkAuxReadyCache = { value: ready, expiresAt: now + 30_000 }
+  return ready
+}
+
+function triggerPkAuxiliaryBuild(db: D1Database) {
+  if (!pkAuxInitPromise) {
+    pkAuxInitPromise = ensurePkAuxiliaryTables(db)
+      .catch((error) => {
+        pkAuxReadyCache = { value: false, expiresAt: Date.now() + 10_000 }
+        console.error('Failed to build pk auxiliary data:', error)
+      })
+      .finally(() => {
+        pkAuxInitPromise = null
+      })
+  }
+  return pkAuxInitPromise
 }
 
 async function getTeachersByClassIds(db: D1Database, classIds: number[]) {
@@ -796,35 +842,73 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
     const section = Number(body?.section)
     if (!Number.isFinite(calendarId) || !Number.isFinite(day) || !Number.isFinite(section)) return c.json(jsonErr(400, '输入参数有误'), 400)
 
-    await ensurePkAuxiliaryTables(c.env.DB)
     const slotSections = getPkTimeSlotsBySection(section)
     if (slotSections.length === 0) return c.json(jsonErr(400, '输入参数有误', []), 400)
 
     const labelPlaceholders = OPTIONAL_LABEL_NAMES.map(() => '?').join(',')
-    const slotPlaceholders = slotSections.map(() => '?').join(',')
-    const query = `
-      SELECT
-        cd.courseCode as courseCode,
-        cd.courseName as courseName,
-        f.facultyI18n as faculty,
-        MAX(cd.credit) as credit,
-        GROUP_CONCAT(DISTINCT n.courseLabelName) as courseNature,
-        GROUP_CONCAT(DISTINCT ca.campusI18n) as campus
-      FROM coursedetail cd
-      JOIN teacher_timeslots ts ON ts.teaching_class_id = cd.id
-      LEFT JOIN faculty f ON f.faculty = cd.faculty
-      LEFT JOIN campus ca ON ca.campus = cd.campus
-      LEFT JOIN coursenature_by_calendar n ON n.courseLabelId = cd.courseLabelId AND n.calendarId = cd.calendarId
-      WHERE cd.calendarId = ?
-        AND ts.calendar_id = ?
-        AND ts.occupy_day = ?
-        AND ts.occupy_section IN (${slotPlaceholders})
-        AND n.courseLabelName IN (${labelPlaceholders})
-      GROUP BY cd.courseCode, cd.courseName, f.facultyI18n
-      ORDER BY cd.courseCode ASC
-    `
+    const pkAuxReady = await isPkAuxiliaryReady(c.env.DB)
 
-    const { results } = await c.env.DB.prepare(query).bind(calendarId, calendarId, day, ...slotSections, ...OPTIONAL_LABEL_NAMES).all<any>()
+    let results: any[] = []
+    if (pkAuxReady) {
+      const slotPlaceholders = slotSections.map(() => '?').join(',')
+      const query = `
+        SELECT
+          cd.courseCode as courseCode,
+          cd.courseName as courseName,
+          f.facultyI18n as faculty,
+          MAX(cd.credit) as credit,
+          GROUP_CONCAT(DISTINCT n.courseLabelName) as courseNature,
+          GROUP_CONCAT(DISTINCT ca.campusI18n) as campus
+        FROM coursedetail cd
+        JOIN teacher_timeslots ts ON ts.teaching_class_id = cd.id
+        LEFT JOIN faculty f ON f.faculty = cd.faculty
+        LEFT JOIN campus ca ON ca.campus = cd.campus
+        LEFT JOIN coursenature_by_calendar n ON n.courseLabelId = cd.courseLabelId AND n.calendarId = cd.calendarId
+        WHERE cd.calendarId = ?
+          AND ts.calendar_id = ?
+          AND ts.occupy_day = ?
+          AND ts.occupy_section IN (${slotPlaceholders})
+          AND n.courseLabelName IN (${labelPlaceholders})
+        GROUP BY cd.courseCode, cd.courseName, f.facultyI18n
+        ORDER BY cd.courseCode ASC
+      `
+
+      const queryResult = await c.env.DB.prepare(query).bind(calendarId, calendarId, day, ...slotSections, ...OPTIONAL_LABEL_NAMES).all<any>()
+      results = queryResult.results || []
+    } else {
+      const dayTextMap = ['', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日']
+      const dayText = dayTextMap[day] || ''
+      const likePatterns =
+        section === 1 ? [`%${dayText}1-2%`]
+        : section === 2 ? [`%${dayText}3-4%`]
+        : section === 3 ? [`%${dayText}5-6%`]
+        : section === 4 ? [`%${dayText}7-8%`]
+        : section === 5 ? [`%${dayText}9-%`]
+        : [`%${dayText}10-11%`, `%${dayText}10-12%`]
+      const orLike = likePatterns.map(() => 't.arrangeInfoText LIKE ?').join(' OR ')
+      const query = `
+        SELECT
+          cd.courseCode as courseCode,
+          cd.courseName as courseName,
+          f.facultyI18n as faculty,
+          MAX(cd.credit) as credit,
+          GROUP_CONCAT(DISTINCT n.courseLabelName) as courseNature,
+          GROUP_CONCAT(DISTINCT ca.campusI18n) as campus
+        FROM coursedetail cd
+        JOIN teacher t ON t.teachingClassId = cd.id
+        LEFT JOIN faculty f ON f.faculty = cd.faculty
+        LEFT JOIN campus ca ON ca.campus = cd.campus
+        LEFT JOIN coursenature_by_calendar n ON n.courseLabelId = cd.courseLabelId AND n.calendarId = cd.calendarId
+        WHERE cd.calendarId = ?
+          AND (${orLike})
+          AND n.courseLabelName IN (${labelPlaceholders})
+        GROUP BY cd.courseCode, cd.courseName, f.facultyI18n
+        ORDER BY cd.courseCode ASC
+      `
+      const queryResult = await c.env.DB.prepare(query).bind(calendarId, ...likePatterns, ...OPTIONAL_LABEL_NAMES).all<any>()
+      results = queryResult.results || []
+    }
+
     const data = (results || []).map((r: any) => ({
       courseCode: String(r.courseCode || ''),
       courseName: String(r.courseName || ''),
@@ -864,8 +948,6 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
     for (const cc of allCodes) out[cc] = []
 
     if (allCodes.length === 0) return c.json(jsonOk(out))
-
-    await ensurePkAuxiliaryTables(c.env.DB)
 
     const cdRowsAll: any[] = []
     for (const part of chunk(allCodes, MAX_SQL_VARS)) {

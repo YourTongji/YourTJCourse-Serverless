@@ -186,6 +186,7 @@ function addSqidToReviews(reviews: any[]): any[] {
 const AUX_SCHEMA_VERSION = '20260605-query-opt-v1'
 const COURSE_LIST_CACHE_SECONDS = 60
 const COURSE_LIST_CACHE_SWR_SECONDS = 300
+const D1_SAFE_BATCH_SIZE = 40
 
 function buildCacheControl(maxAgeSeconds: number, staleWhileRevalidateSeconds = 0) {
   return staleWhileRevalidateSeconds > 0
@@ -337,7 +338,7 @@ async function buildCourseAuxiliaryRecords(db: D1Database, courseIds?: number[])
   }> = []
 
   if (scoped) {
-    for (const part of chunkArray(validCourseIds, 80)) {
+    for (const part of chunkArray(validCourseIds, D1_SAFE_BATCH_SIZE)) {
       const placeholders = part.map(() => '?').join(',')
       const rows = await db
         .prepare(
@@ -379,7 +380,7 @@ async function buildCourseAuxiliaryRecords(db: D1Database, courseIds?: number[])
 
   const aliasMap = new Map<number, string[]>()
   if (scoped) {
-    for (const part of chunkArray(validCourseIds, 80)) {
+    for (const part of chunkArray(validCourseIds, D1_SAFE_BATCH_SIZE)) {
       const placeholders = part.map(() => '?').join(',')
       const rows = await db
         .prepare(
@@ -410,7 +411,7 @@ async function buildCourseAuxiliaryRecords(db: D1Database, courseIds?: number[])
   const codeSemesterMap = new Map<string, Array<{ name: string; calendarId: number }>>()
 
   if (allCodes.length > 0) {
-    for (const part of chunkArray(allCodes, 80)) {
+    for (const part of chunkArray(allCodes, D1_SAFE_BATCH_SIZE)) {
       const placeholders = part.map(() => '?').join(',')
       const rows = await db
         .prepare(
@@ -456,7 +457,7 @@ async function deleteAuxiliaryCourseData(db: D1Database, courseIds: number[]) {
   const validCourseIds = Array.from(new Set(courseIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)))
   if (validCourseIds.length === 0) return
 
-  for (const part of chunkArray(validCourseIds, 80)) {
+  for (const part of chunkArray(validCourseIds, D1_SAFE_BATCH_SIZE)) {
     const placeholders = part.map(() => '?').join(',')
     await db.prepare(`DELETE FROM course_semesters WHERE course_id IN (${placeholders})`).bind(...part).run()
     await db.prepare(`DELETE FROM course_search WHERE course_id IN (${placeholders})`).bind(...part).run()
@@ -489,6 +490,7 @@ async function refreshAuxiliaryCourseData(db: D1Database, courseIds: number[]) {
   await ensureCourseAuxiliaryTables(db)
   await deleteAuxiliaryCourseData(db, courseIds)
   await upsertAuxiliaryCourseData(db, courseIds)
+  courseAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
 }
 
 async function rebuildAllAuxiliaryCourseData(db: D1Database) {
@@ -498,19 +500,52 @@ async function rebuildAllAuxiliaryCourseData(db: D1Database) {
   await upsertAuxiliaryCourseData(db)
 }
 
+let courseAuxReadyCache: { value: boolean; expiresAt: number } | null = null
+let courseAuxBuildPromise: Promise<void> | null = null
+
+async function isAuxiliaryCourseDataReady(db: D1Database) {
+  const now = Date.now()
+  if (courseAuxReadyCache && courseAuxReadyCache.expiresAt > now) return courseAuxReadyCache.value
+
+  await ensureCourseAuxiliaryTables(db)
+  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('aux_schema_version').first<{ value: string }>()
+  const ready = row?.value === AUX_SCHEMA_VERSION
+  courseAuxReadyCache = { value: ready, expiresAt: now + 30_000 }
+  return ready
+}
+
 async function ensureAuxiliaryCourseData(db: D1Database) {
   await ensureCourseAuxiliaryTables(db)
   const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('aux_schema_version').first<{ value: string }>()
-  if (row?.value === AUX_SCHEMA_VERSION) return
+  if (row?.value === AUX_SCHEMA_VERSION) {
+    courseAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
+    return
+  }
 
   await rebuildAllAuxiliaryCourseData(db)
   await db
     .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
     .bind('aux_schema_version', AUX_SCHEMA_VERSION)
     .run()
+  courseAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
+}
+
+function triggerAuxiliaryCourseDataBuild(db: D1Database) {
+  if (!courseAuxBuildPromise) {
+    courseAuxBuildPromise = ensureAuxiliaryCourseData(db)
+      .catch((error) => {
+        courseAuxReadyCache = { value: false, expiresAt: Date.now() + 10_000 }
+        console.error('Failed to build course auxiliary data:', error)
+      })
+      .finally(() => {
+        courseAuxBuildPromise = null
+      })
+  }
+  return courseAuxBuildPromise
 }
 
 async function getCourseSemesters(db: D1Database, courseId: number) {
+  await ensureCourseAuxiliaryTables(db)
   let row = await db.prepare('SELECT semester_names FROM course_semesters WHERE course_id = ?').bind(courseId).first<{ semester_names: string | null }>()
   if (!row) {
     await refreshAuxiliaryCourseData(db, [courseId])
@@ -529,7 +564,7 @@ async function ensureDbInitialized(db: D1Database) {
       await ensureReviewLikesTable(db)
       await ensureReviewsWalletColumn(db)
       await ensureLegacyAutoDocsPurged(db)
-      await ensureAuxiliaryCourseData(db)
+      await ensureCourseAuxiliaryTables(db)
     })()
   }
   await dbInitPromise
@@ -572,10 +607,12 @@ async function ensureLegacyAutoDocsPurged(db: D1Database) {
     const idList = (ids.results || []).map((r: any) => Number(r.id)).filter((n) => Number.isFinite(n))
 
     if (idList.length > 0) {
-      const placeholders = idList.map(() => '?').join(',')
-      await db.prepare(`DELETE FROM reviews WHERE course_id IN (${placeholders})`).bind(...idList).run()
-      await db.prepare(`DELETE FROM course_aliases WHERE course_id IN (${placeholders})`).bind(...idList).run()
-      await db.prepare(`DELETE FROM courses WHERE id IN (${placeholders})`).bind(...idList).run()
+      for (const part of chunkArray(idList, D1_SAFE_BATCH_SIZE)) {
+        const placeholders = part.map(() => '?').join(',')
+        await db.prepare(`DELETE FROM reviews WHERE course_id IN (${placeholders})`).bind(...part).run()
+        await db.prepare(`DELETE FROM course_aliases WHERE course_id IN (${placeholders})`).bind(...part).run()
+        await db.prepare(`DELETE FROM courses WHERE id IN (${placeholders})`).bind(...part).run()
+      }
     }
 
     await db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, 'true')`).bind(key).run()
@@ -784,6 +821,7 @@ app.get('/api/courses', async (c) => {
 
     // 检查是否显示 is_icu 数据
     const showIcu = await getShowIcuSetting(c.env.DB)
+    const courseAuxReady = await isAuxiliaryCourseDataReady(c.env.DB)
     const canUseWorkerCache = !includeTotal
 
     if (canUseWorkerCache) {
@@ -812,10 +850,14 @@ app.get('/api/courses', async (c) => {
     baseWhere += " AND NOT (c.is_legacy = 1 AND c.code LIKE '%AUTO%')"
 
     if (keyword) {
-      const ftsQuery = buildCourseSearchMatchQuery(keyword)
-      if (ftsQuery) {
+      const ftsQuery = courseAuxReady ? buildCourseSearchMatchQuery(keyword) : ''
+      if (courseAuxReady && ftsQuery) {
         baseWhere += ' AND c.id IN (SELECT course_id FROM course_search WHERE search_doc MATCH ?)'
         baseParams.push(ftsQuery)
+      } else {
+        baseWhere += ' AND (c.search_keywords LIKE ? OR c.code LIKE ? OR c.name LIKE ? OR t.name LIKE ?)'
+        const likeKey = `%${keyword}%`
+        baseParams.push(likeKey, likeKey, likeKey, likeKey)
       }
     }
 
