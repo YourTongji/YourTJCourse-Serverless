@@ -12,6 +12,8 @@ type ManualArrangeResponse = {
   }
 }
 
+const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504])
+
 function asInt(value: unknown): number | null {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? parseInt(value, 10) : NaN
   return Number.isFinite(n) ? n : null
@@ -19,6 +21,10 @@ function asInt(value: unknown): number | null {
 
 function normalizeStr(value: unknown): string {
   return String(value ?? '').trim()
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function computeNewCode(course: any): { newCourseCode: string | null; newCode: string | null } {
@@ -31,6 +37,18 @@ function computeNewCode(course: any): { newCourseCode: string | null; newCode: s
 
   const suffix = code.slice(-2)
   return { newCourseCode, newCode: suffix ? `${newCourseCode}${suffix}` : null }
+}
+
+function extractTeacherArrangeInfo(arrangeInfo: string, teacherName: string | null) {
+  const lines = String(arrangeInfo || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (!teacherName) return lines.join('\n')
+
+  const matched = lines.filter((line) => line.includes(teacherName))
+  return (matched.length > 0 ? matched : lines).join('\n')
 }
 
 async function upsertMajor(db: D1Database, majorName: string, calendarId: number) {
@@ -155,6 +173,17 @@ async function upsertCourseList(db: D1Database, list: any[], calendarId: number)
       await push(
         db
           .prepare(
+            `INSERT INTO coursenature (courseLabelId, courseLabelName, calendarId)
+             VALUES (?, ?, ?)
+             ON CONFLICT(courseLabelId) DO UPDATE SET
+               courseLabelName=excluded.courseLabelName,
+               calendarId=excluded.calendarId`
+          )
+          .bind(courseLabelId, courseLabelName, calendarId)
+      )
+      await push(
+        db
+          .prepare(
             `INSERT INTO coursenature_by_calendar (calendarId, courseLabelId, courseLabelName)
              VALUES (?, ?, ?)
              ON CONFLICT(calendarId, courseLabelId) DO UPDATE SET courseLabelName=excluded.courseLabelName`
@@ -261,10 +290,17 @@ async function upsertCourseList(db: D1Database, list: any[], calendarId: number)
     for (const t of teachers) {
       const teacherId = asInt(t?.id)
       if (teacherId === null) continue
+      const teacherName = normalizeStr(t?.teacherName) || null
       await push(
         db
           .prepare('INSERT OR REPLACE INTO teacher (id, teachingClassId, teacherCode, teacherName, arrangeInfoText) VALUES (?, ?, ?, ?, ?)')
-          .bind(teacherId, teachingClassId, normalizeStr(t?.teacherCode) || null, normalizeStr(t?.teacherName) || null, arrangeInfo)
+          .bind(
+            teacherId,
+            teachingClassId,
+            normalizeStr(t?.teacherCode) || null,
+            teacherName,
+            extractTeacherArrangeInfo(arrangeInfo, teacherName)
+          )
       )
     }
 
@@ -299,24 +335,40 @@ async function fetchManualArrangePage(opts: { sessionCookie: string; calendarId:
     pageSize_: pageSize
   }
 
-  const res = await fetch('https://1.tongji.edu.cn/api/arrangementservice/manualArrange/page?profile', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-      Referer: 'https://1.tongji.edu.cn/taskResultQuery',
-      Cookie: sessionCookie
-    },
-    body: JSON.stringify(payload)
-  })
+  let lastError: unknown = null
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`一系统请求失败: HTTP ${res.status} ${text.slice(0, 200)}`)
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const res = await fetch('https://1.tongji.edu.cn/api/arrangementservice/manualArrange/page?profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+          Referer: 'https://1.tongji.edu.cn/taskResultQuery',
+          Cookie: sessionCookie
+        },
+        body: JSON.stringify(payload)
+      })
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        if (RETRYABLE_HTTP_STATUS.has(res.status)) {
+          throw new Error(`HTTP ${res.status} ${text.slice(0, 200)}`)
+        }
+        throw new Error(`一系统请求失败: HTTP ${res.status} ${text.slice(0, 200)}`)
+      }
+
+      return (await res.json()) as ManualArrangeResponse
+    } catch (error) {
+      lastError = error
+      if (attempt >= 5) break
+      await sleep(Math.min(10000, (1 + attempt * 2) * 1000))
+    }
   }
 
-  return (await res.json()) as ManualArrangeResponse
+  const message = lastError instanceof Error ? lastError.message : String(lastError || 'unknown error')
+  throw new Error(`一系统请求失败: ${message}`)
 }
 
 export async function syncOnesystemToPkTables(opts: {
@@ -351,7 +403,7 @@ export async function syncOnesystemToPkTables(opts: {
     const firstList = Array.isArray(first?.data?.list) ? first.data!.list! : []
     teachingClassInserted += await upsertCourseList(db, firstList, i)
 
-    const totalPages = Math.floor(total / pageSize) + 1
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
     for (let page = 2; page <= totalPages; page++) {
       const next = await fetchManualArrangePage({ sessionCookie, calendarId: i, pageNum: page, pageSize })
       const list = Array.isArray(next?.data?.list) ? next.data!.list! : []

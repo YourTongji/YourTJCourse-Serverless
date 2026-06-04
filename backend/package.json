@@ -9,6 +9,8 @@
     "db:init:local": "wrangler d1 execute jcourse-db --local --file=./schema.sql",
     "db:seed:local": "wrangler d1 execute jcourse-db --local --file=./sample_data.sql",
     "db:seed:pk:local": "wrangler d1 execute jcourse-db --local --file=./sample_pk_data.sql",
+    "db:merge:icu": "python3 ./scripts/merge_icu_d1.py",
+    "db:verify:icu": "python3 ./scripts/verify_merged_d1.py",
     "pk:sync:local": "node ./scripts/pk-sync-local.mjs",
     "pk:sync:login": "python ./scripts/pk-login-and-sync.py"
   },

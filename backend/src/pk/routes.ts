@@ -6,8 +6,22 @@ type PkBindings = {
 }
 
 const MAX_SQL_VARS = 80
-// Keep consistent with pk original backend (INNER_LABEL_LIST / LABEL_LIST)
-const OPTIONAL_LABEL_IDS = [947, 955, 956, 957, 958]
+const OPTIONAL_LABEL_NAMES = [
+  '通识选修课',
+  '人文经典与审美素养',
+  '工程能力与创新思维',
+  '社会发展与国际视野',
+  '科学探索与生命关怀',
+]
+const CROSS_DISCIPLINE_LABEL_NAMES = [
+  '个性化课程',
+  '个性课程',
+  '任选课程',
+  '专业选修课',
+  '专业课选修',
+  '专业特色模块',
+  '领域基础课',
+]
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = []
@@ -21,6 +35,18 @@ function jsonOk(data: any) {
 
 function jsonErr(code: number, msg: string, data?: any) {
   return { code, msg, data: data ?? {} }
+}
+
+function normalizeText(value: unknown) {
+  return String(value || '').trim()
+}
+
+function uniqueText(values: unknown[]) {
+  return Array.from(new Set(values.map((value) => normalizeText(value)).filter(Boolean)))
+}
+
+function isCrossDisciplineLabel(labelName: string) {
+  return CROSS_DISCIPLINE_LABEL_NAMES.includes(normalizeText(labelName))
 }
 
 async function getTeachers(db: D1Database, teachingClassId: number) {
@@ -107,18 +133,19 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
     const calendarId = Number(body?.calendarId)
     if (!Number.isFinite(grade) || !code || !Number.isFinite(calendarId)) return c.json(jsonErr(400, '参数错误'), 400)
 
-    // 找到目标 major（允许 grade <=，与 pk 行为保持一致）
+    // 找到当前选择的专业记录，用于判断当前年级的专属课程
     const majorRow = await c.env.DB
-      .prepare('SELECT id FROM major WHERE code = ? AND grade <= ? ORDER BY grade DESC LIMIT 1')
+      .prepare('SELECT id FROM major WHERE code = ? AND grade = ? ORDER BY grade DESC LIMIT 1')
       .bind(code, grade)
       .first<{ id: number }>()
     const targetMajorId = majorRow?.id ?? null
 
-    // 直接按 major + calendarId 拉取 teaching class，避免先查 courseCode 再分块 IN(...) 的多次往返
-    const cdRowsRes = await c.env.DB
+    // 和原版一致：展示当前入学年级及更早入学年级的计划内课程（如 2024/2023/2022）
+    const majorRowsRes = await c.env.DB
       .prepare(
         `SELECT
            cd.*,
+           m.grade as grade,
            f.facultyI18n as facultyI18n,
            ca.campusI18n as campusI18n,
            n.courseLabelName as courseLabelName,
@@ -144,8 +171,65 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
       .bind(targetMajorId, targetMajorId, calendarId, code, grade)
       .all<any>()
 
-    const cdRowsAll: any[] = cdRowsRes.results || []
-    if (cdRowsAll.length === 0) return c.json(jsonOk([]))
+    const majorRows: any[] = majorRowsRes.results || []
+    if (majorRows.length === 0) return c.json(jsonOk([]))
+
+    const courseGroupKeys: string[] = []
+    const courseGroupMeta = new Map<string, { courseCode: string; grade: number }>()
+    const courseCodeToGroupKeys = new Map<string, Set<string>>()
+    const courseGroupToNature = new Map<string, Set<string>>()
+    const courseGroupExclusiveIds = new Map<string, Set<number>>()
+
+    for (const row of majorRows) {
+      const courseCode = normalizeText(row.courseCode)
+      if (!courseCode) continue
+      const rowGrade = Number((row as any).grade || grade || 0)
+      const labelName = normalizeText((row as any).courseLabelName)
+      const groupKey = `${courseCode}__${rowGrade}`
+
+      if (!courseGroupMeta.has(groupKey)) {
+        courseGroupKeys.push(groupKey)
+        courseGroupMeta.set(groupKey, { courseCode, grade: rowGrade })
+      }
+      if (!courseCodeToGroupKeys.has(courseCode)) courseCodeToGroupKeys.set(courseCode, new Set<string>())
+      courseCodeToGroupKeys.get(courseCode)!.add(groupKey)
+
+      if (labelName) {
+        if (!courseGroupToNature.has(groupKey)) courseGroupToNature.set(groupKey, new Set<string>())
+        courseGroupToNature.get(groupKey)!.add(labelName)
+      }
+
+      if (Number((row as any).isExclusive || 0) === 1) {
+        if (!courseGroupExclusiveIds.has(groupKey)) courseGroupExclusiveIds.set(groupKey, new Set<number>())
+        courseGroupExclusiveIds.get(groupKey)!.add(Number(row.id))
+      }
+    }
+
+    const allCourseCodes = Array.from(new Set(courseGroupKeys.map((groupKey) => courseGroupMeta.get(groupKey)?.courseCode).filter(Boolean) as string[]))
+    const cdRowsAll: any[] = []
+    for (const part of chunk(allCourseCodes, MAX_SQL_VARS)) {
+      const placeholders = part.map(() => '?').join(',')
+      const rows = await c.env.DB
+        .prepare(
+          `SELECT
+             cd.*,
+             f.facultyI18n as facultyI18n,
+             ca.campusI18n as campusI18n,
+             n.courseLabelName as courseLabelName,
+             l.teachingLanguageI18n as teachingLanguageI18n
+           FROM coursedetail cd
+           LEFT JOIN faculty f ON f.faculty = cd.faculty
+           LEFT JOIN campus ca ON ca.campus = cd.campus
+           LEFT JOIN coursenature_by_calendar n ON n.courseLabelId = cd.courseLabelId AND n.calendarId = cd.calendarId
+           LEFT JOIN language l ON l.teachingLanguage = cd.teachingLanguage
+           WHERE cd.calendarId = ?
+             AND cd.courseCode IN (${placeholders})
+           ORDER BY cd.courseCode ASC, cd.code ASC`
+        )
+        .bind(calendarId, ...part)
+        .all<any>()
+      if (rows.results?.length) cdRowsAll.push(...(rows.results || []))
+    }
 
     const teachingClassIds = Array.from(
       new Set(
@@ -175,93 +259,108 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
       }
     }
 
-    const outMap = new Map<string, any>()
-
+    const rowsByCourseCode = new Map<string, any[]>()
     for (const row of cdRowsAll) {
-      const courseCode = String(row.courseCode || '')
+      const courseCode = normalizeText(row.courseCode)
       if (!courseCode) continue
+      if (!rowsByCourseCode.has(courseCode)) rowsByCourseCode.set(courseCode, [])
+      rowsByCourseCode.get(courseCode)!.push(row)
 
-      if (!outMap.has(courseCode)) {
-        outMap.set(courseCode, {
-          courseCode,
-          courseName: String(row.courseName || ''),
-          faculty: String(row.facultyI18n || ''),
-          facultyI18n: String(row.facultyI18n || ''),
-          credit: Number(row.credit || 0),
-          grade,
-          courseNature: Array.from(new Set([String(row.courseLabelName || '')].filter(Boolean))),
-          courses: [] as any[]
-        })
-      } else {
-        // merge courseNature if needed
-        const target = outMap.get(courseCode)
-        const label = String(row.courseLabelName || '')
-        if (label && !target.courseNature.includes(label)) target.courseNature.push(label)
+      const labelName = normalizeText((row as any).courseLabelName)
+      if (labelName) {
+        for (const groupKey of courseCodeToGroupKeys.get(courseCode) || []) {
+          if (!courseGroupToNature.has(groupKey)) courseGroupToNature.set(groupKey, new Set<string>())
+          courseGroupToNature.get(groupKey)!.add(labelName)
+        }
+      }
+    }
+
+    const output: any[] = []
+    for (const groupKey of courseGroupKeys) {
+      const meta = courseGroupMeta.get(groupKey)
+      if (!meta) continue
+      const rows = rowsByCourseCode.get(meta.courseCode) || []
+      if (rows.length === 0) continue
+
+      const firstRow = rows[0]
+      const courseNature = uniqueText([
+        ...(courseGroupToNature.get(groupKey) ? Array.from(courseGroupToNature.get(groupKey)!) : []),
+      ])
+
+      const courseMap = new Map<string, any>()
+      for (const row of rows) {
+        const classCode = String(row.code || '')
+        if (!classCode) continue
+
+        const teachers = teachersByClass.get(Number(row.id)) || []
+        const arrangementInfo = mergeArrangementInfo(teachers)
+        const isExclusive = courseGroupExclusiveIds.get(groupKey)?.has(Number(row.id)) || false
+
+        if (!courseMap.has(classCode)) {
+          courseMap.set(classCode, {
+            code: classCode,
+            campus: String(row.campusI18n || ''),
+            teachers: (teachers || []).map((t: any) => ({ teacherCode: String(t.teacherCode || ''), teacherName: String(t.teacherName || '') })),
+            teachingLanguage: String(row.teachingLanguageI18n || ''),
+            arrangementInfo,
+            isExclusive,
+          })
+          continue
+        }
+
+        const existing = courseMap.get(classCode)
+        const texts = new Set((existing.arrangementInfo || []).map((item: any) => item.arrangementText))
+        for (const item of arrangementInfo || []) {
+          if (!texts.has(item.arrangementText)) existing.arrangementInfo.push(item)
+        }
       }
 
-      const teachers = teachersByClass.get(Number(row.id)) || []
-      const arrangementInfo = mergeArrangementInfo(teachers)
-
-      const isExclusive = Number((row as any).isExclusive || 0) === 1
-
-      outMap.get(courseCode).courses.push({
-        code: String(row.code || ''),
-        campus: String(row.campusI18n || ''),
-        teachers: (teachers || []).map((t: any) => ({ teacherCode: String(t.teacherCode || ''), teacherName: String(t.teacherName || '') })),
-        teachingLanguage: String(row.teachingLanguageI18n || ''),
-        arrangementInfo,
-        isExclusive
+      output.push({
+        courseCode: meta.courseCode,
+        courseName: String(firstRow.courseName || ''),
+        faculty: String(firstRow.facultyI18n || ''),
+        facultyI18n: String(firstRow.facultyI18n || ''),
+        credit: Number(firstRow.credit || 0),
+        grade: meta.grade,
+        courseNature,
+        courses: Array.from(courseMap.values()).sort((left, right) => String(left.code).localeCompare(String(right.code))),
       })
     }
 
-    // 与 pk 行为保持一致：同一 teaching class code 合并 arrangementInfo（不同 teacher 可能重复返回）
-    for (const v of outMap.values()) {
-      const merged: any[] = []
-      for (const cls of v.courses) {
-        const existing = merged.find((x) => x.code === cls.code)
-        if (!existing) {
-          merged.push(cls)
-        } else {
-          const texts = new Set((existing.arrangementInfo || []).map((i: any) => i.arrangementText))
-          for (const item of cls.arrangementInfo || []) {
-            if (!texts.has(item.arrangementText)) existing.arrangementInfo.push(item)
-          }
-        }
-      }
-      v.courses = merged
-    }
-
-    return c.json(jsonOk(Array.from(outMap.values())))
+    return c.json(jsonOk(output))
   })
 
   app.post('/api/findOptionalCourseType', async (c) => {
     const body = await c.req.json().catch(() => ({}))
     const calendarId = Number(body?.calendarId)
     if (!Number.isFinite(calendarId)) return c.json(jsonErr(400, 'Missing calendarId'), 400)
-
-    const placeholders = OPTIONAL_LABEL_IDS.map(() => '?').join(',')
+    const placeholders = OPTIONAL_LABEL_NAMES.map(() => '?').join(',')
     const sqlByCalendar = `
-      SELECT DISTINCT n.courseLabelId as courseLabelId, n.courseLabelName as courseLabelName
+      SELECT DISTINCT
+        n.courseLabelId as courseLabelId,
+        n.courseLabelName as courseLabelName
       FROM coursenature_by_calendar n
       JOIN coursedetail cd ON cd.courseLabelId = n.courseLabelId AND cd.calendarId = n.calendarId
       WHERE n.calendarId = ?
-        AND n.courseLabelId IN (${placeholders})
+        AND n.courseLabelName IN (${placeholders})
       ORDER BY n.courseLabelId DESC
     `
     const sqlLegacy = `
-      SELECT DISTINCT n.courseLabelId as courseLabelId, n.courseLabelName as courseLabelName
+      SELECT DISTINCT
+        n.courseLabelId as courseLabelId,
+        n.courseLabelName as courseLabelName
       FROM coursenature n
       JOIN coursedetail cd ON cd.courseLabelId = n.courseLabelId
       WHERE cd.calendarId = ?
-        AND n.courseLabelId IN (${placeholders})
+        AND n.courseLabelName IN (${placeholders})
       ORDER BY n.courseLabelId DESC
     `
 
     try {
-      const { results } = await c.env.DB.prepare(sqlByCalendar).bind(calendarId, ...OPTIONAL_LABEL_IDS).all<any>()
+      const { results } = await c.env.DB.prepare(sqlByCalendar).bind(calendarId, ...OPTIONAL_LABEL_NAMES).all<any>()
       return c.json(jsonOk(results || []))
     } catch (_e) {
-      const { results } = await c.env.DB.prepare(sqlLegacy).bind(calendarId, ...OPTIONAL_LABEL_IDS).all<any>()
+      const { results } = await c.env.DB.prepare(sqlLegacy).bind(calendarId, ...OPTIONAL_LABEL_NAMES).all<any>()
       return c.json(jsonOk(results || []))
     }
   })
@@ -318,8 +417,55 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
         credit: Number(r.credit || 0)
       })
     }
+    const mergedByLabelName = new Map<string, { courseLabelName: string; courseLabelIds: number[]; courses: any[] }>()
+    for (const item of map.values()) {
+      const labelName = normalizeText(item.courseLabelName)
+      if (!labelName) continue
+      if (!mergedByLabelName.has(labelName)) {
+        mergedByLabelName.set(labelName, {
+          courseLabelName: labelName,
+          courseLabelIds: [item.courseLabelId],
+          courses: [],
+        })
+      } else {
+        mergedByLabelName.get(labelName)!.courseLabelIds.push(item.courseLabelId)
+      }
 
-    return c.json(jsonOk(Array.from(map.values())))
+      const courseMap = new Map<string, any>()
+      for (const existing of mergedByLabelName.get(labelName)!.courses) {
+        courseMap.set(`${existing.courseCode}__${existing.faculty}__${existing.credit}`, existing)
+      }
+
+      for (const course of item.courses) {
+        const key = `${course.courseCode}__${course.faculty}__${course.credit}`
+        if (!courseMap.has(key)) {
+          const nextCourse = {
+            ...course,
+            courseLabelName: labelName,
+            crossDiscipline: isCrossDisciplineLabel(labelName),
+            campus: Array.isArray(course.campus) ? [...course.campus] : []
+          }
+          courseMap.set(key, nextCourse)
+          mergedByLabelName.get(labelName)!.courses.push(nextCourse)
+          continue
+        }
+        const target = courseMap.get(key)
+        target.campus = uniqueText([...(target.campus || []), ...(Array.isArray(course.campus) ? course.campus : [])])
+        target.crossDiscipline = Boolean(target.crossDiscipline || isCrossDisciplineLabel(labelName))
+      }
+    }
+
+    const merged = Array.from(mergedByLabelName.values())
+      .map((item) => ({
+        courseLabelId: Math.max(...item.courseLabelIds),
+        courseLabelIds: Array.from(new Set(item.courseLabelIds)).sort((a, b) => b - a),
+        courseLabelName: item.courseLabelName,
+        crossDiscipline: isCrossDisciplineLabel(item.courseLabelName),
+        courses: item.courses.sort((left, right) => String(left.courseCode).localeCompare(String(right.courseCode)))
+      }))
+      .sort((left, right) => right.courseLabelId - left.courseLabelId)
+
+    return c.json(jsonOk(merged))
   })
 
   app.post('/api/findCourseDetailByCode', async (c) => {
@@ -451,24 +597,24 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
       args.push(`%${courseName}%`)
     }
     if (courseCode) {
-      where.push('cd.courseCode LIKE ?')
-      args.push(`%${courseCode}%`)
+      where.push('(cd.courseCode = ? OR cd.code = ?)')
+      args.push(courseCode, courseCode)
     }
     if (campus) {
-      where.push('cd.campus = ?')
-      args.push(campus)
+      where.push('(cd.campus = ? OR ca.campusI18n = ?)')
+      args.push(campus, campus)
     }
     if (faculty) {
-      where.push('cd.faculty = ?')
-      args.push(faculty)
+      where.push('(cd.faculty = ? OR f.facultyI18n = ?)')
+      args.push(faculty, faculty)
     }
     if (teacherCode) {
-      where.push('t.teacherCode LIKE ?')
-      args.push(`%${teacherCode}%`)
+      where.push('t.teacherCode = ?')
+      args.push(teacherCode)
     }
     if (teacherName) {
-      where.push('t.teacherName LIKE ?')
-      args.push(`%${teacherName}%`)
+      where.push('t.teacherName = ?')
+      args.push(teacherName)
     }
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
@@ -528,7 +674,7 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
     if (!patterns) return c.json(jsonErr(400, '输入参数有误', []), 400)
 
     const orLike = patterns.map(() => 't.arrangeInfoText LIKE ?').join(' OR ')
-    const labelPlaceholders = OPTIONAL_LABEL_IDS.map(() => '?').join(',')
+    const labelPlaceholders = OPTIONAL_LABEL_NAMES.map(() => '?').join(',')
     const query = `
       SELECT
         cd.courseCode as courseCode,
@@ -544,12 +690,12 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
       LEFT JOIN coursenature_by_calendar n ON n.courseLabelId = cd.courseLabelId AND n.calendarId = cd.calendarId
       WHERE cd.calendarId = ?
         AND (${orLike})
-        AND cd.courseLabelId IN (${labelPlaceholders})
+        AND n.courseLabelName IN (${labelPlaceholders})
       GROUP BY cd.courseCode, cd.courseName, f.facultyI18n
       ORDER BY cd.courseCode ASC
     `
 
-    const { results } = await c.env.DB.prepare(query).bind(calendarId, ...patterns, ...OPTIONAL_LABEL_IDS).all<any>()
+    const { results } = await c.env.DB.prepare(query).bind(calendarId, ...patterns, ...OPTIONAL_LABEL_NAMES).all<any>()
     const data = (results || []).map((r: any) => ({
       courseCode: String(r.courseCode || ''),
       courseName: String(r.courseName || ''),

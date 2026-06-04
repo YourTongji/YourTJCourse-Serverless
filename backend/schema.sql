@@ -92,6 +92,8 @@ CREATE TABLE IF NOT EXISTS settings (
 
 -- 默认设置：乌龙茶评论不显示
 INSERT OR IGNORE INTO settings (key, value) VALUES ('show_legacy_reviews', 'false');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_mode', 'false');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_config', '');
 
 -- 索引
 CREATE INDEX idx_courses_code ON courses(code);
