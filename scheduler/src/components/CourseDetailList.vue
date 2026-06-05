@@ -104,7 +104,7 @@ import CourseReviewDrawer from './CourseReviewDrawer.vue';
                         dataIndex: 'code',
                         key: 'code',
                         align: 'center',
-                        sorter: (a: { code: number; }, b: { code: number; }) => a.code - b.code
+                        sorter: (a: { code: string }, b: { code: string }) => String(a.code).localeCompare(String(b.code))
                     },
                     {
                         title: '教师',
