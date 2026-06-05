@@ -23,7 +23,7 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 app.use('/*', cors({
   origin: '*',
-  allowHeaders: ['Content-Type', 'x-admin-secret'],
+  allowHeaders: ['Content-Type', 'x-admin-secret', 'Cache-Control'],
   allowMethods: ['POST', 'GET', 'DELETE', 'PUT', 'OPTIONS']
 }))
 
