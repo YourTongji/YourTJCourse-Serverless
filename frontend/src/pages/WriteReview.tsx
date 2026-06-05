@@ -260,19 +260,18 @@ export default function WriteReview() {
           ...payload
         })
         if (res.success) {
-          // Fire-and-forget: set edit_token if wallet available
+          // Set edit_token and claim credit reward in sequence
           if (wallet?.userSecret && wallet?.userHash && res.reviewId) {
-            computeReviewEditToken(wallet.userSecret, res.reviewId).then(token => {
-              patchReviewEditToken(res.reviewId, token, wallet.userHash).catch(() => {})
-            })
-          }
-          const credit = res?.creditReward
-          if (credit && credit.skipped !== true) {
-            if (credit.ok) {
+            const token = await computeReviewEditToken(wallet.userSecret, res.reviewId)
+            const tokenRes = await patchReviewEditToken(res.reviewId, token, wallet.userHash)
+            const credit = tokenRes?.creditReward
+            if (credit && credit.ok) {
               alert('点评提交成功！评课激励 +10 已发放到积分钱包。')
-            } else {
+            } else if (credit && credit.skipped !== true) {
               const reason = credit.error ? `（${String(credit.error).slice(0, 120)}）` : ''
               alert(`点评提交成功，但评课激励发放失败${reason}`)
+            } else {
+              alert('点评提交成功！')
             }
           } else {
             alert('点评提交成功！')
