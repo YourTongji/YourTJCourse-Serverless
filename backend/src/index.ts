@@ -1741,7 +1741,8 @@ app.post('/api/review/:id/like', async (c) => {
     })
   }
 
-  return c.json({ success: true, liked: true, like_count: Number(review.approve_count || 0), creditLike })
+  // Note: creditLike intentionally omitted from response to avoid leaking wallet_user_hash
+  return c.json({ success: true, liked: true, like_count: Number(review.approve_count || 0) })
 })
 
 app.delete('/api/review/:id/like', async (c) => {
@@ -1786,7 +1787,8 @@ app.delete('/api/review/:id/like', async (c) => {
     })
   }
 
-  return c.json({ success: true, liked: false, like_count: Number(review.approve_count || 0), creditLike })
+  // Note: creditLike intentionally omitted from response to avoid leaking wallet_user_hash
+  return c.json({ success: true, liked: false, like_count: Number(review.approve_count || 0) })
 })
 
 // 管理 API
