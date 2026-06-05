@@ -21,6 +21,12 @@ export function addSqidToReviews(reviews: any[]): any[] {
   })
 }
 
+export function normalizeReviewerAvatar(value: unknown) {
+  const avatar = String(value || '').trim()
+  if (!avatar || avatar.startsWith('data:')) return ''
+  return avatar.slice(0, 500)
+}
+
 async function sha256Hex(value: string) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
   return Array.from(new Uint8Array(digest))
