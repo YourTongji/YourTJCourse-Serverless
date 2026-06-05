@@ -354,7 +354,7 @@ def main() -> int:
                     f"{sql_quote(course.get('endWeek'))}, "
                     f"{sql_quote(str(course.get('courseCode') or '').strip() or None)}, "
                     f"{sql_quote(str(course.get('courseName') or '').strip() or None)}, "
-                    f"{sql_quote(course.get('credits'))}, "
+                    f"{sql_quote(course.get('credit'))}, "
                     f"{sql_quote(teaching_language)}, "
                     f"{sql_quote(faculty)}, "
                     f"{cid}, "
