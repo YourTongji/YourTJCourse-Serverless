@@ -603,7 +603,10 @@ async function ensureDbInitialized(db: D1Database) {
       await ensureReviewsWalletColumn(db)
       await ensureLegacyAutoDocsPurged(db)
       await ensureCourseAuxiliaryTables(db)
-    })()
+    })().catch((err) => {
+      dbInitPromise = null // reset latch so next call retries
+      throw err
+    })
   }
   await dbInitPromise
 }
