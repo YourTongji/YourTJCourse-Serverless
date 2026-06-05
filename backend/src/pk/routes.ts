@@ -136,9 +136,10 @@ async function ensurePkAuxiliaryTables(db: D1Database) {
         }
       }
 
+      const insertStmts: D1PreparedStatement[] = []
       for (const key of pending) {
         const [calendarId, teachingClassId, occupyDay, occupySection, teacherCode, teacherName] = key.split('|')
-        await db
+        insertStmts.push(db
           .prepare(
             `INSERT OR REPLACE INTO teacher_timeslots (
               calendar_id,
@@ -149,8 +150,11 @@ async function ensurePkAuxiliaryTables(db: D1Database) {
               teacher_name
             ) VALUES (?, ?, ?, ?, ?, ?)`
           )
-          .bind(Number(calendarId), Number(teachingClassId), Number(occupyDay), Number(occupySection), teacherCode, teacherName)
-          .run()
+          .bind(Number(calendarId), Number(teachingClassId), Number(occupyDay), Number(occupySection), teacherCode, teacherName))
+      }
+
+      for (const part of chunk(insertStmts, 80)) {
+        await db.batch(part)
       }
 
       await db
@@ -291,9 +295,19 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
   app.post('/api/findMajorByGrade', async (c) => {
     const body = await c.req.json().catch(() => ({}))
     const grade = Number(body?.grade)
+    const calendarId = Number(body?.calendarId)
     if (!Number.isFinite(grade)) return c.json(jsonErr(400, '参数错误: 缺少 grade'), 400)
 
-    const { results } = await c.env.DB.prepare('SELECT code, name FROM major WHERE grade = ? ORDER BY code ASC').bind(grade).all<any>()
+    const sql = Number.isFinite(calendarId)
+      ? `SELECT DISTINCT m.code, m.name
+         FROM major m
+         JOIN majorandcourse mac ON mac.majorId = m.id
+         JOIN coursedetail cd ON cd.id = mac.courseId
+         WHERE m.grade = ? AND cd.calendarId = ?
+         ORDER BY m.code ASC`
+      : 'SELECT code, name FROM major WHERE grade = ? ORDER BY code ASC'
+    const bindings = Number.isFinite(calendarId) ? [grade, calendarId] : [grade]
+    const { results } = await c.env.DB.prepare(sql).bind(...bindings).all<any>()
     return c.json(jsonOk(results || []))
   })
 
@@ -307,8 +321,16 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
 
     // 找到当前选择的专业记录，用于判断当前年级的专属课程
     const majorRow = await c.env.DB
-      .prepare('SELECT id FROM major WHERE code = ? AND grade = ? ORDER BY grade DESC LIMIT 1')
-      .bind(code, grade)
+      .prepare(
+        `SELECT m.id
+         FROM major m
+         JOIN majorandcourse mac ON mac.majorId = m.id
+         JOIN coursedetail cd ON cd.id = mac.courseId
+         WHERE m.code = ? AND m.grade = ? AND cd.calendarId = ?
+         ORDER BY m.id DESC
+         LIMIT 1`
+      )
+      .bind(code, grade, calendarId)
       .first<{ id: number }>()
     const targetMajorId = majorRow?.id ?? null
 
@@ -847,6 +869,9 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
 
     const labelPlaceholders = OPTIONAL_LABEL_NAMES.map(() => '?').join(',')
     const pkAuxReady = await isPkAuxiliaryReady(c.env.DB)
+    if (!pkAuxReady) {
+      c.executionCtx.waitUntil(triggerPkAuxiliaryBuild(c.env.DB))
+    }
 
     let results: any[] = []
     if (pkAuxReady) {

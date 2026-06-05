@@ -234,11 +234,13 @@ def main() -> int:
             # Keep this file as plain sequential SQL statements.
 
             # Clear only this calendar data to avoid duplicates/stale rows (keep other semesters).
+            f.write(f"DELETE FROM teacher_timeslots WHERE calendar_id = {cid};\n")
             f.write(f"DELETE FROM teacher WHERE teachingClassId IN (SELECT id FROM coursedetail WHERE calendarId = {cid});\n")
             f.write(f"DELETE FROM majorandcourse WHERE courseId IN (SELECT id FROM coursedetail WHERE calendarId = {cid});\n")
             f.write(f"DELETE FROM coursedetail WHERE calendarId = {cid};\n")
             f.write(f"DELETE FROM calendar WHERE calendarId = {cid};\n")
             f.write(f"DELETE FROM coursenature_by_calendar WHERE calendarId = {cid};\n")
+            f.write("DELETE FROM settings WHERE key = 'pk_aux_schema_version';\n")
 
             inserted = 0
             for course in courses:

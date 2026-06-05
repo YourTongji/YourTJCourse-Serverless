@@ -75,6 +75,8 @@ async function deleteCalendarData(db: D1Database, calendarId: number) {
   const ids = await db.prepare('SELECT id FROM coursedetail WHERE calendarId = ?').bind(calendarId).all<{ id: number }>()
   const classIds = (ids.results || []).map((r) => r.id)
 
+  await db.prepare('DELETE FROM teacher_timeslots WHERE calendar_id = ?').bind(calendarId).run().catch(() => undefined)
+
   // SQLite/D1 的变量数量有上限，按批次删除，避免 IN (...) 参数过多
   // Cloudflare D1 的绑定变量上限比本地 sqlite 更严格，保守取 80
   const chunkSize = 80
@@ -89,12 +91,14 @@ async function deleteCalendarData(db: D1Database, calendarId: number) {
   await db.prepare('DELETE FROM calendar WHERE calendarId = ?').bind(calendarId).run()
   // keep other semesters; clear only this calendar's course nature cache
   await db.prepare('DELETE FROM coursenature_by_calendar WHERE calendarId = ?').bind(calendarId).run()
+  await db.prepare("DELETE FROM settings WHERE key = 'pk_aux_schema_version'").run()
 }
 
 async function ensurePkTables(db: D1Database) {
   // 仅在数据库是全新或未执行 migration 时兜底；正常由 migrations/001_pk_schema.sql 创建。
   // 这里不做 ALTER TABLE，避免重复执行导致失败。
   await db.prepare('CREATE TABLE IF NOT EXISTS calendar (calendarId INTEGER PRIMARY KEY, calendarIdI18n TEXT)').run()
+  await db.prepare('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)').run()
   await db.prepare('CREATE TABLE IF NOT EXISTS language (teachingLanguage TEXT PRIMARY KEY, teachingLanguageI18n TEXT, calendarId INTEGER)').run()
   await db.prepare('CREATE TABLE IF NOT EXISTS coursenature (courseLabelId INTEGER PRIMARY KEY, courseLabelName TEXT, calendarId INTEGER)').run()
   await db
@@ -114,6 +118,9 @@ async function ensurePkTables(db: D1Database) {
   ).run()
   await db.prepare('CREATE TABLE IF NOT EXISTS majorandcourse (majorId INTEGER NOT NULL, courseId INTEGER NOT NULL, PRIMARY KEY (majorId, courseId))').run()
   await db.prepare('CREATE TABLE IF NOT EXISTS fetchlog (fetchTime INTEGER DEFAULT (strftime(\'%s\',\'now\')), msg TEXT)').run()
+  await db.prepare(
+    'CREATE TABLE IF NOT EXISTS teacher_timeslots (calendar_id INTEGER NOT NULL, teaching_class_id INTEGER NOT NULL, occupy_day INTEGER NOT NULL, occupy_section INTEGER NOT NULL, teacher_code TEXT DEFAULT \'\', teacher_name TEXT DEFAULT \'\', PRIMARY KEY (calendar_id, teaching_class_id, occupy_day, occupy_section, teacher_code, teacher_name))'
+  ).run()
 }
 
 async function ensureAliasesTable(db: D1Database) {

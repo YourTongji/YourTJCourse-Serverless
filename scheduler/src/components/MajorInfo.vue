@@ -207,6 +207,7 @@ export default {
                     url: '/api/findMajorByGrade',
                     method: 'post',
                     data: {
+                        calendarId: this.$store.state.majorSelected.calendarId,
                         grade: this.$store.state.majorSelected.grade
                     }
                 });
@@ -289,6 +290,7 @@ export default {
                     url: '/api/findMajorByGrade',
                     method: 'post',
                     data: {
+                        calendarId: this.$store.state.majorSelected.calendarId,
                         grade: this.$store.state.majorSelected.grade
                     }
                 });

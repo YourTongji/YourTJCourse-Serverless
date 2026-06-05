@@ -94,3 +94,60 @@ jobs:
             | tee sync-result.json
 
           python3 -c 'import json,sys; data=json.load(open("sync-result.json","r",encoding="utf-8")); ok=bool(data.get("success")); print("success=",ok,"calendarIds=",data.get("calendarIds"),"teachingClassInserted=",data.get("teachingClassInserted")); sys.exit(0 if ok else 1)'
+
+          node - <<'NODE'
+          const baseUrl = process.env.BACKEND_URL.replace(/\/+$/, '').replace(/\/api$/, '')
+          const calendarId = Number(process.env.CALENDAR_ID)
+
+          async function post(path, body) {
+            const res = await fetch(`${baseUrl}${path}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            })
+            if (!res.ok) throw new Error(`${path} HTTP ${res.status}`)
+            const json = await res.json()
+            if (json.code !== 200) throw new Error(`${path} returned ${JSON.stringify(json).slice(0, 200)}`)
+            return json.data
+          }
+
+          const calendarsRes = await fetch(`${baseUrl}/api/getAllCalendar`)
+          if (!calendarsRes.ok) throw new Error(`/api/getAllCalendar HTTP ${calendarsRes.status}`)
+          const calendars = await calendarsRes.json()
+          if (calendars.code !== 200 || !Array.isArray(calendars.data) || calendars.data.length === 0) {
+            throw new Error('getAllCalendar returned invalid payload')
+          }
+
+          const gradeData = await post('/api/findGradeByCalendarId', { calendarId })
+          const grades = Array.isArray(gradeData?.gradeList) ? gradeData.gradeList : []
+          if (grades.length === 0) throw new Error('findGradeByCalendarId returned empty gradeList')
+
+          const grade = grades[0]
+          const majors = await post('/api/findMajorByGrade', { calendarId, grade })
+          if (!Array.isArray(majors) || majors.length === 0) throw new Error('findMajorByGrade returned empty list')
+
+          const major = majors.find((item) => item?.code) || majors[0]
+          if (!major?.code) throw new Error('findMajorByGrade returned no usable major code')
+
+          const courses = await post('/api/findCourseByMajor', { calendarId, grade, code: major.code })
+          if (!Array.isArray(courses) || courses.length === 0) throw new Error('findCourseByMajor returned empty list')
+
+          const optionalTypes = await post('/api/findOptionalCourseType', { calendarId })
+          if (!Array.isArray(optionalTypes)) throw new Error('findOptionalCourseType returned non-list')
+
+          const search = await post('/api/findCourseBySearch', { calendarId, courseName: courses[0].courseName || '' })
+          if (!Array.isArray(search?.courses)) throw new Error('findCourseBySearch returned invalid payload')
+
+          const time = await post('/api/findCourseByTime', { calendarId, day: 1, section: 1 })
+          if (!Array.isArray(time)) throw new Error('findCourseByTime returned invalid payload')
+
+          console.log(JSON.stringify({
+            calendarId,
+            grade,
+            majors: majors.length,
+            courses: courses.length,
+            optionalTypes: optionalTypes.length,
+            searchCourses: search.courses.length,
+            timeCourses: time.length
+          }))
+          NODE

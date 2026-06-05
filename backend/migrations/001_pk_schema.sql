@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS calendar (
   calendarIdI18n TEXT
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS language (
   teachingLanguage TEXT PRIMARY KEY,
   teachingLanguageI18n TEXT,
@@ -128,6 +133,19 @@ CREATE INDEX IF NOT EXISTS idx_teacher_teachingClassId ON teacher(teachingClassI
 CREATE INDEX IF NOT EXISTS idx_teacher_teacherCode ON teacher(teacherCode);
 CREATE INDEX IF NOT EXISTS idx_teacher_teacherName ON teacher(teacherName);
 
+CREATE TABLE IF NOT EXISTS teacher_timeslots (
+  calendar_id INTEGER NOT NULL,
+  teaching_class_id INTEGER NOT NULL,
+  occupy_day INTEGER NOT NULL,
+  occupy_section INTEGER NOT NULL,
+  teacher_code TEXT DEFAULT '',
+  teacher_name TEXT DEFAULT '',
+  PRIMARY KEY (calendar_id, teaching_class_id, occupy_day, occupy_section, teacher_code, teacher_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_slot ON teacher_timeslots(calendar_id, occupy_day, occupy_section);
+CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_class ON teacher_timeslots(teaching_class_id);
+
 CREATE TABLE IF NOT EXISTS majorandcourse (
   majorId INTEGER NOT NULL,
   courseId INTEGER NOT NULL,
@@ -140,4 +158,3 @@ CREATE TABLE IF NOT EXISTS fetchlog (
   fetchTime INTEGER DEFAULT (strftime('%s', 'now')),
   msg TEXT
 );
-
