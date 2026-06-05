@@ -32,3 +32,19 @@ export function clearCreditWallet() {
   localStorage.removeItem(STORAGE_KEY)
 }
 
+export async function computeReviewEditToken(userSecret: string, reviewId: number): Promise<string> {
+  const msg = `jcourse:edit-review:${reviewId}`
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(userSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(msg))
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+

@@ -20,5 +20,5 @@ export const corsMiddleware = cors({
     return null
   },
   allowHeaders: ['Content-Type', 'x-admin-secret', 'Cache-Control'],
-  allowMethods: ['POST', 'GET', 'DELETE', 'PUT', 'OPTIONS']
+  allowMethods: ['POST', 'GET', 'DELETE', 'PUT', 'PATCH', 'OPTIONS']
 })

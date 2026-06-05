@@ -42,19 +42,23 @@ jobs:
     steps:
       - name: Resolve calendarId/depth
         id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_CALENDAR_ID: ${{ inputs.calendarId }}
+          INPUT_DEPTH: ${{ inputs.depth }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "calendarId=${{ inputs.calendarId }}" >> "$GITHUB_OUTPUT"
-            echo "depth=${{ inputs.depth }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "calendarId=$INPUT_CALENDAR_ID" >> "$GITHUB_OUTPUT"
+            echo "depth=$INPUT_DEPTH" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          msg="${{ github.event.head_commit.message }}"
-          calendarId="$(echo "$msg" | sed -nE 's/.*calendarId=([0-9]+).*/\1/p' | head -n1)"
-          depth="$(echo "$msg" | sed -nE 's/.*depth=([0-9]+).*/\1/p' | head -n1)"
+          calendarId="$(printf '%s' "$COMMIT_MSG" | sed -nE 's/.*calendarId=([0-9]+).*/\1/p' | head -n1)"
+          depth="$(printf '%s' "$COMMIT_MSG" | sed -nE 's/.*depth=([0-9]+).*/\1/p' | head -n1)"
 
           if [ -z "$calendarId" ]; then
             echo "Missing calendarId in commit message. Example: [pk-sync] calendarId=121 depth=3" >&2
