@@ -893,7 +893,7 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
           AND ts.calendar_id = ?
           AND ts.occupy_day = ?
           AND ts.occupy_section IN (${slotPlaceholders})
-          AND n.courseLabelName IN (${labelPlaceholders})
+          AND (n.courseLabelName IS NULL OR n.courseLabelName IN (${labelPlaceholders}))
         GROUP BY cd.courseCode, cd.courseName, f.facultyI18n
         ORDER BY cd.courseCode ASC
       `
@@ -926,7 +926,7 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
         LEFT JOIN coursenature_by_calendar n ON n.courseLabelId = cd.courseLabelId AND n.calendarId = cd.calendarId
         WHERE cd.calendarId = ?
           AND (${orLike})
-          AND n.courseLabelName IN (${labelPlaceholders})
+          AND (n.courseLabelName IS NULL OR n.courseLabelName IN (${labelPlaceholders}))
         GROUP BY cd.courseCode, cd.courseName, f.facultyI18n
         ORDER BY cd.courseCode ASC
       `
