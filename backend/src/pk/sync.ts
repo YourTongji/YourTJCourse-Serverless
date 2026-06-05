@@ -357,7 +357,8 @@ async function fetchManualArrangePage(opts: { sessionCookie: string; calendarId:
           Referer: 'https://1.tongji.edu.cn/taskResultQuery',
           Cookie: sessionCookie
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000)
       })
 
       if (!res.ok) {
