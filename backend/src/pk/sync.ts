@@ -266,7 +266,7 @@ async function upsertCourseList(db: D1Database, list: any[], calendarId: number)
     }
 
     const { newCourseCode, newCode } = computeNewCode(course)
-    const credit = asNumber(course?.credit) ?? asNumber(course?.credits)
+    const credit = asNumber(course?.credits) ?? asNumber(course?.credit)
 
     const teachingClassId = asInt(course?.id)
     if (teachingClassId === null) continue

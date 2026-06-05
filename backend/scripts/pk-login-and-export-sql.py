@@ -32,9 +32,9 @@ def sql_quote(value):
 
 
 def get_course_credit(course: dict):
-    credit = course.get("credit")
+    credit = course.get("credits")
     if credit is None or str(credit).strip() == "":
-        credit = course.get("credits")
+        credit = course.get("credit")
     return credit
 
 
