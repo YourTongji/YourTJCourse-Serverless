@@ -1,4 +1,4 @@
-﻿name: Sync Onesystem (Login) To D1
+name: Sync Onesystem (Login) To D1
 
 on:
   workflow_dispatch:
@@ -119,6 +119,7 @@ jobs:
           set -euo pipefail
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/001_pk_schema.sql"
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/002_pk_schema_patch.sql"
+          npx wrangler d1 execute jcourse-db --remote --file="./migrations/011_maintenance_settings.sql"
 
       - name: Login & export SQL
         working-directory: backend
