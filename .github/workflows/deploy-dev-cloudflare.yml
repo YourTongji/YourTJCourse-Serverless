@@ -22,9 +22,9 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      scheduler: ${{ steps.filter.outputs.scheduler }}
+      backend: ${{ steps.decide.outputs.backend }}
+      frontend: ${{ steps.decide.outputs.frontend }}
+      scheduler: ${{ steps.decide.outputs.scheduler }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +45,21 @@ jobs:
               - ".github/workflows/deploy-dev-cloudflare.yml"
             scheduler:
               - "scheduler/**"
+
+      - name: Decide what to deploy
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "scheduler=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
+          echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
+          echo "scheduler=${{ steps.filter.outputs.scheduler }}" >> "$GITHUB_OUTPUT"
 
   deploy-backend-dev:
     runs-on: ubuntu-latest
@@ -131,6 +146,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       # dev 分支预览站点指向 dev 后端（Worker env.dev）
       VITE_API_URL: ${{ secrets.BACKEND_URL_DEV }}
+      VITE_APP_ENV: dev
       VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
       VITE_CAPTCHA_URL: ${{ secrets.VITE_CAPTCHA_URL }}
       VITE_WALINE_SERVER_URL: ${{ secrets.VITE_WALINE_SERVER_URL }}
