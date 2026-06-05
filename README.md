@@ -106,6 +106,34 @@ npx wrangler pages deploy dist --project-name=jcourse-web
 2. 输入 `calendarId`（一系统学期 ID）和 `depth`（同步深度，默认 1）
 3. 运行
 
+## 开发流程
+
+```
+feature/fix branch ──→ PR ──→ dev ───→ 自动部署预览环境
+                           ↑              │
+                       PR Checks          │ 经测试后
+                      (type-check         ▼
+                       + build)     PR ──→ main ──→ 自动部署生产
+```
+
+### 日常开发
+
+1. 从 `dev` 创建功能分支：`git checkout -b fix/xxx dev`
+2. 开发 → commit → push
+3. 开 Pull Request 到 `dev`（自动触发 PR Checks：type-check + build）
+4. Review 通过后 merge 到 `dev`
+5. 自动部署到预览环境（`--env dev`），可提前验证
+
+### 版本发布
+
+1. 确保 `dev` 分支经过充分测试（含预览环境验证）
+2. 开 Pull Request 从 `dev` 到 `main`
+3. Review 通过后 merge，自动触发生产部署
+
+> **PR Checks**（`.github/workflows/pr-checks.yml`）：PR 到 `dev`/`main` 时运行 type-check + build，不部署。
+> **dev 分支**：merge 后自动部署到预览环境（`--env dev` + `--branch dev`），非生产。
+> **main 分支**：merge 后自动部署生产环境。
+
 ## 文档
 
 - [API 参考](docs/api.md)
