@@ -1,5 +1,5 @@
-﻿import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown from '../components/CollapsibleMarkdown'
 import MarkdownEditor from '../components/MarkdownEditor'
@@ -11,8 +11,6 @@ import {
 } from '../maintenance/maintenance'
 
 const API_BASE = resolveApiBase()
-const ACCESS_KEY = 'tjcourse2026admin'
-
 type AnnouncementType = 'info' | 'warning' | 'error' | 'success'
 
 interface Review {
@@ -90,9 +88,8 @@ const emptyReviewForm = { comment: '', rating: 5, reviewer_name: '', reviewer_av
 const emptyCourseForm = { code: '', name: '', credit: 0, department: '', teacher_name: '', search_keywords: '' }
 
 export default function Admin() {
-  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const hasAccess = searchParams.get('access') === ACCESS_KEY
+  const hasAccess = true // access gate removed; real auth is backend-administered
 
   const [secret, setSecret] = useState(localStorage.getItem('admin_secret') || '')
   const [isAuth, setIsAuth] = useState(false)

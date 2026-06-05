@@ -21,8 +21,25 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+const ALLOWED_ORIGINS = [
+  'https://xk.yourtj.de',
+  'https://xk.xialing.icu',
+  'https://jcourse.yourtj.de',
+]
+
 app.use('/*', cors({
-  origin: '*',
+  origin: (origin, c) => {
+    // Allow requests with no origin (server-side, curl, etc.)
+    if (!origin) return '*'
+    // Allow known production origins
+    if (ALLOWED_ORIGINS.includes(origin)) return origin
+    // Allow development origins (localhost + 127.0.0.1)
+    try {
+      const u = new URL(origin)
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return origin
+    } catch { /* ignore invalid URLs */ }
+    return null // block everything else
+  },
   allowHeaders: ['Content-Type', 'x-admin-secret', 'Cache-Control'],
   allowMethods: ['POST', 'GET', 'DELETE', 'PUT', 'OPTIONS']
 }))
@@ -1792,11 +1809,35 @@ app.delete('/api/review/:id/like', async (c) => {
 // 管理 API
 const admin = new Hono<{ Bindings: Bindings }>()
 
+// Simple in-memory rate limiter (per-isolate; reset on cold start)
+const rateLimitMap = new Map<string, { count: number; windowStart: number }>()
+const RATE_LIMIT_WINDOW_MS = 60_000
+const RATE_LIMIT_MAX = 20
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const entry = rateLimitMap.get(ip)
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(ip, { count: 1, windowStart: now })
+    return true
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false
+  entry.count++
+  return true
+}
+
 admin.use('/*', async (c, next) => {
   const input = c.req.header('x-admin-secret')
   if (!input || input !== c.env.ADMIN_SECRET) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
+
+  // Rate limit by client IP
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown'
+  if (!checkRateLimit(ip)) {
+    return c.json({ error: 'Too many requests' }, 429)
+  }
+
   await next()
 })
 
