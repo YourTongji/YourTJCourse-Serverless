@@ -307,7 +307,7 @@ export default {
 }
 </script>
 
-<style>
+<style scoped>
 .major-help-tooltip .ant-tooltip-inner {
     background-color: white;
     color: #000;

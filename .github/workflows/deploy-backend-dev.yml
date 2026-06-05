@@ -33,10 +33,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install deps
-        run: npm install
+        run: npm ci
 
       - name: Ensure backend secrets (env.dev)
         run: |
@@ -45,24 +45,24 @@ jobs:
             echo "Missing secrets.JCOURSE_ADMIN_SECRET (used as backend ADMIN_SECRET)" >&2
             exit 1
           fi
-          echo "$ADMIN_SECRET" | npx --yes wrangler@4 versions secret put ADMIN_SECRET --env dev
+          echo "$ADMIN_SECRET" | npx wrangler versions secret put ADMIN_SECRET --env dev
           BASE="${CREDIT_API_BASE:-${VITE_CREDIT_API_BASE:-}}"
           SECRET="${CREDIT_JCOURSE_SECRET:-${JCOURSE_INTEGRATION_SECRET:-}}"
           if [ -n "${BASE:-}" ]; then
-            echo "$BASE" | npx --yes wrangler@4 versions secret put CREDIT_API_BASE --env dev
-            echo "$BASE" | npx --yes wrangler@4 versions secret put VITE_CREDIT_API_BASE --env dev
+            echo "$BASE" | npx wrangler versions secret put CREDIT_API_BASE --env dev
+            echo "$BASE" | npx wrangler versions secret put VITE_CREDIT_API_BASE --env dev
           fi
           if [ -n "${SECRET:-}" ]; then
-            echo "$SECRET" | npx --yes wrangler@4 versions secret put CREDIT_JCOURSE_SECRET --env dev
-            echo "$SECRET" | npx --yes wrangler@4 versions secret put JCOURSE_INTEGRATION_SECRET --env dev
+            echo "$SECRET" | npx wrangler versions secret put CREDIT_JCOURSE_SECRET --env dev
+            echo "$SECRET" | npx wrangler versions secret put JCOURSE_INTEGRATION_SECRET --env dev
           fi
 
           if [ -n "${TURNSTILE_SECRET_KEY:-}" ]; then
-            echo "$TURNSTILE_SECRET_KEY" | npx --yes wrangler@4 versions secret put TURNSTILE_SECRET_KEY --env dev
+            echo "$TURNSTILE_SECRET_KEY" | npx wrangler versions secret put TURNSTILE_SECRET_KEY --env dev
           fi
 
           if [ -n "${TURNSTILE_SITEVERIFY_URL:-}" ]; then
-            echo "$TURNSTILE_SITEVERIFY_URL" | npx --yes wrangler@4 versions secret put TURNSTILE_SITEVERIFY_URL --env dev
+            echo "$TURNSTILE_SITEVERIFY_URL" | npx wrangler versions secret put TURNSTILE_SITEVERIFY_URL --env dev
           fi
 
       - name: Deploy Worker (env.dev)

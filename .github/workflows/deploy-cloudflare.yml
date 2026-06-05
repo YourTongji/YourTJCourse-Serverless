@@ -85,10 +85,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install deps
-        run: npm install
+        run: npm ci
 
       - name: Ensure backend secrets
         run: |
@@ -97,37 +97,37 @@ jobs:
           SECRET="${CREDIT_JCOURSE_SECRET:-${JCOURSE_INTEGRATION_SECRET:-}}"
 
           if [ -n "${BASE:-}" ]; then
-            echo "$BASE" | npx --yes wrangler@4 versions secret put CREDIT_API_BASE --env ""
-            echo "$BASE" | npx --yes wrangler@4 versions secret put VITE_CREDIT_API_BASE --env ""
+            echo "$BASE" | npx wrangler versions secret put CREDIT_API_BASE --env ""
+            echo "$BASE" | npx wrangler versions secret put VITE_CREDIT_API_BASE --env ""
             echo "credit base: set"
           else
             echo "credit base: missing (CREDIT_API_BASE / VITE_CREDIT_API_BASE)"
           fi
 
           if [ -n "${SECRET:-}" ]; then
-            echo "$SECRET" | npx --yes wrangler@4 versions secret put CREDIT_JCOURSE_SECRET --env ""
-            echo "$SECRET" | npx --yes wrangler@4 versions secret put JCOURSE_INTEGRATION_SECRET --env ""
+            echo "$SECRET" | npx wrangler versions secret put CREDIT_JCOURSE_SECRET --env ""
+            echo "$SECRET" | npx wrangler versions secret put JCOURSE_INTEGRATION_SECRET --env ""
             echo "credit secret: set"
           else
             echo "credit secret: missing (CREDIT_JCOURSE_SECRET / JCOURSE_INTEGRATION_SECRET)"
           fi
 
           if [ -n "${TURNSTILE_SECRET_KEY:-}" ]; then
-            echo "$TURNSTILE_SECRET_KEY" | npx --yes wrangler@4 versions secret put TURNSTILE_SECRET_KEY --env ""
+            echo "$TURNSTILE_SECRET_KEY" | npx wrangler versions secret put TURNSTILE_SECRET_KEY --env ""
             echo "turnstile secret: set"
           else
             echo "turnstile secret: missing (TURNSTILE_SECRET_KEY)"
           fi
 
           if [ -n "${TURNSTILE_SITEVERIFY_URL:-}" ]; then
-            echo "$TURNSTILE_SITEVERIFY_URL" | npx --yes wrangler@4 versions secret put TURNSTILE_SITEVERIFY_URL --env ""
+            echo "$TURNSTILE_SITEVERIFY_URL" | npx wrangler versions secret put TURNSTILE_SITEVERIFY_URL --env ""
             echo "turnstile siteverify url: set"
           else
             echo "turnstile siteverify url: default"
           fi
 
       - name: Deploy Worker
-        run: npx --yes wrangler@4 deploy
+        run: npx wrangler deploy
 
   deploy-frontend:
     runs-on: ubuntu-latest
@@ -151,17 +151,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install deps
-        run: npm install
+        run: npm ci
 
       - name: Install scheduler deps
         working-directory: scheduler
-        run: npm install
+        run: npm ci
 
       - name: Build
         run: npm run build
 
       - name: Deploy Pages
-        run: npx --yes wrangler@4 pages deploy dist --project-name jcourse-web
+        run: npx wrangler pages deploy dist --project-name jcourse-web
