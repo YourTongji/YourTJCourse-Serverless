@@ -19,6 +19,12 @@ function asInt(value: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'string' && !value.trim()) return null
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : NaN
+  return Number.isFinite(n) ? n : null
+}
+
 function normalizeStr(value: unknown): string {
   return String(value ?? '').trim()
 }
@@ -260,6 +266,7 @@ async function upsertCourseList(db: D1Database, list: any[], calendarId: number)
     }
 
     const { newCourseCode, newCode } = computeNewCode(course)
+    const credit = asNumber(course?.credit) ?? asNumber(course?.credits)
 
     const teachingClassId = asInt(course?.id)
     if (teachingClassId === null) continue
@@ -287,7 +294,7 @@ async function upsertCourseList(db: D1Database, list: any[], calendarId: number)
           course?.endWeek ?? null,
           normalizeStr(course?.courseCode) || null,
           normalizeStr(course?.courseName) || null,
-          course?.credits ?? null,
+          credit,
           teachingLanguage,
           faculty,
           calendarId,
