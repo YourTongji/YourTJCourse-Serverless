@@ -7,6 +7,7 @@ DROP TABLE IF EXISTS course_aliases;
 
 -- pk (排课模拟器) 数据域
 DROP TABLE IF EXISTS majorandcourse;
+DROP TABLE IF EXISTS teacher_timeslots;
 DROP TABLE IF EXISTS teacher;
 DROP TABLE IF EXISTS coursedetail;
 DROP TABLE IF EXISTS major;
@@ -238,6 +239,18 @@ CREATE TABLE teacher (
 CREATE INDEX idx_teacher_teachingClassId ON teacher(teachingClassId);
 CREATE INDEX idx_teacher_teacherCode ON teacher(teacherCode);
 CREATE INDEX idx_teacher_teacherName ON teacher(teacherName);
+
+CREATE TABLE teacher_timeslots (
+    calendar_id INTEGER NOT NULL,
+    teaching_class_id INTEGER NOT NULL,
+    occupy_day INTEGER NOT NULL,
+    occupy_section INTEGER NOT NULL,
+    teacher_code TEXT DEFAULT '',
+    teacher_name TEXT DEFAULT '',
+    PRIMARY KEY (calendar_id, teaching_class_id, occupy_day, occupy_section, teacher_code, teacher_name)
+);
+CREATE INDEX idx_teacher_timeslots_slot ON teacher_timeslots(calendar_id, occupy_day, occupy_section);
+CREATE INDEX idx_teacher_timeslots_class ON teacher_timeslots(teaching_class_id);
 
 CREATE TABLE majorandcourse (
     majorId INTEGER NOT NULL,

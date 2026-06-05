@@ -121,6 +121,8 @@ async function ensurePkTables(db: D1Database) {
   await db.prepare(
     'CREATE TABLE IF NOT EXISTS teacher_timeslots (calendar_id INTEGER NOT NULL, teaching_class_id INTEGER NOT NULL, occupy_day INTEGER NOT NULL, occupy_section INTEGER NOT NULL, teacher_code TEXT DEFAULT \'\', teacher_name TEXT DEFAULT \'\', PRIMARY KEY (calendar_id, teaching_class_id, occupy_day, occupy_section, teacher_code, teacher_name))'
   ).run()
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_slot ON teacher_timeslots(calendar_id, occupy_day, occupy_section)').run()
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_teacher_timeslots_class ON teacher_timeslots(teaching_class_id)').run()
 }
 
 async function ensureAliasesTable(db: D1Database) {
