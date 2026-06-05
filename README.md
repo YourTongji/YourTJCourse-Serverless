@@ -2,548 +2,147 @@
 
 基于 Cloudflare Workers + D1 + Pages 的选课点评社区。
 
+> **线上地址**: [xk.yourtj.de](https://xk.yourtj.de)
+
 ## 项目结构
 
 ```
-TongJiCourses/
-├── backend/          # Cloudflare Workers 后端
-│   ├── src/index.ts  # API 逻辑
-│   ├── schema.sql    # D1 数据库结构
-│   └── wrangler.toml # Workers 配置
-└── frontend/         # React + Vite 前端
-    └── src/
-        ├── pages/    # 页面组件
-        └── services/ # API 服务
+YourTJCourse-Serverless/
+├── backend/                # Cloudflare Workers 后端 (Hono)
+│   ├── src/
+│   │   ├── index.ts        # 主 API 路由 (评课 + 管理)
+│   │   ├── pk/             # 选课系统 (PK) 模块
+│   │   │   ├── routes.ts   # PK API 路由
+│   │   │   ├── sync.ts     # 一系统数据同步
+│   │   │   └── utils.ts    # PK 工具函数
+│   │   ├── courseStats.ts  # 课程统计刷新
+│   │   └── sqids.ts        # Review ID 编码
+│   ├── scripts/            # Python 同步脚本
+│   ├── schema.sql          # 完整数据库 DDL
+│   ├── migrations/         # 增量迁移脚本
+│   └── wrangler.toml       # Workers 配置
+├── frontend/               # React + Vite 前端
+│   ├── src/
+│   │   ├── pages/          # 页面组件
+│   │   ├── components/     # 通用组件
+│   │   ├── services/       # API 服务
+│   │   └── utils/          # 工具函数
+│   └── scripts/            # 构建脚本 (wlc 文档嵌入)
+├── scheduler/              # Vue 3 选课排课子应用
+│   └── src/
+│       ├── components/     # 排课组件
+│       ├── store/          # Vuex 状态管理
+│       └── utils/          # 工具函数
+├── wlc/                    # VitePress 微留程文档站
+├── docs/                   # 项目文档
+│   ├── api.md              # API 参考
+│   └── database.md         # 数据库 Schema
+└── .github/workflows/      # CI/CD
+    ├── deploy-cloudflare.yml        # 生产部署
+    └── sync-onesystem-login.yml     # 一系统数据同步
 ```
 
-## 部署步骤
+## 技术栈
 
-### 1. 后端部署
+| 层 | 技术 |
+|---|------|
+| 后端 | [Hono](https://hono.dev) on Cloudflare Workers, D1 (SQLite) |
+| 前端 | React 18, Vite, Tailwind CSS |
+| 排课 | Vue 3, Ant Design Vue, Vuex |
+| 文档 | VitePress |
+| CI/CD | GitHub Actions → Cloudflare Workers/Pages |
+| 人机验证 | 启动页使用 Cloudflare Turnstile，评价提交使用 TongjiCaptcha |
+
+## 快速开始
+
+### 环境要求
+
+- Node.js 22+
+- Python 3.11+ (仅同步脚本)
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) (登录 `npx wrangler login`)
+
+### 后端
 
 ```bash
 cd backend
+npm ci
 
 # 创建 D1 数据库
-wrangler d1 create jcourse-db
-
-# 更新 wrangler.toml 中的 database_id
+npx wrangler d1 create jcourse-db
+# 将返回的 database_id 填入 wrangler.toml
 
 # 初始化数据库
-wrangler d1 execute jcourse-db --remote --file=./schema.sql
+npx wrangler d1 execute jcourse-db --remote --file=./schema.sql
 
 # 设置密钥
-wrangler secret put CAPTCHA_SITEVERIFY_URL  # TongjiCaptcha 验证服务地址
-wrangler secret put ADMIN_SECRET            # 管理后台密钥
+npx wrangler secret put CAPTCHA_SITEVERIFY_URL
+npx wrangler secret put ADMIN_SECRET
+npx wrangler secret put TURNSTILE_SECRET_KEY
 
 # 部署
-npm install
-wrangler deploy
+npx wrangler deploy
 ```
 
-### 2. 前端部署
+### 前端
 
 ```bash
 cd frontend
-
-# 配置环境变量
-cp .env.example .env
-# 编辑 .env 填入 Worker URL 和 TongjiCaptcha Site Key
-
-# 构建部署
-npm install
+npm ci
 npm run build
-wrangler pages deploy dist --project-name=jcourse-web
+npx wrangler pages deploy dist --project-name=jcourse-web
 ```
 
-## 功能特性
+环境变量通过 Cloudflare Dashboard 或 CI secrets 配置。
 
-- 无需登录即可浏览课程和点评
-- TongjiCaptcha 人机验证防刷
-- 基于 Secret 的简易后台管理
-- 完全 Serverless，零运维成本
+### 排课应用
 
-## 管理后台访问
+排课应用内嵌在前端构建中（`npm run build:scheduler`），无需独立部署。
 
-管理后台已从前端导航栏隐藏，需通过机密 URL 参数访问：
+### 数据同步
 
-```
-https://your-domain/admin?access=secretkey
-```
+通过 GitHub Actions 手动触发：
 
-### 修改机密变量
+1. 进入 Actions → "Sync Onesystem (Login) To D1"
+2. 输入 `calendarId`（一系统学期 ID）和 `depth`（同步深度，默认 1）
+3. 运行
 
-编辑 `frontend/src/pages/Admin.tsx`：
+## 文档
 
-```typescript
-const ACCESS_KEY = 'secretkey'  // 改为你的机密字符串
-```
+- [API 参考](docs/api.md)
+- [数据库 Schema](docs/database.md)
 
-修改后需重新构建并部署前端。
+## 贡献
 
-### 注意
-- 此版已使用TongjiCaptcha 人机验证替代 Turnstile
+1. Fork 本仓库
+2. 创建功能分支: `git checkout -b fix/your-fix-name`
+3. 提交更改: 遵循 [Conventional Commits](https://www.conventionalcommits.org/) 格式
+   - `fix(scope): description` — Bug 修复
+   - `feat(scope): description` — 新功能
+   - `docs(scope): description` — 文档更新
+   - `chore(scope): description` — 构建/CI 等杂项
+4. 推送并创建 Pull Request
 
-## 数据库表结构
+### Commit 规范
 
-### categories 表（课程类别）
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| id | INTEGER | PRIMARY KEY | 类别 ID |
-| name | TEXT | UNIQUE NOT NULL | 类别名称 |
+- scope: `backend`, `frontend`, `scheduler`, `ci`, `script`, `schema`, `docs`
+- 使用英文，祈使语气
+- 每个 commit 只做一件事
 
-### teachers 表（教师信息）
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| id | INTEGER | PRIMARY KEY | 教师 ID |
-| tid | TEXT | - | 教师工号 |
-| name | TEXT | NOT NULL | 教师姓名 |
-| title | TEXT | - | 职称 |
-| pinyin | TEXT | - | 姓名拼音 |
-| department | TEXT | - | 所属院系 |
+### Issue 标签
 
-### courses 表（课程信息）
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| id | INTEGER | PRIMARY KEY | 课程 ID |
-| code | TEXT | NOT NULL | 课程代码 |
-| name | TEXT | NOT NULL | 课程名称 |
-| credit | REAL | DEFAULT 0 | 学分 |
-| department | TEXT | - | 开课院系 |
-| teacher_id | INTEGER | FOREIGN KEY | 教师 ID（关联 teachers 表） |
-| review_count | INTEGER | DEFAULT 0 | 评价数量 |
-| review_avg | REAL | DEFAULT 0 | 平均评分 |
-| search_keywords | TEXT | - | 搜索关键词 |
-| is_legacy | INTEGER | DEFAULT 0 | 历史数据标记（0=当前数据，1=历史数据） |
-| is_icu | INTEGER | DEFAULT 0 | ICU 站点数据标记（0=非 ICU，1=ICU 数据） |
+| 标签 | 含义 |
+|------|------|
+| `area:backend` | 后端 / Cloudflare Worker |
+| `area:frontend` | 前端 / React |
+| `area:scheduler` | 排课 / Vue 3 |
+| `area:ci` | CI/CD 工作流 |
+| `area:script` | Python 同步脚本 |
+| `area:schema` | 数据库 Schema / 迁移 |
+| `severity:critical` | 数据丢失 / 安全漏洞 / 服务中断 |
+| `severity:high` | 功能不可用 / 严重影响用户体验 |
+| `severity:medium` | 体验降级 / 非关键功能异常 |
+| `severity:low` | 轻微 / 优化 / 未来改进 |
 
-**索引：**
-- `idx_courses_code`: 课程代码索引
-- `idx_courses_search`: 搜索关键词索引
-- `idx_courses_legacy`: 历史数据标记索引
+## 许可
 
-### reviews 表（课程评价）
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 评价 ID |
-| course_id | INTEGER | NOT NULL, FOREIGN KEY | 课程 ID（关联 courses 表，级联删除） |
-| semester | TEXT | - | 学期 |
-| rating | INTEGER | NOT NULL, CHECK (0-5) | 评分（0-5 分） |
-| comment | TEXT | - | 评价内容 |
-| score | TEXT | - | 成绩 |
-| created_at | INTEGER | DEFAULT (当前时间戳) | 创建时间 |
-| approve_count | INTEGER | DEFAULT 0 | 点赞数 |
-| disapprove_count | INTEGER | DEFAULT 0 | 点踩数 |
-| is_hidden | BOOLEAN | DEFAULT 0 | 是否隐藏（0=显示，1=隐藏） |
-| is_legacy | INTEGER | DEFAULT 0 | 历史数据标记 |
-| is_icu | INTEGER | DEFAULT 0 | ICU 站点数据标记 |
-| reviewer_name | TEXT | DEFAULT '' | 评价者昵称 |
-| reviewer_avatar | TEXT | DEFAULT '' | 评价者头像 URL |
-
-**索引：**
-- `idx_reviews_course`: 课程 ID 索引
-- `idx_reviews_created`: 创建时间索引
-- `idx_reviews_legacy`: 历史数据标记索引
-
-### settings 表（系统设置）
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| key | TEXT | PRIMARY KEY | 设置键名 |
-| value | TEXT | - | 设置值 |
-
-**默认设置：**
-- `show_legacy_reviews`: 'false' - 控制是否显示 icu 站点数据
-
-## API 接口文档
-
-### 公开 API
-
-#### 1. 获取 ICU 数据显示状态
-```
-GET /api/settings/show_icu
-```
-
-**响应：**
-```json
-{
-  "show_icu": true/false
-}
-```
-
-#### 2. 获取课程列表
-```
-GET /api/courses?q={keyword}&legacy={true/false}&page={page}&limit={limit}
-```
-
-**查询参数：**
-- `q` (可选): 搜索关键词（匹配课程代码、名称、教师姓名）
-- `legacy` (可选): 是否查询历史数据（'true'/'false'）
-- `page` (可选): 页码，默认 1
-- `limit` (可选): 每页数量，默认 20
-
-**响应：**
-```json
-{
-  "data": [
-    {
-      "id": 1,
-      "code": "课程代码",
-      "name": "课程名称",
-      "rating": 4.5,
-      "review_count": 10,
-      "is_legacy": 0,
-      "teacher_name": "教师姓名"
-    }
-  ],
-  "total": 100,
-  "page": 1,
-  "limit": 20,
-  "totalPages": 5
-}
-```
-
-**说明：**
-- 当管理员关闭"乌龙茶站点评论显示开关"时，`is_icu=1` 的课程会被自动过滤
-
-#### 3. 获取课程详情
-```
-GET /api/course/:id
-```
-
-**路径参数：**
-- `id`: 课程 ID
-
-**响应：**
-```json
-{
-  "id": 1,
-  "code": "课程代码",
-  "name": "课程名称",
-  "credit": 3.0,
-  "department": "院系",
-  "teacher_id": 1,
-  "teacher_name": "教师姓名",
-  "review_count": 10,
-  "review_avg": 4.5,
-  "is_legacy": 0,
-  "is_icu": 0,
-  "reviews": [
-    {
-      "id": 1,
-      "course_id": 1,
-      "semester": "2023-2024-1",
-      "rating": 5,
-      "comment": "评价内容",
-      "created_at": 1234567890,
-      "reviewer_name": "昵称",
-      "reviewer_avatar": "头像URL",
-      "is_hidden": 0
-    }
-  ]
-}
-```
-
-**说明：**
-- 如果课程 `is_icu=1` 且管理员关闭了显示开关，返回 404
-- 评论列表会根据管理员设置过滤 `is_icu=1` 的评论
-
-#### 4. 提交课程评价
-```
-POST /api/review
-```
-
-**请求体：**
-```json
-{
-  "course_id": 1,
-  "rating": 5,
-  "comment": "评价内容",
-  "semester": "2025-2026-1",
-  "turnstile_token": "TongjiCaptcha验证token",
-  "reviewer_name": "昵称（可选）",
-  "reviewer_avatar": "头像URL（可选）"
-}
-```
-
-**响应：**
-```json
-{
-  "success": true
-}
-```
-
-**错误响应：**
-```json
-{
-  "error": "人机验证无效或已过期"
-}
-```
-
-### 管理 API
-
-**认证方式：** 所有管理 API 需要在请求头中包含 `x-admin-secret: <ADMIN_SECRET>`
-
-#### 1. 获取评论列表
-```
-GET /api/admin/reviews?q={keyword}&page={page}&limit={limit}
-```
-
-**查询参数：**
-- `q` (可选): 搜索关键词（匹配课程名称、代码、评论内容、评价者昵称）
-- `page` (可选): 页码，默认 1
-- `limit` (可选): 每页数量，默认 50
-
-**响应：**
-```json
-{
-  "data": [
-    {
-      "id": 1,
-      "course_id": 1,
-      "course_name": "课程名称",
-      "code": "课程代码",
-      "semester": "2023-2024-1",
-      "rating": 5,
-      "comment": "评价内容",
-      "created_at": 1234567890,
-      "reviewer_name": "昵称",
-      "reviewer_avatar": "头像URL",
-      "is_hidden": 0,
-      "is_legacy": 0
-    }
-  ],
-  "total": 100,
-  "page": 1,
-  "limit": 50,
-  "totalPages": 2
-}
-```
-
-#### 2. 编辑评论
-```
-PUT /api/admin/review/:id
-```
-
-**路径参数：**
-- `id`: 评论 ID
-
-**请求体：**
-```json
-{
-  "comment": "修改后的评价内容",
-  "rating": 4,
-  "reviewer_name": "昵称",
-  "reviewer_avatar": "头像URL"
-}
-```
-
-**响应：**
-```json
-{
-  "success": true
-}
-```
-
-#### 3. 切换评论显示/隐藏状态
-```
-POST /api/admin/review/:id/toggle
-```
-
-**路径参数：**
-- `id`: 评论 ID
-
-**响应：**
-```json
-{
-  "success": true
-}
-```
-
-**说明：** 切换 `is_hidden` 字段，并自动更新课程统计
-
-#### 4. 删除评论
-```
-DELETE /api/admin/review/:id
-```
-
-**路径参数：**
-- `id`: 评论 ID
-
-**响应：**
-```json
-{
-  "success": true
-}
-```
-
-**说明：** 删除评论后自动更新课程统计
-
-#### 5. 获取课程列表（管理）
-```
-GET /api/admin/courses?q={keyword}&page={page}&limit={limit}
-```
-
-**查询参数：**
-- `q` (可选): 搜索关键词（匹配课程名称、代码、教师姓名）
-- `page` (可选): 页码，默认 1
-- `limit` (可选): 每页数量，默认 20
-
-**响应：**
-```json
-{
-  "data": [
-    {
-      "id": 1,
-      "code": "课程代码",
-      "name": "课程名称",
-      "credit": 3.0,
-      "department": "院系",
-      "teacher_id": 1,
-      "teacher_name": "教师姓名",
-      "review_count": 10,
-      "review_avg": 4.5,
-      "is_legacy": 0
-    }
-  ],
-  "total": 100,
-  "page": 1,
-  "limit": 20,
-  "totalPages": 5
-}
-```
-
-#### 6. 编辑课程
-```
-PUT /api/admin/course/:id
-```
-
-**路径参数：**
-- `id`: 课程 ID
-
-**请求体：**
-```json
-{
-  "code": "课程代码",
-  "name": "课程名称",
-  "credit": 3.0,
-  "department": "院系",
-  "teacher_name": "教师姓名",
-  "search_keywords": "搜索关键词"
-}
-```
-
-**响应：**
-```json
-{
-  "success": true
-}
-```
-
-**说明：** 如果教师不存在会自动创建
-
-#### 7. 删除课程
-```
-DELETE /api/admin/course/:id
-```
-
-**路径参数：**
-- `id`: 课程 ID
-
-**响应：**
-```json
-{
-  "success": true
-}
-```
-
-**说明：** 会级联删除该课程的所有评论
-
-#### 8. 创建课程
-```
-POST /api/admin/course
-```
-
-**请求体：**
-```json
-{
-  "code": "课程代码",
-  "name": "课程名称",
-  "credit": 3.0,
-  "department": "院系",
-  "teacher_name": "教师姓名",
-  "search_keywords": "搜索关键词"
-}
-```
-
-**响应：**
-```json
-{
-  "success": true,
-  "id": 123
-}
-```
-
-**说明：** 如果教师不存在会自动创建
-
-#### 9. 获取系统设置
-```
-GET /api/admin/settings
-```
-
-**响应：**
-```json
-{
-  "show_legacy_reviews": "true"
-}
-```
-
-#### 10. 更新系统设置
-```
-PUT /api/admin/settings/:key
-```
-
-**路径参数：**
-- `key`: 设置键名（如 `show_legacy_reviews`）
-
-**请求体：**
-```json
-{
-  "value": "true"
-}
-```
-
-**响应：**
-```json
-{
-  "success": true
-}
-```
-
-## 数据字段说明
-
-### is_legacy 和 is_icu
-
-- **`is_legacy`**: 乌龙茶文档历史数据标记
-  - 控制方式：前端"查询乌龙茶历史数据"开关
-  - 用途：区分当前课表数据和历史快照数据
-  - 用户可见：是（前端开关）
-
-- **`is_icu`**: 乌龙茶icu站点数据标记
-  - 控制方式：管理后台"乌龙茶站点评论显示开关"
-  - 用途：区分本站数据和 ICU 站点导入的数据
-  - 用户可见：否（管理员控制）
-  - 行为：关闭时，`is_icu=1` 的课程和评论完全隐藏
-
-### 数据过滤逻辑
-
-1. **前端课程列表**：
-   - 用户选择"查询乌龙茶历史数据=是" → 显示 `is_legacy=1` 的课程
-   - 用户选择"查询乌龙茶历史数据=否" → 显示 `is_legacy=0` 的课程
-   - 管理员关闭"乌龙茶站点评论显示开关" → 自动过滤 `is_icu=1` 的课程
-
-2. **课程详情页评论**：
-   - 管理员关闭"乌龙茶站点评论显示开关" → 过滤 `is_icu=1` 的评论
-   - 始终过滤 `is_hidden=1` 的评论
-
-### 注意
-- 已将人机验证从Turnstile 完全迁移到 TongjiCaptcha
-
+本项目仅供学习和研究使用。
