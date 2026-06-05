@@ -44,7 +44,7 @@ const publicRoutes = new Hono<{ Bindings: Bindings }>()
 // 启动前检查：服务端验证 Turnstile token（避免纯前端放行被自动化绕过）
 publicRoutes.post('/startup/verify', async (c) => {
   await ensureDbInitialized(c.env.DB)
-  const maintenanceMode = await getMaintenanceModeSetting(c.env.DB)
+  const maintenanceMode = await getMaintenanceModeSetting(c.env.DB, c.env)
   if (maintenanceMode) {
     return c.json({ success: true, bypassed: 'maintenance_mode' })
   }

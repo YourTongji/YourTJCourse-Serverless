@@ -10,4 +10,5 @@ export type Bindings = {
   // compat: some deployments may reuse frontend env name or Credit backend secret name
   VITE_CREDIT_API_BASE?: string
   JCOURSE_INTEGRATION_SECRET?: string
+  APP_ENV?: string
 }
