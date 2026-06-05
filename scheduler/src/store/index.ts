@@ -209,11 +209,16 @@ const store = createStore<StoreState>({
         },
         popStagedCourse(state: StoreState, payload: string) {
             // 清除和退课共用一个方法
+            // payload = base course code (e.g. "XM104032"), code with suffix = "XM104032.01"
+            const stripSuffix = (code: string) => {
+                const dot = code.lastIndexOf('.')
+                return dot > 0 ? code.substring(0, dot) : code
+            }
             // console.log("退课", payload);
             state.commonLists.stagedCourses = state.commonLists.stagedCourses.filter((course: stagedCourse) => course.courseCode !== payload);
-            state.commonLists.selectedCourses = state.commonLists.selectedCourses.filter((course: string) => course.substring(0, course.length - 2) !== payload);
-            state.timeTableData = state.timeTableData.filter((course: courseOnTable) => course.code.substring(0, course.code.length - 2) !== payload);
-            const codeOfCourse = state.occupied.flat().flat().find((item: occupyCell) => item.code.substring(0, item.code.length - 2) === payload)?.code;
+            state.commonLists.selectedCourses = state.commonLists.selectedCourses.filter((course: string) => stripSuffix(course) !== payload);
+            state.timeTableData = state.timeTableData.filter((course: courseOnTable) => stripSuffix(course.code) !== payload);
+            const codeOfCourse = state.occupied.flat().flat().find((item: occupyCell) => stripSuffix(item.code) === payload)?.code;
 
             if (codeOfCourse) {
                 deleteOccupied(state.occupied, codeOfCourse); // deleteOccupied 接收的是包含班号的课号，所以对于 courseCode，需要找到班号
