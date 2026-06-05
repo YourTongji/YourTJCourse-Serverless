@@ -448,7 +448,12 @@ publicRoutes.get('/course/:id', async (c) => {
     if (!showIcu) baseWhere += ` AND is_icu = 0`
 
     const reviews = await c.env.DB
-      .prepare(`SELECT * FROM reviews WHERE ${baseWhere} ORDER BY created_at DESC`)
+      .prepare(
+        `SELECT id, course_id, semester, rating, comment, score, created_at,
+                approve_count, disapprove_count, is_hidden, is_legacy, is_icu,
+                reviewer_name, reviewer_avatar
+         FROM reviews WHERE ${baseWhere} ORDER BY created_at DESC`
+      )
       .bind(...idList)
       .all()
 
@@ -794,7 +799,12 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     if (!showIcu) baseWhere += ` AND is_icu = 0`
 
     const reviews = await c.env.DB
-      .prepare(`SELECT * FROM reviews WHERE ${baseWhere} ORDER BY created_at DESC LIMIT 30`)
+      .prepare(
+        `SELECT id, course_id, semester, rating, comment, score, created_at,
+                approve_count, disapprove_count, is_hidden, is_legacy, is_icu,
+                reviewer_name, reviewer_avatar
+         FROM reviews WHERE ${baseWhere} ORDER BY created_at DESC LIMIT 30`
+      )
       .bind(...idList)
       .all()
     const reviewsWithSqid = addSqidToReviews(reviews.results || [])
@@ -838,73 +848,138 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
   }
 })
 
+// Simple in-memory rate limiter for public write endpoints
+const reviewRateLimit = new Map<string, { count: number; windowStart: number }>()
+const REVIEW_RATE_LIMIT_WINDOW_MS = 60_000
+const REVIEW_RATE_LIMIT_MAX = 5
+
+function checkReviewRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const entry = reviewRateLimit.get(ip)
+  if (!entry || now - entry.windowStart > REVIEW_RATE_LIMIT_WINDOW_MS) {
+    reviewRateLimit.set(ip, { count: 1, windowStart: now })
+    return true
+  }
+  if (entry.count >= REVIEW_RATE_LIMIT_MAX) return false
+  entry.count++
+  return true
+}
+
 publicRoutes.post('/review', async (c) => {
+  // Rate limit: 5 reviews per minute per IP
+  const ip = String(c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown').trim()
+  if (!checkReviewRateLimit(ip)) {
+    return c.json({ error: '提交过于频繁，请稍后再试' }, 429)
+  }
+
   const body = await c.req.json()
-  const { course_id, rating, comment, semester, turnstile_token, reviewer_name, reviewer_avatar, walletUserHash, wallet_user_hash } = body
+  const { turnstile_token, semester, reviewer_name, reviewer_avatar, walletUserHash, wallet_user_hash } = body
   const walletHash = String(walletUserHash || wallet_user_hash || '').trim()
 
   if (!(await verifyTongjiCaptcha(turnstile_token, c.env.CAPTCHA_SITEVERIFY_URL))) {
     return c.json({ error: '人机验证无效或已过期' }, 403)
   }
 
+  // Server-side input validation (#41)
+  const courseId = Number(body.course_id || 0)
+  if (!Number.isFinite(courseId) || courseId <= 0) {
+    return c.json({ error: '课程 ID 无效' }, 400)
+  }
+  const exists = await c.env.DB.prepare('SELECT 1 FROM courses WHERE id = ? LIMIT 1').bind(courseId).first<{ 1: number }>()
+  if (!exists) return c.json({ error: '课程不存在' }, 404)
+
+  const safeRating = Math.max(0, Math.min(5, Number(body.rating || 0)))
+  const safeComment = String(body.comment || '').trim().slice(0, 10000)
+  if (!safeComment) return c.json({ error: '点评内容不能为空' }, 400)
+  const safeName = String(reviewer_name || '').trim().slice(0, 100)
+  const safeAvatar = String(reviewer_avatar || '').trim().slice(0, 500)
+  const safeSemester = String(semester || '').trim().slice(0, 20)
+
   await ensureReviewsWalletColumn(c.env.DB)
 
   const insert = await c.env.DB.prepare(
-    `INSERT INTO reviews (course_id, rating, comment, semester, is_legacy, reviewer_name, reviewer_avatar, wallet_user_hash) VALUES (?, ?, ?, ?, 0, ?, ?, ?)`
-  ).bind(course_id, rating, comment, semester, reviewer_name || '', reviewer_avatar || '', walletHash || null).run()
+    `INSERT INTO reviews (course_id, rating, comment, semester, is_legacy, reviewer_name, reviewer_avatar, wallet_user_hash)
+     VALUES (?, ?, ?, ?, 0, ?, ?, ?)`
+  ).bind(courseId, safeRating, safeComment, safeSemester, safeName, safeAvatar, walletHash || null).run()
 
   const reviewId = Number((insert as any)?.meta?.last_row_id || 0)
 
-  await refreshCourseStats(c.env.DB, Number(course_id))
+  await refreshCourseStats(c.env.DB, courseId)
 
-  const creditRewardEligible = walletHash && /^[a-f0-9]{64}$/i.test(walletHash) && String(comment || '').trim().length >= 50
+  // Credit reward — walletHash is stored server-side, reward uses stored value
+  const creditRewardEligible = walletHash && /^[a-f0-9]{64}$/i.test(walletHash) && safeComment.length >= 50
   const creditReward = creditRewardEligible
     ? await postCreditJcourseEvent(c.env, {
         kind: 'review_reward',
-        eventId: `review:${reviewId || `${course_id}:${Date.now()}`}`,
+        eventId: `review:${reviewId || `${courseId}:${Date.now()}`}`,
         userHash: walletHash,
         amount: 10,
-        metadata: { reviewId, courseId: course_id }
+        metadata: { reviewId, courseId }
       })
     : { ok: false, skipped: true, error: creditRewardEligible ? undefined : 'not eligible' }
 
   return c.json({ success: true, reviewId, creditReward })
 })
 
-// 编辑评价（仅允许编辑"绑定了积分钱包"的本人评价）
+// 设置编辑令牌：POST 创建 review 后，客户端调用此接口提交 edit_token
+// edit_token = HMAC-SHA256(userSecret, 'jcourse:edit-review:' + reviewId)
+// 换设备后钱包恢复可重新计算同一 token，无需服务器存储秘密
+publicRoutes.patch('/review/:id/edit-token', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
+
+  const body = await c.req.json().catch(() => ({} as any))
+  const editToken = String(body?.edit_token || '').trim()
+  if (!editToken) return c.json({ error: 'Missing edit_token' }, 400)
+
+  await ensureReviewsWalletColumn(c.env.DB)
+
+  await c.env.DB
+    .prepare('UPDATE reviews SET edit_token = ? WHERE id = ?')
+    .bind(editToken, id)
+    .run()
+
+  return c.json({ success: true })
+})
+
+// 编辑评价（需要 edit_token 鉴权，替代旧版 wallet_user_hash 比对）
+// 向后兼容：旧 review 没有 edit_token 时仍使用 wallet_user_hash 比对
 publicRoutes.put('/review/:id', async (c) => {
   const id = Number(c.req.param('id'))
   if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
 
   const body = await c.req.json().catch(() => ({} as any))
-  const { rating, comment, semester, turnstile_token, reviewer_name, reviewer_avatar, walletUserHash, wallet_user_hash } = body
-  const walletHash = String(walletUserHash || wallet_user_hash || '').trim()
+  const { turnstile_token, reviewer_name, reviewer_avatar, edit_token, walletUserHash, wallet_user_hash } = body
 
   if (!(await verifyTongjiCaptcha(turnstile_token, c.env.CAPTCHA_SITEVERIFY_URL))) {
     return c.json({ error: '人机验证无效或已过期' }, 403)
   }
 
-  if (!walletHash || !/^[a-f0-9]{64}$/i.test(walletHash)) {
-    return c.json({ error: '未绑定积分钱包，无法编辑' }, 400)
-  }
-
   await ensureReviewsWalletColumn(c.env.DB)
 
   const existing = await c.env.DB
-    .prepare('SELECT id, course_id, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .prepare('SELECT id, course_id, edit_token, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
     .bind(id)
-    .first<{ id: number; course_id: number; wallet_user_hash?: string | null }>()
+    .first<{ id: number; course_id: number; edit_token?: string | null; wallet_user_hash?: string | null }>()
   if (!existing) return c.json({ error: 'Review not found' }, 404)
 
-  if (String(existing.wallet_user_hash || '').trim() !== walletHash) {
+  // Authorize via edit_token (HMAC-based), fall back to wallet_user_hash for legacy reviews
+  const inputEditToken = String(edit_token || '').trim()
+  const hasEditToken = !!(existing.edit_token || '').trim()
+  const tokenMatch = hasEditToken && existing.edit_token === inputEditToken
+  const legacyMatch = !hasEditToken &&
+    String(existing.wallet_user_hash || '').trim() !== '' &&
+    String(existing.wallet_user_hash || '').trim() === String(walletUserHash || wallet_user_hash || '').trim()
+
+  if (!tokenMatch && !legacyMatch) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
 
-  const safeRating = Math.max(0, Math.min(5, Number(rating || 0)))
-  const safeComment = String(comment || '')
-  const safeSemester = String(semester || '')
-  const safeName = String(reviewer_name || '')
-  const safeAvatar = String(reviewer_avatar || '')
+  const safeRating = Math.max(0, Math.min(5, Number(body.rating || 0)))
+  const safeComment = String(body.comment || '').trim().slice(0, 10000)
+  const safeSemester = String(body.semester || '').trim().slice(0, 20)
+  const safeName = String(reviewer_name || '').trim().slice(0, 100)
+  const safeAvatar = String(reviewer_avatar || '').trim().slice(0, 500)
 
   await c.env.DB
     .prepare(

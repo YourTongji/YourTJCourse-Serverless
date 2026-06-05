@@ -1,11 +1,24 @@
 import { encodeReviewId } from '../sqids'
 import type { Bindings } from './types'
 
+// Reviews columns that are safe to expose via public API.
+// wallet_user_hash and edit_token are internal auth fields.
+const PUBLIC_REVIEW_COLUMNS = new Set([
+  'id', 'course_id', 'semester', 'rating', 'comment', 'score',
+  'created_at', 'approve_count', 'disapprove_count',
+  'is_hidden', 'is_legacy', 'is_icu',
+  'reviewer_name', 'reviewer_avatar', 'sqid'
+])
+
 export function addSqidToReviews(reviews: any[]): any[] {
-  return reviews.map(review => ({
-    ...review,
-    sqid: encodeReviewId(review.id)
-  }))
+  return reviews.map(review => {
+    // Strip internal-only fields as defense in depth
+    const sanitized: Record<string, any> = { sqid: encodeReviewId(review.id) }
+    for (const key of PUBLIC_REVIEW_COLUMNS) {
+      if (key !== 'sqid' && key in review) sanitized[key] = review[key]
+    }
+    return sanitized
+  })
 }
 
 async function sha256Hex(value: string) {
