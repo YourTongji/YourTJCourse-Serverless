@@ -196,8 +196,7 @@ export async function fetchLatestCourseInfo(
             }
         });
 
-        console.log("课程", majorCourseCodes, "需要 isExclusive 字段");
-        console.log("课程", otherCourseCodes, "不需要 isExclusive 字段");
+        // 分类完成
         
         // 构建请求参数
         const payload: {
@@ -617,56 +616,4 @@ export function applyCourseSync(
     };
 }
 
-// 生成同步提示消息
-export function generateSyncMessage(changes: CourseChangeInfo[]): string {
-    if (changes.length === 0) {
-        return '所有课程均为最新，无需同步。';
-    }
 
-    const messages: string[] = ['检测到以下课程变更：\n'];
-
-    const closedCourses = changes.filter(c => c.changeType === CourseChangeType.Closed);
-    const conflictCourses = changes.filter(c => c.changeType === CourseChangeType.ConflictAfterUpdate);
-    const changedCourses = changes.filter(c => c.changeType === CourseChangeType.InfoChanged);
-
-    if (closedCourses.length > 0) {
-        messages.push(`\n【已关课】(${closedCourses.length}门)`);
-        closedCourses.forEach(c => {
-            messages.push(`• ${c.courseName}`);
-            if (c.details) messages.push(`  ${c.details}`);
-        });
-    }
-
-    if (conflictCourses.length > 0) {
-        messages.push(`\n【更新后发生冲突】(${conflictCourses.length}门)`);
-        conflictCourses.forEach(c => {
-            messages.push(`• ${c.courseName}`);
-            if (c.details) {
-                // details 可能包含多行，逐行展示
-                const detailLines = c.details.split('\n');
-                detailLines.forEach(line => {
-                    if (line.trim()) messages.push(`  ${line.trim()}`);
-                });
-            }
-            if (c.conflictWith && !c.details?.includes('与同样变更的课程')) {
-                messages.push(`  与 ${c.conflictWith} 冲突`);
-            }
-        });
-    }
-
-    if (changedCourses.length > 0) {
-        messages.push(`\n【信息已变更】(${changedCourses.length}门)`);
-        changedCourses.forEach(c => {
-            messages.push(`• ${c.courseName}`);
-            if (c.details) messages.push(`  ${c.details}`);
-        });
-    }
-
-    messages.push('\n是否同步最新数据？');
-    messages.push('\n注意：');
-    messages.push('• 已关课的课程将被删除');
-    messages.push('• 发生冲突的课程将移至备选课程');
-    messages.push('• 信息变更的课程将自动更新');
-
-    return messages.join('\n');
-}

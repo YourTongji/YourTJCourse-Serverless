@@ -74,12 +74,6 @@ export function deleteOccupied(occupied: occupyCell[][][], code: string) {
     }
 }
 
-// 改
-export function updateOccupied(occupied: occupyCell[][][], arrangementInfo: arrangementInfolet[], code: string, courseName: string) {
-    deleteOccupied(occupied, code);
-    insertOccupied(occupied, arrangementInfo, code, courseName);
-}
-
 // 判断两个课是否相同
 // 依据是比较课号除了后两位的部分
 export function isSameCourse(code1: string, code2: string) {

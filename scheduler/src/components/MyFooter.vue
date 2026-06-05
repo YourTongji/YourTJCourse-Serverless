@@ -180,9 +180,7 @@ export default {
                             errorNotify('同步失败，请稍后重试');
                         }
                     },
-                    onCancel: () => {
-                        console.log("用户选择稍后处理课程同步");
-                    }
+                    onCancel: () => {} // 用户选择稍后处理课程同步
                 });
 
             } catch (error) {

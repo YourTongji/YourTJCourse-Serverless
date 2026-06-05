@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown from '../components/CollapsibleMarkdown'
 import MarkdownEditor from '../components/MarkdownEditor'
-import { resolveApiBase } from '../services/api'
+import { API_BASE } from '../services/api'
 import {
   DEFAULT_MAINTENANCE_CONFIG,
   normalizeMaintenanceDisplayConfig,
   writeMaintenanceSnapshot
 } from '../maintenance/maintenance'
 
-const API_BASE = resolveApiBase()
 type AnnouncementType = 'info' | 'warning' | 'error' | 'success'
 
 interface Review {

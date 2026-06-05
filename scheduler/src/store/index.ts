@@ -343,11 +343,9 @@ const store = createStore<StoreState>({
         setUpdateTime(state: StoreState, payload: string) {
             state.updateTime = payload;
             localStorage.setItem("updateTime", state.updateTime);
-            console.log("Update time set to:", state.updateTime);
         },
         setLatestUpdateTime(state: StoreState, payload: string) {
             state.latestUpdateTime = payload;
-            console.log("Latest update time set to:", state.latestUpdateTime);
         },
         setDataOutdated(state: StoreState, payload: boolean) {
             state.flags.isDataOutdated = payload;
