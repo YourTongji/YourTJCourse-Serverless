@@ -75,7 +75,8 @@ async function deleteCalendarData(db: D1Database, calendarId: number) {
   const ids = await db.prepare('SELECT id FROM coursedetail WHERE calendarId = ?').bind(calendarId).all<{ id: number }>()
   const classIds = (ids.results || []).map((r) => r.id)
 
-  await db.prepare('DELETE FROM teacher_timeslots WHERE calendar_id = ?').bind(calendarId).run().catch(() => undefined)
+  const statements: any[] = []
+  statements.push(db.prepare('DELETE FROM teacher_timeslots WHERE calendar_id = ?').bind(calendarId))
 
   // SQLite/D1 的变量数量有上限，按批次删除，避免 IN (...) 参数过多
   // Cloudflare D1 的绑定变量上限比本地 sqlite 更严格，保守取 80
@@ -83,15 +84,17 @@ async function deleteCalendarData(db: D1Database, calendarId: number) {
   for (let i = 0; i < classIds.length; i += chunkSize) {
     const chunk = classIds.slice(i, i + chunkSize)
     const placeholders = chunk.map(() => '?').join(',')
-    await db.prepare(`DELETE FROM teacher WHERE teachingClassId IN (${placeholders})`).bind(...chunk).run()
-    await db.prepare(`DELETE FROM majorandcourse WHERE courseId IN (${placeholders})`).bind(...chunk).run()
+    statements.push(db.prepare(`DELETE FROM teacher WHERE teachingClassId IN (${placeholders})`).bind(...chunk))
+    statements.push(db.prepare(`DELETE FROM majorandcourse WHERE courseId IN (${placeholders})`).bind(...chunk))
   }
 
-  await db.prepare('DELETE FROM coursedetail WHERE calendarId = ?').bind(calendarId).run()
-  await db.prepare('DELETE FROM calendar WHERE calendarId = ?').bind(calendarId).run()
+  statements.push(db.prepare('DELETE FROM coursedetail WHERE calendarId = ?').bind(calendarId))
+  statements.push(db.prepare('DELETE FROM calendar WHERE calendarId = ?').bind(calendarId))
   // keep other semesters; clear only this calendar's course nature cache
-  await db.prepare('DELETE FROM coursenature_by_calendar WHERE calendarId = ?').bind(calendarId).run()
-  await db.prepare("DELETE FROM settings WHERE key = 'pk_aux_schema_version'").run()
+  statements.push(db.prepare('DELETE FROM coursenature_by_calendar WHERE calendarId = ?').bind(calendarId))
+  statements.push(db.prepare("DELETE FROM settings WHERE key = 'pk_aux_schema_version'"))
+
+  await db.batch(statements).catch(() => undefined)
 }
 
 async function ensurePkTables(db: D1Database) {

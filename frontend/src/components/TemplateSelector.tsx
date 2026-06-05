@@ -1,5 +1,3 @@
-import BottomSheet from './BottomSheet'
-
 interface Template {
   id: string
   name: string
@@ -169,32 +167,48 @@ export default function TemplateSelector({ isOpen, onClose, onSelect }: Template
 
   return (
     <>
-      {/* 移动端：BottomSheet */}
+      {/* 移动端：底部弹出 */}
       <div className="md:hidden">
-        <BottomSheet isOpen={isOpen} onClose={onClose} title="选择评论模板">
-          <div className="p-4 space-y-3">
-            {TEMPLATES.map((template) => (
-              <button
-                key={template.id}
-                onClick={() => handleSelect(template)}
-                className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-cyan-300 hover:bg-cyan-50/50 transition-all group"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-cyan-100 flex items-center justify-center text-slate-600 group-hover:text-cyan-600 transition-colors">
-                    {template.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-slate-800 mb-1">{template.name}</h4>
-                    <p className="text-sm text-slate-500 line-clamp-2">{template.description}</p>
-                  </div>
-                  <svg className="w-5 h-5 text-slate-400 group-hover:text-cyan-600 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
+        <>
+          {/* 遮罩层 */}
+          <div className="fixed inset-0 bg-black/40 z-50 transition-opacity" onClick={onClose} />
+          {/* 底部抽屉 */}
+          <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-50 transition-transform" style={{ maxHeight: '80vh' }}>
+            <div className="flex justify-center pt-3 pb-2">
+              <div className="w-12 h-1 bg-slate-300 rounded-full" />
+            </div>
+            <div className="flex items-center justify-between px-6 py-3 border-b border-slate-200">
+              <h3 className="text-lg font-bold text-slate-800">选择评论模板</h3>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors" aria-label="关闭">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
-            ))}
+            </div>
+            <div className="overflow-y-auto p-4 space-y-3" style={{ maxHeight: 'calc(80vh - 80px)' }}>
+              {TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  onClick={() => handleSelect(template)}
+                  className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-cyan-300 hover:bg-cyan-50/50 transition-all group"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-100 group-hover:bg-cyan-100 flex items-center justify-center text-slate-600 group-hover:text-cyan-600 transition-colors">
+                      {template.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-bold text-slate-800 mb-1">{template.name}</h4>
+                      <p className="text-sm text-slate-500 line-clamp-2">{template.description}</p>
+                    </div>
+                    <svg className="w-5 h-5 text-slate-400 group-hover:text-cyan-600 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
-        </BottomSheet>
+        </>
       </div>
 
       {/* 桌面端：浮窗 */}

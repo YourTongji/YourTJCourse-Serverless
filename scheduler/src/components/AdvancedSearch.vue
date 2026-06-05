@@ -169,12 +169,8 @@ export default {
                 const sizeLimit = Number(res.data?.data?.sizeLimit || 0);
                 this.$store.commit('setSearchedCourses', courses);
 
-                // 如果搜索内容超过了阈值
                 if (sizeLimit > 0 && courses.length >= sizeLimit) {
                     errorNotify('搜索结果过多，只展示了前' + sizeLimit + '条');
-                }
-                else {
-                    console.log("OK");
                 }
             }
             catch (error: unknown) {

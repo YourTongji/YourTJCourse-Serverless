@@ -9,6 +9,7 @@ import MarkdownToolbar from '../components/MarkdownToolbar'
 import TemplateSelector, { TEMPLATE_HINTS, TemplateHints } from '../components/TemplateSelector'
 import TongjiCaptchaWidget from '../components/TongjiCaptchaWidget'
 import { loadCreditWallet } from '../utils/creditWallet'
+import { formatSemesterLabel, semesterLabelScore } from '../utils/format'
 
 const REVIEW_TEMPLATE = `## 考核方式：
 
@@ -39,27 +40,7 @@ function buildBeamAvatarDataUri(seedText: string, size = 72) {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
-function formatSemesterLabel(value: string) {
-  const text = String(value || '').trim()
-  const yearMatch = text.match(/(20\d{2})/)
 
-  if (!yearMatch) return text || '未知学期'
-
-  const shortYear = yearMatch[1].slice(2)
-  if (/第?1学期|秋/i.test(text)) return `${shortYear}秋`
-  if (/第?2学期|春/i.test(text)) return `${shortYear}春`
-
-  return text
-}
-
-function semesterLabelScore(label: string) {
-  const text = String(label || '').trim()
-  const match = text.match(/(\d{2})\s*([春秋])/)
-  if (!match) return -1
-  const year = 2000 + Number(match[1])
-  const term = match[2] === '秋' ? 2 : 1
-  return year * 10 + term
-}
 
 export default function WriteReview() {
   const { id } = useParams()

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import SegmentedControl from './SegmentedControl'
 import { TemplateHints } from './TemplateSelector'
 import { markdownContentClassName, renderMarkdownHtml } from './CollapsibleMarkdown'
@@ -7,13 +7,12 @@ interface MarkdownEditorProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
-  onInsertText?: (before: string, after?: string) => void
   hints?: TemplateHints // 模板提示信息
 }
 
 type ViewMode = 'edit' | 'preview' | 'help'
 
-export default function MarkdownEditor({ value, onChange, placeholder, onInsertText, hints }: MarkdownEditorProps) {
+export default function MarkdownEditor({ value, onChange, placeholder, hints }: MarkdownEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -79,13 +78,6 @@ export default function MarkdownEditor({ value, onChange, placeholder, onInsertT
   }, [value, hints])
 
   const mirrorMode = Boolean(generateOverlayContent)
-
-  // 暴露插入方法给父组件
-  useEffect(() => {
-    if (onInsertText) {
-      // 这里可以通过 ref 或其他方式暴露方法
-    }
-  }, [onInsertText])
 
   const viewModeOptions = [
     {

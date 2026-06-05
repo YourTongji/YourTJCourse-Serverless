@@ -1,6 +1,7 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { fetchCourses, fetchDepartments } from '../services/api'
+import { formatSemesterLabel, semesterLabelScore } from '../utils/format'
 import GlassCard from '../components/GlassCard'
 import Logo from '../components/Logo'
 import FilterPanel, { FilterState } from '../components/FilterPanel'
@@ -68,27 +69,7 @@ function buildSearchQuery(keyword: string, page: number, filters: FilterState) {
   return params.toString()
 }
 
-function formatSemesterLabel(value: string) {
-  const text = String(value || '').trim()
-  const yearMatch = text.match(/(20\d{2})/)
 
-  if (!yearMatch) return text || '未知学期'
-
-  const shortYear = yearMatch[1].slice(2)
-  if (/第?1学期|秋/i.test(text)) return `${shortYear}秋`
-  if (/第?2学期|春/i.test(text)) return `${shortYear}春`
-
-  return text
-}
-
-function semesterLabelScore(label: string) {
-  const text = String(label || '').trim()
-  const match = text.match(/(\d{2})\s*([春秋])/)
-  if (!match) return -1
-  const year = 2000 + Number(match[1])
-  const term = match[2] === '秋' ? 2 : 1
-  return year * 10 + term
-}
 
 function hashCourseOrder(input: string) {
   let hash = 0

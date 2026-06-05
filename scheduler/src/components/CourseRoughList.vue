@@ -88,15 +88,17 @@
 <script lang="ts">
 import axios from 'axios';
 import { Modal, Table } from 'ant-design-vue';
-import { mapStatusToChinese } from '@/utils/statusManipulate';
+import { mapStatusToChinese, getStatusTextColor } from '@/utils/statusManipulate';
 import { errorNotify } from '@/utils/notify';
 import type { teacherlet, courseInfo } from '@/utils/myInterface';
+import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
 
 export default {
     components: { ATable: Table },
     data() {
         return {
-            isMobile: typeof window !== 'undefined' ? window.innerWidth < 768 : false,
+            isMobile: getIsMobile(),
+            _cleanupMobile: null as (() => void) | null,
             columns: ([
             {
                 title: '课程名称',
@@ -238,18 +240,7 @@ export default {
             }
         },
         mapStatusToChinese,
-        getStatusTextColor(status: number) {
-            switch(status) {
-                case 0:
-                    return '';
-                case 1:
-                    return 'text-yellow-300';
-                case 2:
-                    return 'text-green-400';
-                default:
-                    return '';
-            }
-        },
+        getStatusTextColor,
         handleSave() {
             this.$store.commit('saveSelectedCourses');
             this.$store.commit('solidify');
@@ -278,16 +269,11 @@ export default {
     },
     emits: ['openOverview'],
     mounted() {
-        const onResize = () => {
-            this.isMobile = window.innerWidth < 768
-        }
-        window.addEventListener('resize', onResize, { passive: true })
-        onResize()
-        ;(this as any)._onResize = onResize
+        this._cleanupMobile = onMobileChange((v: boolean) => { this.isMobile = v })
+        this.isMobile = getIsMobile()
     },
     beforeUnmount() {
-        const fn = (this as any)._onResize
-        if (fn) window.removeEventListener('resize', fn)
+        if (this._cleanupMobile) this._cleanupMobile()
     }
 }
 </script>

@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from '../utils/fetch'
+
 function trimApiBase(value: string | undefined | null) {
   return String(value || '').trim().replace(/\/+$/, '')
 }
@@ -15,20 +17,7 @@ export function resolveApiBase() {
   return trimApiBase(window.location.origin)
 }
 
-const API_BASE = resolveApiBase()
-
-async function fetchWithTimeout(url: string, options?: RequestInit, timeout = 15000) {
-  const controller = new AbortController()
-  const id = setTimeout(() => controller.abort(), timeout)
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal })
-    clearTimeout(id)
-    return res
-  } catch (err) {
-    clearTimeout(id)
-    throw err
-  }
-}
+export const API_BASE = resolveApiBase()
 
 export type CourseAdvancedFilters = {
   departments?: string[]
@@ -114,21 +103,6 @@ export async function fetchCourseRelated(id: string, opts?: { legacy?: boolean }
   const res = await fetchWithTimeout(`${API_BASE}/api/course/${id}/related${suffix}`, undefined, 15000)
   if (!res.ok) throw new Error('Failed to fetch related course data')
   return res.json()
-}
-
-export async function fetchSiteAnnouncements() {
-  const res = await fetchWithTimeout(`${API_BASE}/api/settings/announcements`, undefined, 15000)
-  if (!res.ok) throw new Error('Failed to fetch announcements')
-  return res.json() as Promise<{ announcements: SiteAnnouncement[] }>
-}
-
-export async function fetchMaintenanceSettings() {
-  const res = await fetchWithTimeout(`${API_BASE}/api/settings/maintenance`, {
-    cache: 'no-store',
-    headers: { 'Cache-Control': 'no-cache' }
-  }, 15000)
-  if (!res.ok) throw new Error('Failed to fetch maintenance settings')
-  return res.json() as Promise<MaintenanceSettingsResponse>
 }
 
 export async function fetchSiteRuntimeState() {

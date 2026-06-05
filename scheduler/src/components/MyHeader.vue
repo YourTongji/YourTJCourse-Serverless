@@ -245,15 +245,7 @@ export default {
                                 newTimeTableData
                             });
 
-                            // 生成成功消息
-                            // const closedCount = syncResult.changes.filter(c => c.changeType === 'closed').length;
-                            // const conflictCount = syncResult.changes.filter(c => c.changeType === 'conflictAfterUpdate').length;
-                            // const changedCount = syncResult.changes.filter(c => c.changeType === 'infoChanged').length;
-
                             const successMsg = '同步成功！';
-                            // if (closedCount > 0) successMsg += ` ${closedCount}门课程已删除，`;
-                            // if (conflictCount > 0) successMsg += ` ${conflictCount}门课程已移至备选，`;
-                            // if (changedCount > 0) successMsg += ` ${changedCount}门课程已更新`;
                             
                             successNotify(successMsg);
                         } catch (error) {
@@ -261,9 +253,6 @@ export default {
                             errorNotify('同步失败，请重试');
                         }
                     },
-                    onCancel: () => {
-                        console.log("User cancelled smart sync");
-                    }
                 });
 
             } catch (error) {

@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from '../utils/fetch'
+
 const DEFAULT_CORE_BASE = 'https://core.credit.yourtj.de'
 
 function normalizeBase(input: string, fallback: string) {
@@ -18,18 +20,6 @@ const CREDIT_INTEGRATION_BASE = (() => {
     /^https?:\/\/credit\.yourtj\.de$/i.test(CREDIT_API_BASE) || CREDIT_API_BASE.includes('credit.yourtj.de/')
   return looksLikeFrontend ? DEFAULT_CORE_BASE : CREDIT_API_BASE
 })()
-
-async function fetchWithTimeout(url: string, options?: RequestInit, timeout = 15000) {
-  const controller = new AbortController()
-  const id = setTimeout(() => controller.abort(), timeout)
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal })
-    clearTimeout(id)
-    return res
-  } finally {
-    clearTimeout(id)
-  }
-}
 
 async function readJson(res: Response, hint: string) {
   const contentType = res.headers.get('content-type') || ''

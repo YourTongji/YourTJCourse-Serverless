@@ -50,3 +50,16 @@ export function getTagColor(status: number) : string {
             return 'default';
     }
 }
+
+export function getStatusTextColor(status: number): string {
+    switch (status) {
+        case 0:
+            return 'text-gray-400';
+        case 1:
+            return 'text-yellow-300';
+        case 2:
+            return 'text-green-400';
+        default:
+            return 'text-gray-400';
+    }
+}

@@ -1,16 +1,14 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown from '../components/CollapsibleMarkdown'
 import MarkdownEditor from '../components/MarkdownEditor'
-import { resolveApiBase } from '../services/api'
+import { API_BASE } from '../services/api'
 import {
   DEFAULT_MAINTENANCE_CONFIG,
   normalizeMaintenanceDisplayConfig,
   writeMaintenanceSnapshot
 } from '../maintenance/maintenance'
 
-const API_BASE = resolveApiBase()
 type AnnouncementType = 'info' | 'warning' | 'error' | 'success'
 
 interface Review {
@@ -88,8 +86,7 @@ const emptyReviewForm = { comment: '', rating: 5, reviewer_name: '', reviewer_av
 const emptyCourseForm = { code: '', name: '', credit: 0, department: '', teacher_name: '', search_keywords: '' }
 
 export default function Admin() {
-  const navigate = useNavigate()
-  const hasAccess = true // access gate removed; real auth is backend-administered
+  // access gate removed; real auth is backend-administered
 
   const [secret, setSecret] = useState(localStorage.getItem('admin_secret') || '')
   const [isAuth, setIsAuth] = useState(false)
@@ -442,24 +439,6 @@ export default function Admin() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
-
-  if (!hasAccess) {
-    return (
-      <div className="space-y-6">
-        <GlassCard hover={false}>
-          <div className="mb-1 text-lg font-extrabold text-slate-800">管理入口</div>
-          <div className="text-sm text-slate-600">该页面仅供管理员使用，当前缺少访问参数。</div>
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="mt-4 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-cyan-600"
-          >
-            返回首页
-          </button>
-        </GlassCard>
-      </div>
-    )
-  }
 
   if (!isAuth) {
     return (
