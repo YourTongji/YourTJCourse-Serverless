@@ -133,6 +133,33 @@ export function invalidateSettingCaches(key?: string) {
   }
 }
 
+type RuntimeEnv = { APP_ENV?: string }
+
+export function isDevRuntime(env?: RuntimeEnv) {
+  return String(env?.APP_ENV || '').trim().toLowerCase() === 'dev'
+}
+
+export function getMaintenanceSettingKeys(env?: RuntimeEnv) {
+  if (isDevRuntime(env)) {
+    return {
+      modeKey: 'dev_maintenance_mode',
+      configKey: 'dev_maintenance_config'
+    }
+  }
+
+  return {
+    modeKey: 'maintenance_mode',
+    configKey: 'maintenance_config'
+  }
+}
+
+export function resolveRuntimeSettingKey(key: string, env?: RuntimeEnv) {
+  const keys = getMaintenanceSettingKeys(env)
+  if (key === 'maintenance_mode') return keys.modeKey
+  if (key === 'maintenance_config') return keys.configKey
+  return key
+}
+
 export async function getShowIcuSetting(db: D1Database): Promise<boolean> {
   const now = Date.now()
   if (showIcuCache && showIcuCache.expiresAt > now) return showIcuCache.value
@@ -143,13 +170,15 @@ export async function getShowIcuSetting(db: D1Database): Promise<boolean> {
   return value
 }
 
-export async function getMaintenanceModeSetting(db: D1Database): Promise<boolean> {
-  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('maintenance_mode').first<{ value: string }>()
+export async function getMaintenanceModeSetting(db: D1Database, env?: RuntimeEnv): Promise<boolean> {
+  const { modeKey } = getMaintenanceSettingKeys(env)
+  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind(modeKey).first<{ value: string }>()
   return row?.value === 'true'
 }
 
-export async function getMaintenanceConfigSetting(db: D1Database): Promise<any | null> {
-  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('maintenance_config').first<{ value: string }>()
+export async function getMaintenanceConfigSetting(db: D1Database, env?: RuntimeEnv): Promise<any | null> {
+  const { configKey } = getMaintenanceSettingKeys(env)
+  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind(configKey).first<{ value: string }>()
   if (!row?.value) return null
   try {
     return JSON.parse(row.value)

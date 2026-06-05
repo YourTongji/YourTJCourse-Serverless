@@ -396,18 +396,26 @@ export default function App() {
   const hideFloatingTools = isSchedule || location.pathname.startsWith('/feedback')
   const isHome = location.pathname === '/'
   const isAdminPath = location.pathname.startsWith('/admin')
+  const isLocalDevHost = Boolean(
+    import.meta.env.DEV &&
+    typeof window !== 'undefined' &&
+    (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost')
+  )
   const bypassStartupGate = Boolean(
-    import.meta.env.DEV && String(import.meta.env.VITE_BYPASS_STARTUP_GATE || '').trim() === '1'
+    isLocalDevHost || (import.meta.env.DEV && String(import.meta.env.VITE_BYPASS_STARTUP_GATE || '').trim() === '1')
   )
   const hardMaintenanceMode = String(import.meta.env.VITE_MAINTENANCE_MODE || '').trim() === '1'
   const cachedMaintenanceSnapshot = !hardMaintenanceMode && typeof window !== 'undefined'
     ? readMaintenanceSnapshot()
     : null
+  const freshMaintenanceSnapshot = isMaintenanceSnapshotFresh(cachedMaintenanceSnapshot)
+    ? cachedMaintenanceSnapshot
+    : null
   const [startupPassed, setStartupPassed] = useState(() => {
     try {
       if (bypassStartupGate) return true
       if (hardMaintenanceMode) return true
-      if (isMaintenanceSnapshotFresh(cachedMaintenanceSnapshot) && cachedMaintenanceSnapshot?.enabled) return true
+      if (freshMaintenanceSnapshot?.enabled) return true
       return sessionStorage.getItem('yourtj_startup_passed') === '1'
     } catch {
       return false
@@ -418,16 +426,13 @@ export default function App() {
   const [startupVerifying, setStartupVerifying] = useState(false)
   const [tourOpen, setTourOpen] = useState(false)
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(
-    hardMaintenanceMode || Boolean(cachedMaintenanceSnapshot?.enabled)
+    hardMaintenanceMode || Boolean(freshMaintenanceSnapshot?.enabled)
   )
   const [maintenanceConfig, setMaintenanceConfig] = useState(() =>
-    normalizeMaintenanceDisplayConfig(cachedMaintenanceSnapshot?.config || DEFAULT_MAINTENANCE_CONFIG)
+    normalizeMaintenanceDisplayConfig(freshMaintenanceSnapshot?.config || DEFAULT_MAINTENANCE_CONFIG)
   )
   const [announcements, setAnnouncements] = useState<SiteAnnouncement[]>(() =>
-    normalizeRuntimeAnnouncements(cachedMaintenanceSnapshot?.announcements)
-  )
-  const [maintenanceLoaded, setMaintenanceLoaded] = useState(
-    hardMaintenanceMode || isMaintenanceSnapshotFresh(cachedMaintenanceSnapshot)
+    normalizeRuntimeAnnouncements(freshMaintenanceSnapshot?.announcements)
   )
   const [announcementCollapsed, setAnnouncementCollapsed] = useState(() => {
     try {
@@ -464,7 +469,6 @@ export default function App() {
     if (hardMaintenanceMode) {
       setMaintenanceEnabled(true)
       setMaintenanceConfig(normalizeMaintenanceDisplayConfig(DEFAULT_MAINTENANCE_CONFIG))
-      setMaintenanceLoaded(true)
       return
     }
 
@@ -475,7 +479,6 @@ export default function App() {
       setMaintenanceEnabled(Boolean(snapshot.enabled))
       setMaintenanceConfig(normalizeMaintenanceDisplayConfig(snapshot.config))
       setAnnouncements(normalizeRuntimeAnnouncements(snapshot.announcements))
-      setMaintenanceLoaded(true)
       if (snapshot.enabled) setStartupPassed(true)
     }
 
@@ -489,18 +492,16 @@ export default function App() {
         setMaintenanceEnabled(enabled)
         setMaintenanceConfig(nextConfig)
         setAnnouncements(nextAnnouncements)
-        setMaintenanceLoaded(true)
         if (enabled) setStartupPassed(true)
         writeMaintenanceSnapshot(enabled, nextConfig, nextAnnouncements)
       } catch {
         if (!active) return
         const cached = readMaintenanceSnapshot()
-        if (cached) {
+        if (isMaintenanceSnapshotFresh(cached)) {
           applySnapshot(cached)
           return
         }
         setMaintenanceEnabled(false)
-        setMaintenanceLoaded(true)
       }
     }
 
@@ -590,14 +591,6 @@ export default function App() {
       default:
         return '验证未通过，请重试'
     }
-  }
-
-  if (!maintenanceLoaded && !hardMaintenanceMode) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-sky-50 text-sm text-slate-500">
-        页面加载中...
-      </div>
-    )
   }
 
   if (showMaintenanceGate) {

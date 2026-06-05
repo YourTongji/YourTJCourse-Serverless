@@ -35,6 +35,8 @@ const SEARCH_PLACEHOLDERS = [
   '从真实评价里找到更适合你的课程...'
 ]
 
+const PAGE_SIZE = 20
+
 function parseSearchState(search: string) {
   const params = new URLSearchParams(search)
 
@@ -139,7 +141,9 @@ export default function Courses() {
   const [typingPlaceholder, setTypingPlaceholder] = useState('')
   const [expandedSemesterCourseId, setExpandedSemesterCourseId] = useState<number | null>(null)
   const [sessionShuffleSeed] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  const [pageDraft, setPageDraft] = useState(String(initialStateRef.current.page))
   const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const totalPages = total ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null
 
   const syncUrl = (nextKeyword: string, nextPage: number, nextFilters: FilterState) => {
     const nextSearch = buildSearchQuery(nextKeyword, nextPage, nextFilters)
@@ -162,7 +166,7 @@ export default function Courses() {
     syncUrl(nextKeyword, nextPage, nextFilters)
 
     try {
-      const data = await fetchCourses(nextKeyword, undefined, nextPage, 20, {
+      const data = await fetchCourses(nextKeyword, undefined, nextPage, PAGE_SIZE, {
         departments: nextFilters.selectedDepartments,
         onlyWithReviews: nextFilters.onlyWithReviews,
         courseName: nextFilters.courseName,
@@ -171,7 +175,7 @@ export default function Courses() {
         teacherName: nextFilters.teacherName,
         campus: nextFilters.campus
       }, {
-        includeTotal: false
+        includeTotal: true
       })
 
       const nextCourses = Array.isArray(data.data) ? data.data : []
@@ -181,6 +185,7 @@ export default function Courses() {
       setHasMore(Boolean(data.hasMore))
       setTotal(typeof data.total === 'number' ? data.total : null)
       setPage(nextPage)
+      setPageDraft(String(nextPage))
     } catch (err) {
       console.error('Failed to fetch courses:', err)
       setError('加载失败，请稍后重试')
@@ -207,6 +212,21 @@ export default function Courses() {
     setFilters(nextFilters)
     setPage(1)
     void search(1, keyword, nextFilters)
+  }
+
+  const submitPageDraft = () => {
+    const parsed = Number.parseInt(pageDraft, 10)
+    if (!Number.isFinite(parsed)) {
+      setPageDraft(String(page))
+      return
+    }
+
+    const nextPage = Math.max(1, totalPages ? Math.min(parsed, totalPages) : parsed)
+    if (nextPage === page) {
+      setPageDraft(String(page))
+      return
+    }
+    void search(nextPage)
   }
 
   const toggleLegacyDocs = () => {
@@ -531,7 +551,8 @@ export default function Courses() {
                 const historySemesters = orderedSemesters.slice(1)
                 const hiddenCount = Math.max(0, orderedSemesters.length - 1)
                 const isSemesterExpanded = expandedSemesterCourseId === course.id
-                const historyToShow = historySemesters.slice(0, 4)
+                const historyToShow = historySemesters.slice(0, 6)
+                const omittedHistoryCount = Math.max(0, historySemesters.length - historyToShow.length)
 
                 return (
                   <Link
@@ -539,9 +560,9 @@ export default function Courses() {
                     to={`/course/${course.id}`}
                     data-tour={course.id === tourTargetCourseId ? 'tour-course-target' : undefined}
                     className="block h-full"
-                    style={{ contentVisibility: 'auto', containIntrinsicSize: '0 188px' }}
+                    style={{ contentVisibility: 'auto', containIntrinsicSize: '0 208px' }}
                   >
-                    <GlassCard className="group flex h-[188px] md:h-[188px] flex-col justify-between rounded-[24px] border-white/70 bg-white/80 !p-5 hover:-translate-y-0.5">
+                    <GlassCard className="group flex min-h-[188px] flex-col justify-between rounded-[24px] border-white/70 bg-white/80 !p-5 hover:-translate-y-0.5">
                       <div>
                         <div className="mb-3 flex items-start justify-between gap-3">
                           <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] font-bold tracking-wide ${course.is_legacy ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-cyan-100 bg-cyan-50 text-cyan-700'}`}>
@@ -566,34 +587,20 @@ export default function Courses() {
                           {course.name}
                         </h3>
 
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="space-y-2">
                           <p className="min-w-0 truncate text-sm text-slate-500">{course.teacher_name || '未知教师'}</p>
                           {recentSemester && (
-                            <div className="flex max-w-[56%] shrink-0 items-center justify-end gap-1 overflow-hidden">
+                            <div className="flex flex-wrap items-center gap-1.5 overflow-visible">
                               <span
-                                className={`rounded-full border px-2 py-1 text-[10px] font-black transition-all ${isSemesterExpanded ? 'border-cyan-100 bg-cyan-50 text-cyan-700 -translate-x-3 duration-150' : 'border-slate-200 bg-slate-100 text-slate-600 translate-x-0 duration-150'}`}
+                                className="whitespace-nowrap rounded-full border border-cyan-100 bg-cyan-50 px-2 py-0.5 text-[10px] font-black text-cyan-700"
                               >
-                                最近: {recentSemester}
+                                最近 {recentSemester}
                               </span>
 
-                              <div
-                                className={`flex items-center gap-1 overflow-hidden transition-[max-width,opacity,transform] ${isSemesterExpanded ? 'max-w-[260px] opacity-100 translate-x-0 duration-200 delay-75' : 'max-w-0 opacity-0 translate-x-2 duration-150'}`}
-                                aria-hidden={!isSemesterExpanded}
-                              >
-                                {historyToShow.map((semester, index) => (
-                                  <span
-                                    key={`${course.id}-${semester}`}
-                                    className={`rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600 transition-all ${index >= 2 ? 'hidden sm:inline-flex' : ''} ${index >= 3 ? 'md:hidden' : ''}`}
-                                    style={{ transitionDelay: isSemesterExpanded ? `${index * 45}ms` : '0ms' }}
-                                  >
-                                    {semester}
-                                  </span>
-                                ))}
-                              </div>
                               {hiddenCount > 0 && (
                                 <button
                                   type="button"
-                                  className={`rounded-full border px-2 py-1 text-[10px] font-black transition-colors ${isSemesterExpanded ? 'border-pink-200 bg-pink-50 text-pink-700 hover:bg-pink-100' : 'border-pink-200 bg-pink-50 text-pink-700 hover:bg-pink-100'}`}
+                                  className="whitespace-nowrap rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[10px] font-black text-pink-700 transition-colors hover:bg-pink-100"
                                   aria-label={`展开历史学期，共 ${hiddenCount} 个`}
                                   aria-expanded={isSemesterExpanded}
                                   onClick={(event) => {
@@ -605,6 +612,28 @@ export default function Courses() {
                                   +{hiddenCount}
                                 </button>
                               )}
+
+                              <div
+                                className={`basis-full overflow-hidden transition-[max-height,opacity,transform] ${isSemesterExpanded ? 'max-h-20 opacity-100 translate-y-0 duration-200' : 'max-h-0 opacity-0 -translate-y-1 duration-150'}`}
+                                aria-hidden={!isSemesterExpanded}
+                              >
+                                <div className="flex flex-wrap items-center gap-1 pt-1">
+                                  {historyToShow.map((semester, index) => (
+                                    <span
+                                      key={`${course.id}-${semester}`}
+                                      className="whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 transition-all"
+                                      style={{ transitionDelay: isSemesterExpanded ? `${index * 35}ms` : '0ms' }}
+                                    >
+                                      {semester}
+                                    </span>
+                                  ))}
+                                  {omittedHistoryCount > 0 && (
+                                    <span className="whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                                      另 {omittedHistoryCount}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -632,7 +661,7 @@ export default function Courses() {
               </div>
             )}
 
-            {(page > 1 || hasMore) && (
+            {(page > 1 || hasMore || (totalPages != null && totalPages > 1)) && (
               <div className="flex items-center justify-center gap-2 pt-2">
                 <button
                   onClick={() => void search(page - 1)}
@@ -641,12 +670,27 @@ export default function Courses() {
                 >
                   上一页
                 </button>
-                <div className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center font-bold text-slate-600">
-                  第 {page} 页
+                <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center font-bold text-slate-600">
+                  <input
+                    value={pageDraft}
+                    inputMode="numeric"
+                    aria-label="当前页码"
+                    disabled={loading}
+                    onChange={(event) => setPageDraft(event.target.value.replace(/\D/g, '').slice(0, 5))}
+                    onBlur={submitPageDraft}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.currentTarget.blur()
+                      }
+                    }}
+                    className="h-6 w-10 rounded-md border border-slate-200 bg-slate-50 text-center text-sm font-black text-slate-700 outline-none transition focus:border-cyan-300 focus:bg-white focus:ring-2 focus:ring-cyan-100 disabled:opacity-60"
+                  />
+                  <span className="text-sm text-slate-400">/</span>
+                  <span className="min-w-6 text-sm text-slate-600">{totalPages ?? '…'}</span>
                 </div>
                 <button
                   onClick={() => void search(page + 1)}
-                  disabled={!hasMore || loading}
+                  disabled={loading || (totalPages ? page >= totalPages : !hasMore)}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   下一页

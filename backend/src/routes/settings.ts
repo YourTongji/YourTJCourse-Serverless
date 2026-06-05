@@ -21,8 +21,8 @@ settings.get('/show_icu', async (c) => {
 settings.get('/runtime-state', async (c) => {
   await ensureDbInitialized(c.env.DB)
   const [maintenanceEnabled, maintenanceConfig, announcementsRow] = await Promise.all([
-    getMaintenanceModeSetting(c.env.DB),
-    getMaintenanceConfigSetting(c.env.DB),
+    getMaintenanceModeSetting(c.env.DB, c.env),
+    getMaintenanceConfigSetting(c.env.DB, c.env),
     c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('site_announcements').first<{ value: string }>()
   ])
 
@@ -58,8 +58,8 @@ settings.get('/announcements', async (c) => {
 
 settings.get('/maintenance', async (c) => {
   await ensureDbInitialized(c.env.DB)
-  const enabled = await getMaintenanceModeSetting(c.env.DB)
-  const config = await getMaintenanceConfigSetting(c.env.DB)
+  const enabled = await getMaintenanceModeSetting(c.env.DB, c.env)
+  const config = await getMaintenanceConfigSetting(c.env.DB, c.env)
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate')
   return c.json({ enabled, config })
 })

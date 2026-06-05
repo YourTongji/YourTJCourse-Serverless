@@ -10,6 +10,8 @@ import {
   refreshAuxiliaryCourseData,
   deleteAuxiliaryCourseData,
   invalidateSettingCaches,
+  getMaintenanceSettingKeys,
+  resolveRuntimeSettingKey,
 } from '../helpers/db'
 import { adminAuthMiddleware } from '../middleware/admin-auth'
 import { addSqidToReviews } from '../helpers/review'
@@ -235,6 +237,13 @@ admin.get('/settings', async (c) => {
   for (const row of (results.results || []) as {key: string, value: string}[]) {
     settings[row.key] = row.value
   }
+  const maintenanceKeys = getMaintenanceSettingKeys(c.env)
+  if (settings[maintenanceKeys.modeKey] !== undefined) {
+    settings.maintenance_mode = settings[maintenanceKeys.modeKey]
+  }
+  if (settings[maintenanceKeys.configKey] !== undefined) {
+    settings.maintenance_config = settings[maintenanceKeys.configKey]
+  }
   return c.json(settings)
 })
 
@@ -242,8 +251,9 @@ admin.put('/settings/:key', async (c) => {
   const key = c.req.param('key')
   const body = await c.req.json()
   const { value } = body
-  await c.env.DB.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(key, value).run()
-  invalidateSettingCaches(key)
+  const storageKey = resolveRuntimeSettingKey(key, c.env)
+  await c.env.DB.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(storageKey, value).run()
+  invalidateSettingCaches(storageKey)
   return c.json({ success: true })
 })
 
