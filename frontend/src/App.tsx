@@ -396,7 +396,6 @@ export default function App() {
   const hideFloatingTools = isSchedule || location.pathname.startsWith('/feedback')
   const isHome = location.pathname === '/'
   const isAdminPath = location.pathname.startsWith('/admin')
-  const hasAdminAccessParam = new URLSearchParams(location.search).get('access') === 'tjcourse2026admin'
   const bypassStartupGate = Boolean(
     import.meta.env.DEV && String(import.meta.env.VITE_BYPASS_STARTUP_GATE || '').trim() === '1'
   )
@@ -455,7 +454,7 @@ export default function App() {
   }
 
   const showStartupGate = !startupPassed && !bypassStartupGate
-  const shouldBypassMaintenance = isAdminPath && hasAdminAccessParam
+  const shouldBypassMaintenance = isAdminPath
   const showMaintenanceGate = maintenanceEnabled && !shouldBypassMaintenance
   const slogan = useTypewriterText('你的，同济的', 55, showStartupGate)
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()

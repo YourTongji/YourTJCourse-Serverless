@@ -1832,15 +1832,15 @@ function checkRateLimit(ip: string): boolean {
 }
 
 admin.use('/*', async (c, next) => {
-  const input = c.req.header('x-admin-secret')
-  if (!input || input !== c.env.ADMIN_SECRET) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
-
-  // Rate limit by client IP
+  // 先限流再校验密钥，避免错误密钥请求无限探测。
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown'
   if (!checkRateLimit(ip)) {
     return c.json({ error: 'Too many requests' }, 429)
+  }
+
+  const input = c.req.header('x-admin-secret')
+  if (!input || input !== c.env.ADMIN_SECRET) {
+    return c.json({ error: 'Unauthorized' }, 401)
   }
 
   await next()
