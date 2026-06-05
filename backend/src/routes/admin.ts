@@ -15,7 +15,8 @@ import {
   isDevRuntime,
 } from '../helpers/db'
 import { adminAuthMiddleware } from '../middleware/admin-auth'
-import { addSqidToReviews } from '../helpers/review'
+import { addSqidToReviews, normalizeReviewerAvatar } from '../helpers/review'
+import { purgeRelatedCourseDetailCache } from '../helpers/cache'
 
 const admin = new Hono<{ Bindings: Bindings }>()
 admin.use('/*', adminAuthMiddleware)
@@ -118,11 +119,12 @@ admin.put('/review/:id', async (c) => {
 
   await c.env.DB.prepare(
     'UPDATE reviews SET comment = ?, rating = ?, reviewer_name = ?, reviewer_avatar = ? WHERE id = ?'
-  ).bind(comment, rating, reviewer_name || '', reviewer_avatar || '', id).run()
+  ).bind(comment, rating, reviewer_name || '', normalizeReviewerAvatar(reviewer_avatar), id).run()
 
   const review = await c.env.DB.prepare('SELECT course_id FROM reviews WHERE id = ?').bind(id).first<{course_id: number}>()
   if (review) {
     await refreshCourseStats(c.env.DB, Number(review.course_id))
+    await purgeRelatedCourseDetailCache(c.env.DB, Number(review.course_id))
   }
 
   return c.json({ success: true })
@@ -136,6 +138,7 @@ admin.post('/review/:id/toggle', async (c) => {
   await c.env.DB.prepare('UPDATE reviews SET is_hidden = NOT is_hidden WHERE id = ?').bind(id).run()
 
   await refreshCourseStats(c.env.DB, Number(review.course_id))
+  await purgeRelatedCourseDetailCache(c.env.DB, Number(review.course_id))
 
   return c.json({ success: true })
 })
@@ -148,6 +151,7 @@ admin.delete('/review/:id', async (c) => {
   await c.env.DB.prepare('DELETE FROM reviews WHERE id = ?').bind(id).run()
 
   await refreshCourseStats(c.env.DB, Number(review.course_id))
+  await purgeRelatedCourseDetailCache(c.env.DB, Number(review.course_id))
 
   return c.json({ success: true })
 })

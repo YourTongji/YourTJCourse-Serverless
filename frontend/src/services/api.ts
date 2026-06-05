@@ -91,12 +91,16 @@ export async function fetchDepartments(legacy?: boolean) {
   return res.json()
 }
 
-export async function fetchCourse(id: string, opts?: { clientId?: string; legacy?: boolean }) {
+export async function fetchCourse(id: string, opts?: { clientId?: string; legacy?: boolean; cacheBust?: boolean }) {
   const q = new URLSearchParams()
   if (opts?.clientId) q.set('clientId', opts.clientId)
   if (opts?.legacy) q.set('legacy', 'true')
+  if (opts?.cacheBust) q.set('_', String(Date.now()))
   const suffix = q.toString() ? `?${q.toString()}` : ''
-  const res = await fetchWithTimeout(`${API_BASE}/api/course/${id}${suffix}`, undefined, 15000)
+  const res = await fetchWithTimeout(`${API_BASE}/api/course/${id}${suffix}`, opts?.cacheBust ? {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' }
+  } : undefined, 15000)
   if (!res.ok) throw new Error('Failed to fetch course')
   return res.json()
 }
