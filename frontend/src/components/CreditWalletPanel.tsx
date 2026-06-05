@@ -58,7 +58,7 @@ export default function CreditWalletPanel() {
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const origin = String((e as any).origin || '')
-      if (!origin.includes('credit.yourtj.de') && !origin.includes('vercel.app')) return
+      if (!origin.includes('credit.yourtj.de')) return
 
       const data: any = (e as any).data
       if (!data || data.type !== 'yourtj-credit-wallet' || !data.wallet?.userHash) return
