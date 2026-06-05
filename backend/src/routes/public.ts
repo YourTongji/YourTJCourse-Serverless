@@ -906,19 +906,8 @@ publicRoutes.post('/review', async (c) => {
 
   await refreshCourseStats(c.env.DB, courseId)
 
-  // Credit reward — walletHash is stored server-side, reward uses stored value
-  const creditRewardEligible = walletHash && /^[a-f0-9]{64}$/i.test(walletHash) && safeComment.length >= 50
-  const creditReward = creditRewardEligible
-    ? await postCreditJcourseEvent(c.env, {
-        kind: 'review_reward',
-        eventId: `review:${reviewId || `${courseId}:${Date.now()}`}`,
-        userHash: walletHash,
-        amount: 10,
-        metadata: { reviewId, courseId }
-      })
-    : { ok: false, skipped: true, error: creditRewardEligible ? undefined : 'not eligible' }
-
-  return c.json({ success: true, reviewId, creditReward })
+  // Credit reward moved to PATCH /review/:id/edit-token after HMAC ownership proof
+  return c.json({ success: true, reviewId })
 })
 
 // 设置编辑令牌：POST 创建 review 后，客户端调用此接口提交 edit_token
@@ -958,7 +947,29 @@ publicRoutes.patch('/review/:id/edit-token', async (c) => {
     .bind(editToken, id, walletHash)
     .run()
 
-  return c.json({ success: true })
+  // Now that ownership is proven via HMAC, issue credit reward
+  // Read wallet_user_hash and comment from DB (not request body) to prevent tampering
+  const review = await c.env.DB
+    .prepare('SELECT wallet_user_hash, comment FROM reviews WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<{ wallet_user_hash?: string | null; comment?: string | null }>()
+
+  let creditReward: any = { ok: false, skipped: true }
+  if (review) {
+    const storedHash = String(review.wallet_user_hash || '').trim()
+    const storedComment = String(review.comment || '').trim()
+    if (/^[a-f0-9]{64}$/i.test(storedHash) && storedComment.length >= 50) {
+      creditReward = await postCreditJcourseEvent(c.env, {
+        kind: 'review_reward',
+        eventId: `review:${id}`,
+        userHash: storedHash,
+        amount: 10,
+        metadata: { reviewId: id }
+      })
+    }
+  }
+
+  return c.json({ success: true, creditReward })
 })
 
 // 编辑评价（需要 edit_token 鉴权，替代旧版 wallet_user_hash 比对）
