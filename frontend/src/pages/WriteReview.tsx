@@ -261,9 +261,9 @@ export default function WriteReview() {
         })
         if (res.success) {
           // Fire-and-forget: set edit_token if wallet available
-          if (wallet?.userSecret && res.reviewId) {
+          if (wallet?.userSecret && wallet?.userHash && res.reviewId) {
             computeReviewEditToken(wallet.userSecret, res.reviewId).then(token => {
-              patchReviewEditToken(res.reviewId, token).catch(() => {})
+              patchReviewEditToken(res.reviewId, token, wallet.userHash).catch(() => {})
             })
           }
           const credit = res?.creditReward

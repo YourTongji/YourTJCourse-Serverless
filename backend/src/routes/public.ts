@@ -930,13 +930,32 @@ publicRoutes.patch('/review/:id/edit-token', async (c) => {
 
   const body = await c.req.json().catch(() => ({} as any))
   const editToken = String(body?.edit_token || '').trim()
+  const walletHash = String(body?.walletUserHash || body?.wallet_user_hash || '').trim()
   if (!editToken) return c.json({ error: 'Missing edit_token' }, 400)
+  if (!/^[a-f0-9]{64}$/i.test(editToken)) return c.json({ error: 'Invalid edit_token' }, 400)
+  if (!/^[a-f0-9]{64}$/i.test(walletHash)) return c.json({ error: 'Missing wallet binding' }, 400)
 
   await ensureReviewsWalletColumn(c.env.DB)
 
+  const existing = await c.env.DB
+    .prepare('SELECT id, edit_token, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<{ id: number; edit_token?: string | null; wallet_user_hash?: string | null }>()
+  if (!existing) return c.json({ error: 'Review not found' }, 404)
+
+  if (String(existing.wallet_user_hash || '').trim() !== walletHash) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  const existingToken = String(existing.edit_token || '').trim()
+  if (existingToken) {
+    if (existingToken === editToken) return c.json({ success: true })
+    return c.json({ error: 'edit_token already set' }, 409)
+  }
+
   await c.env.DB
-    .prepare('UPDATE reviews SET edit_token = ? WHERE id = ?')
-    .bind(editToken, id)
+    .prepare("UPDATE reviews SET edit_token = ? WHERE id = ? AND wallet_user_hash = ? AND (edit_token IS NULL OR edit_token = '')")
+    .bind(editToken, id, walletHash)
     .run()
 
   return c.json({ success: true })

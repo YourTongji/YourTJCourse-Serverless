@@ -161,11 +161,11 @@ export async function unlikeReview(reviewId: number, clientId: string) {
   return res.json()
 }
 
-export async function patchReviewEditToken(reviewId: number, editToken: string) {
+export async function patchReviewEditToken(reviewId: number, editToken: string, walletUserHash: string) {
   const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/edit-token`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ edit_token: editToken })
+    body: JSON.stringify({ edit_token: editToken, walletUserHash })
   })
   return res.json()
 }
