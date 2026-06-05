@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from '../utils/fetch'
+
 function trimApiBase(value: string | undefined | null) {
   return String(value || '').trim().replace(/\/+$/, '')
 }
@@ -15,20 +17,7 @@ export function resolveApiBase() {
   return trimApiBase(window.location.origin)
 }
 
-const API_BASE = resolveApiBase()
-
-async function fetchWithTimeout(url: string, options?: RequestInit, timeout = 15000) {
-  const controller = new AbortController()
-  const id = setTimeout(() => controller.abort(), timeout)
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal })
-    clearTimeout(id)
-    return res
-  } catch (err) {
-    clearTimeout(id)
-    throw err
-  }
-}
+export const API_BASE = resolveApiBase()
 
 export type CourseAdvancedFilters = {
   departments?: string[]

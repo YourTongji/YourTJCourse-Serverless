@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import BoringAvatar from 'boring-avatars'
 import { toJpeg, toPng } from 'html-to-image'
@@ -8,6 +8,7 @@ import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
 import { getOrCreateClientId } from '../utils/clientId'
 import { loadCreditWallet } from '../utils/creditWallet'
+import { formatSemesterLabel } from '../utils/format'
 
 interface Review {
   id: number
@@ -70,18 +71,7 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#39;')
 }
 
-function formatSemesterLabel(value: string) {
-  const text = String(value || '').trim()
-  const yearMatch = text.match(/(20\d{2})/)
 
-  if (!yearMatch) return text || '未知学期'
-
-  const shortYear = yearMatch[1].slice(2)
-  if (/1/i.test(text)) return `${shortYear}秋`
-  if (/2/i.test(text)) return `${shortYear}春`
-
-  return text
-}
 
 function formatRating(value: number) {
   return Number(value || 0) > 0 ? value.toFixed(1) : '-'
