@@ -62,6 +62,30 @@ WHERE NOT EXISTS (
   SELECT 1 FROM courses c WHERE c.code = cb.courseCode AND c.is_legacy = 0
 );
 
+-- Fill old ICU/imported split-course rows like 12200402 from onesystem base code 122004.
+-- Onesystem keeps the credit on the base courseCode, while reviews may use class-suffixed codes.
+UPDATE courses
+SET credit = (
+  SELECT MAX(CAST(cd.credit AS REAL))
+  FROM coursedetail cd
+  WHERE cd.courseName = courses.name
+    AND CAST(COALESCE(cd.credit, 0) AS REAL) > 0
+    AND TRIM(COALESCE(cd.courseCode, '')) != ''
+    AND LENGTH(courses.code) > LENGTH(cd.courseCode)
+    AND SUBSTR(courses.code, 1, LENGTH(cd.courseCode)) = cd.courseCode
+)
+WHERE is_legacy = 0
+  AND CAST(COALESCE(credit, 0) AS REAL) <= 0
+  AND EXISTS (
+    SELECT 1
+    FROM coursedetail cd
+    WHERE cd.courseName = courses.name
+      AND CAST(COALESCE(cd.credit, 0) AS REAL) > 0
+      AND TRIM(COALESCE(cd.courseCode, '')) != ''
+      AND LENGTH(courses.code) > LENGTH(cd.courseCode)
+      AND SUBSTR(courses.code, 1, LENGTH(cd.courseCode)) = cd.courseCode
+  );
+
 -- Ensure onesystem aliases (courseCode and newCourseCode) map to the materialized course row
 INSERT INTO course_aliases (system, alias, course_id)
 SELECT DISTINCT
@@ -80,4 +104,3 @@ FROM (
 JOIN courses c ON c.code = alias.courseCode AND c.is_legacy = 0
 WHERE TRIM(COALESCE(alias.alias, '')) != ''
 ON CONFLICT(system, alias) DO UPDATE SET course_id = excluded.course_id;
-
