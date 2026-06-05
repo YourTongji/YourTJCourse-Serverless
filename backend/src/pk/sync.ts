@@ -423,5 +423,7 @@ export async function syncOnesystemToPkTables(opts: {
     await db.prepare('INSERT INTO fetchlog (fetchTime, msg) VALUES (?, ?)').bind(Math.floor(Date.now() / 1000), `sync calendarId=${i}`).run()
   }
 
+  await db.prepare("DELETE FROM fetchlog WHERE fetchTime < strftime('%s', 'now') - 86400 * 30").run().catch(() => undefined)
+
   return { calendarIds, teachingClassInserted }
 }

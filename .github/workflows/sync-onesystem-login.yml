@@ -121,6 +121,7 @@ jobs:
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/002_pk_schema_patch.sql"
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/011_maintenance_settings.sql"
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/012_search_indexes.sql"
+          npx wrangler d1 execute jcourse-db --remote --file="./migrations/013_fetchlog_pk.sql"
 
       - name: Login & export SQL
         working-directory: backend
