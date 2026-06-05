@@ -105,21 +105,6 @@ export async function fetchCourseRelated(id: string, opts?: { legacy?: boolean }
   return res.json()
 }
 
-export async function fetchSiteAnnouncements() {
-  const res = await fetchWithTimeout(`${API_BASE}/api/settings/announcements`, undefined, 15000)
-  if (!res.ok) throw new Error('Failed to fetch announcements')
-  return res.json() as Promise<{ announcements: SiteAnnouncement[] }>
-}
-
-export async function fetchMaintenanceSettings() {
-  const res = await fetchWithTimeout(`${API_BASE}/api/settings/maintenance`, {
-    cache: 'no-store',
-    headers: { 'Cache-Control': 'no-cache' }
-  }, 15000)
-  if (!res.ok) throw new Error('Failed to fetch maintenance settings')
-  return res.json() as Promise<MaintenanceSettingsResponse>
-}
-
 export async function fetchSiteRuntimeState() {
   const res = await fetchWithTimeout(`${API_BASE}/api/settings/runtime-state`, {
     cache: 'no-store',
