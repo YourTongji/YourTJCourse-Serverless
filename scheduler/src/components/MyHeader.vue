@@ -156,7 +156,7 @@ export default {
                     : undefined;
 
                 // 显示加载中
-                this.$store.commit("setIsSpin", true);
+                this.$store.commit("setSpin", true);
 
                 // 从后端获取最新课程信息
                 const latestCourses = await fetchLatestCourseInfo(calendarId, stagedCourses, selectedCourses, majorInfo);
@@ -169,7 +169,7 @@ export default {
                     this.$store.state.occupied
                 );
 
-                this.$store.commit("setIsSpin", false);
+                this.$store.commit("setSpin", false);
 
                 if (!syncResult.hasChanges) {
                     // 没有变更，直接更新时间
@@ -267,7 +267,7 @@ export default {
                 });
 
             } catch (error) {
-                this.$store.commit("setIsSpin", false);
+                this.$store.commit("setSpin", false);
                 console.error('获取课程信息失败:', error);
                 
                 // 如果获取失败，提供降级选项：清空所有课程
