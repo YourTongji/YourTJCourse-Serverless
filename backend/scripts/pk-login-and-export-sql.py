@@ -31,6 +31,13 @@ def sql_quote(value):
     return "'" + s + "'"
 
 
+def get_course_credit(course: dict):
+    credit = course.get("credits")
+    if credit is None or str(credit).strip() == "":
+        credit = course.get("credit")
+    return credit
+
+
 def parse_major_string(major: str):
     name = str(major or "").strip()
     grade = None
@@ -354,7 +361,7 @@ def main() -> int:
                     f"{sql_quote(course.get('endWeek'))}, "
                     f"{sql_quote(str(course.get('courseCode') or '').strip() or None)}, "
                     f"{sql_quote(str(course.get('courseName') or '').strip() or None)}, "
-                    f"{sql_quote(course.get('credit'))}, "
+                    f"{sql_quote(get_course_credit(course))}, "
                     f"{sql_quote(teaching_language)}, "
                     f"{sql_quote(faculty)}, "
                     f"{cid}, "
