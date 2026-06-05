@@ -201,12 +201,16 @@ jobs:
 
           const courses = await post('/api/findCourseByMajor', { calendarId, grade, code: major.code })
           if (!Array.isArray(courses) || courses.length === 0) throw new Error('findCourseByMajor returned empty list')
+          const coursesWithCredit = courses.filter((course) => Number(course?.credit || 0) > 0)
+          if (coursesWithCredit.length === 0) throw new Error('findCourseByMajor returned only zero-credit courses')
 
           const optionalTypes = await post('/api/findOptionalCourseType', { calendarId })
           if (!Array.isArray(optionalTypes)) throw new Error('findOptionalCourseType returned non-list')
 
           const search = await post('/api/findCourseBySearch', { calendarId, courseName: courses[0].courseName || '' })
           if (!Array.isArray(search?.courses)) throw new Error('findCourseBySearch returned invalid payload')
+          const searchCoursesWithCredit = search.courses.filter((course) => Number(course?.credit || 0) > 0)
+          if (search.courses.length > 0 && searchCoursesWithCredit.length === 0) throw new Error('findCourseBySearch returned only zero-credit courses')
 
           const time = await post('/api/findCourseByTime', { calendarId, day: 1, section: 1 })
           if (!Array.isArray(time)) throw new Error('findCourseByTime returned invalid payload')
@@ -216,8 +220,10 @@ jobs:
             grade,
             majors: majors.length,
             courses: courses.length,
+            coursesWithCredit: coursesWithCredit.length,
             optionalTypes: optionalTypes.length,
             searchCourses: search.courses.length,
+            searchCoursesWithCredit: searchCoursesWithCredit.length,
             timeCourses: time.length
           }))
           NODE

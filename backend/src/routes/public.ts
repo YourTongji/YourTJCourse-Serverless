@@ -40,6 +40,48 @@ import { addSqidToReviews, getReviewLikeClientKey } from '../helpers/review'
 import { buildCacheControl, buildJsonResponse, setPublicCacheHeaders } from '../helpers/cache'
 
 const publicRoutes = new Hono<{ Bindings: Bindings }>()
+const CREDIT_FALLBACK_CACHE_VERSION = 'credit-fallback-v1'
+
+async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
+  const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
+  const creditById = new Map<number, number>()
+  if (ids.length === 0) return creditById
+
+  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '?').join(',')
+    const rows = await db
+      .prepare(
+        `SELECT c.id AS id, MAX(CAST(cd.credit AS REAL)) AS credit
+         FROM courses c
+         JOIN coursedetail cd
+           ON cd.courseName = c.name
+          AND CAST(COALESCE(cd.credit, 0) AS REAL) > 0
+          AND TRIM(COALESCE(cd.courseCode, '')) != ''
+          AND (
+            cd.courseCode = c.code
+            OR cd.newCourseCode = c.code
+            OR (
+              LENGTH(c.code) > LENGTH(cd.courseCode)
+              AND SUBSTR(c.code, 1, LENGTH(cd.courseCode)) = cd.courseCode
+            )
+          )
+         WHERE c.id IN (${placeholders})
+         GROUP BY c.id`
+      )
+      .bind(...part)
+      .all<{ id: number; credit: number }>()
+
+    for (const row of rows.results || []) {
+      const id = Number((row as any).id)
+      const credit = Number((row as any).credit)
+      if (Number.isFinite(id) && Number.isFinite(credit) && credit > 0) {
+        creditById.set(id, credit)
+      }
+    }
+  }
+
+  return creditById
+}
 
 // 启动前检查：服务端验证 Turnstile token（避免纯前端放行被自动化绕过）
 publicRoutes.post('/startup/verify', async (c) => {
@@ -116,6 +158,7 @@ publicRoutes.get('/courses', async (c) => {
     if (canUseWorkerCache) {
       const cacheUrl = new URL(c.req.url)
       cacheUrl.searchParams.set('__showIcu', showIcu ? '1' : '0')
+      cacheUrl.searchParams.set('__creditFallback', CREDIT_FALLBACK_CACHE_VERSION)
       const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' })
       try {
         const cached = await caches.default.match(cacheKey)
@@ -301,8 +344,15 @@ publicRoutes.get('/courses', async (c) => {
     const hasMore = !includeTotal && rawRows.length > limit
     const visibleRows = hasMore ? rawRows.slice(0, limit) : rawRows
 
+    const fallbackCredits = await loadPkCreditFallbacks(
+      c.env.DB,
+      visibleRows
+        .filter((r: any) => Number(r?.credit || 0) <= 0)
+        .map((r: any) => Number(r?.id))
+    )
     const normalized = visibleRows.map((r: any) => ({
       ...r,
+      credit: Number(r?.credit || 0) > 0 ? r.credit : fallbackCredits.get(Number(r?.id)) ?? r.credit,
       semesters: parseSemesterNames(r.semester_names)
     }))
 
@@ -319,6 +369,7 @@ publicRoutes.get('/courses', async (c) => {
 
     const cacheUrl = new URL(c.req.url)
     cacheUrl.searchParams.set('__showIcu', showIcu ? '1' : '0')
+    cacheUrl.searchParams.set('__creditFallback', CREDIT_FALLBACK_CACHE_VERSION)
     const response = buildJsonResponse(payload, buildCacheControl(COURSE_LIST_CACHE_SECONDS, COURSE_LIST_CACHE_SWR_SECONDS))
     c.executionCtx.waitUntil(caches.default.put(new Request(cacheUrl.toString(), { method: 'GET' }), response.clone()))
     return response
@@ -350,10 +401,18 @@ publicRoutes.get('/course/:id', async (c) => {
       return c.json({ error: 'Course not found' }, 404)
     }
 
+    const fallbackCredits = await loadPkCreditFallbacks(c.env.DB, [Number((course as any).id)])
+    const effectiveCourse = {
+      ...(course as any),
+      credit: Number((course as any).credit || 0) > 0
+        ? (course as any).credit
+        : fallbackCredits.get(Number((course as any).id)) ?? (course as any).credit
+    }
+
     const hasClientId = Boolean((c.req.query('clientId') || '').trim())
     const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
     const cacheKey = new Request(
-      `https://cache.yourtj.de/api/course-base/${encodeURIComponent(String(id))}?showIcu=${showIcu ? '1' : '0'}`,
+      `https://cache.yourtj.de/api/course-base/${encodeURIComponent(String(id))}?showIcu=${showIcu ? '1' : '0'}&creditFallback=${CREDIT_FALLBACK_CACHE_VERSION}`,
       { method: 'GET' }
     )
     const cache = caches.default
@@ -361,7 +420,11 @@ publicRoutes.get('/course/:id', async (c) => {
     try {
       const cached = await cache.match(cacheKey)
       if (cached) {
-        const basePayload = await cached.json()
+        const cachedPayload = (await cached.json()) as Record<string, any>
+        const basePayload = {
+          ...cachedPayload,
+          credit: effectiveCourse.credit
+        }
 
         if (!clientId) {
           return new Response(JSON.stringify(basePayload), {
@@ -835,9 +898,16 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     const reviewAvg = ratingNums.length > 0 ? ratingNums.reduce((a, b) => a + b, 0) / ratingNums.length : 0
 
     const semesters = await getCourseSemesters(c.env.DB, Number(courseId)).catch(() => [])
+    const fallbackCredits = await loadPkCreditFallbacks(c.env.DB, [Number((course as any).id)])
+    const effectiveCourse = {
+      ...(course as any),
+      credit: Number((course as any).credit || 0) > 0
+        ? (course as any).credit
+        : fallbackCredits.get(Number((course as any).id)) ?? (course as any).credit
+    }
 
     return c.json({
-      ...(course as any),
+      ...effectiveCourse,
       review_count: reviewCount,
       review_avg: reviewAvg,
       semesters,
@@ -906,19 +976,8 @@ publicRoutes.post('/review', async (c) => {
 
   await refreshCourseStats(c.env.DB, courseId)
 
-  // Credit reward — walletHash is stored server-side, reward uses stored value
-  const creditRewardEligible = walletHash && /^[a-f0-9]{64}$/i.test(walletHash) && safeComment.length >= 50
-  const creditReward = creditRewardEligible
-    ? await postCreditJcourseEvent(c.env, {
-        kind: 'review_reward',
-        eventId: `review:${reviewId || `${courseId}:${Date.now()}`}`,
-        userHash: walletHash,
-        amount: 10,
-        metadata: { reviewId, courseId }
-      })
-    : { ok: false, skipped: true, error: creditRewardEligible ? undefined : 'not eligible' }
-
-  return c.json({ success: true, reviewId, creditReward })
+  // Credit reward moved to PATCH /review/:id/edit-token after HMAC ownership proof
+  return c.json({ success: true, reviewId })
 })
 
 // 设置编辑令牌：POST 创建 review 后，客户端调用此接口提交 edit_token
@@ -958,7 +1017,29 @@ publicRoutes.patch('/review/:id/edit-token', async (c) => {
     .bind(editToken, id, walletHash)
     .run()
 
-  return c.json({ success: true })
+  // Now that ownership is proven via HMAC, issue credit reward
+  // Read wallet_user_hash and comment from DB (not request body) to prevent tampering
+  const review = await c.env.DB
+    .prepare('SELECT wallet_user_hash, comment FROM reviews WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<{ wallet_user_hash?: string | null; comment?: string | null }>()
+
+  let creditReward: any = { ok: false, skipped: true }
+  if (review) {
+    const storedHash = String(review.wallet_user_hash || '').trim()
+    const storedComment = String(review.comment || '').trim()
+    if (/^[a-f0-9]{64}$/i.test(storedHash) && storedComment.length >= 50) {
+      creditReward = await postCreditJcourseEvent(c.env, {
+        kind: 'review_reward',
+        eventId: `review:${id}`,
+        userHash: storedHash,
+        amount: 10,
+        metadata: { reviewId: id }
+      })
+    }
+  }
+
+  return c.json({ success: true, creditReward })
 })
 
 // 编辑评价（需要 edit_token 鉴权，替代旧版 wallet_user_hash 比对）

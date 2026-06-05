@@ -35,6 +35,11 @@ function ensureArray<T = unknown>(value: unknown): T[] {
     return Array.isArray(value) ? value as T[] : [];
 }
 
+function normalizeCredit(value: unknown): number {
+    const n = typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : NaN;
+    return Number.isFinite(n) ? n : 0;
+}
+
 function sanitizeTeachers(raw: unknown): teacherlet[] {
     return ensureArray(raw).map((item: any) => ({
         teacherName: typeof item?.teacherName === "string" ? item.teacherName : "",
@@ -81,7 +86,7 @@ function sanitizeStagedCourse(raw: unknown) {
         courseCode: typeof input.courseCode === "string" ? input.courseCode : "",
         courseName: typeof input.courseName === "string" ? input.courseName : "",
         courseNameReserved: typeof input.courseNameReserved === "string" ? input.courseNameReserved : "",
-        credit: typeof input.credit === "number" ? input.credit : 0,
+        credit: normalizeCredit(input.credit),
         courseType: typeof input.courseType === "string" ? input.courseType : "",
         teacher: sanitizeTeachers(input.teacher),
         status: typeof input.status === "number" ? input.status : 0,
@@ -128,7 +133,7 @@ function sanitizeCourseCollection(raw: unknown) {
         courseName: typeof item?.courseName === "string" ? item.courseName : "",
         courseNameReserved: typeof item?.courseNameReserved === "string" ? item.courseNameReserved : "",
         faculty: typeof item?.faculty === "string" ? item.faculty : "",
-        credit: typeof item?.credit === "number" ? item.credit : 0,
+        credit: normalizeCredit(item?.credit),
         courseNature: ensureArray(item?.courseNature).filter((nature: unknown) => typeof nature === "string"),
         campus: ensureArray(item?.campus).filter((campus: unknown) => typeof campus === "string"),
         courses: ensureArray(item?.courses).map((course: any) => ({
