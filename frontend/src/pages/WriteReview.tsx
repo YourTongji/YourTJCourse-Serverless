@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import BoringAvatar from 'boring-avatars'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { fetchCourse, submitReview, updateReview } from '../services/api'
+import { fetchCourse, patchReviewEditToken, submitReview, updateReview } from '../services/api'
 import GlassCard from '../components/GlassCard'
 import MarkdownEditor from '../components/MarkdownEditor'
 import MarkdownToolbar from '../components/MarkdownToolbar'
 import TemplateSelector, { TEMPLATE_HINTS, TemplateHints } from '../components/TemplateSelector'
 import TongjiCaptchaWidget from '../components/TongjiCaptchaWidget'
-import { loadCreditWallet } from '../utils/creditWallet'
+import { computeReviewEditToken, loadCreditWallet } from '../utils/creditWallet'
 import { formatSemesterLabel, semesterLabelScore } from '../utils/format'
 
 const REVIEW_TEMPLATE = `## 考核方式：
@@ -241,7 +241,11 @@ export default function WriteReview() {
       }
 
       if (isEdit && editReview?.id) {
-        const res = await updateReview(Number(editReview.id), payload)
+        const extraPayload: any = {}
+        if (wallet?.userSecret && editReview.id) {
+          extraPayload.edit_token = await computeReviewEditToken(wallet.userSecret, editReview.id)
+        }
+        const res = await updateReview(Number(editReview.id), { ...payload, ...extraPayload })
         if (res?.success) {
           alert('编辑成功！')
           window.dispatchEvent(new CustomEvent('yourtj-tour-review-submitted'))
@@ -256,6 +260,12 @@ export default function WriteReview() {
           ...payload
         })
         if (res.success) {
+          // Fire-and-forget: set edit_token if wallet available
+          if (wallet?.userSecret && res.reviewId) {
+            computeReviewEditToken(wallet.userSecret, res.reviewId).then(token => {
+              patchReviewEditToken(res.reviewId, token).catch(() => {})
+            })
+          }
           const credit = res?.creditReward
           if (credit && credit.skipped !== true) {
             if (credit.ok) {

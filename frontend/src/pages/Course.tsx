@@ -1048,12 +1048,12 @@ export default function Course() {
                     <span className="text-[10px] font-black opacity-80">{shareBusyId === review.id ? '生成中...' : '分享评论'}</span>
                   </button>
 
-                  {walletHash && String(review.wallet_user_hash || '').trim() === walletHash && (
+                  {walletHash && (
                     <button
                       type="button"
                       onClick={() => startEdit(review)}
                       className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white border-slate-200 text-xs font-extrabold text-slate-600 hover:bg-slate-50"
-                      title="编辑我的评价"
+                      title="编辑"
                     >
                       <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 3.5a2.1 2.1 0 013 3L8 18l-4 1 1-4 11.5-11.5z" />

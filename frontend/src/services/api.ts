@@ -161,6 +161,15 @@ export async function unlikeReview(reviewId: number, clientId: string) {
   return res.json()
 }
 
+export async function patchReviewEditToken(reviewId: number, editToken: string) {
+  const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/edit-token`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edit_token: editToken })
+  })
+  return res.json()
+}
+
 export async function updateReview(reviewId: number, data: {
   rating: number
   comment: string
