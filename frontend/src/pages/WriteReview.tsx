@@ -66,14 +66,20 @@ export default function WriteReview() {
 
   const editReview = (location.state as any)?.editReview as any | undefined
   const isEdit = Boolean(editReview?.id) && new URLSearchParams(location.search || '').get('edit') === '1'
+  const buildCourseRefreshUrl = () => `/course/${id}?reviewRefresh=${Date.now()}`
 
   const getAvatarSeed = () => reviewerName.trim() || '匿名用户'
 
-  const getAvatarUrl = () => {
+  const getStoredAvatarUrl = () => {
     if (!showReviewer) return ''
     if (avatarType === 'qq' && qqNumber) {
       return `https://q1.qlogo.cn/g?b=qq&nk=${qqNumber}&s=640`
     }
+    return ''
+  }
+
+  const getPreviewAvatarUrl = () => {
+    if (avatarType === 'qq' && qqNumber) return getStoredAvatarUrl()
     return buildBeamAvatarDataUri(getAvatarSeed(), 96)
   }
 
@@ -236,7 +242,7 @@ export default function WriteReview() {
         semester: String(semester || '').trim() || '其他',
         turnstile_token: token,
         reviewer_name: showReviewer ? reviewerName : '',
-        reviewer_avatar: getAvatarUrl(),
+        reviewer_avatar: showReviewer ? getStoredAvatarUrl() : '',
         walletUserHash: wallet?.userHash || ''
       }
 
@@ -250,7 +256,7 @@ export default function WriteReview() {
           alert('编辑成功！')
           window.dispatchEvent(new CustomEvent('yourtj-tour-review-submitted'))
           if (id) localStorage.removeItem(`review_draft_${id}`)
-          navigate(`/course/${id}`)
+          navigate(buildCourseRefreshUrl())
         } else {
           alert(res?.error || '编辑失败')
         }
@@ -278,7 +284,7 @@ export default function WriteReview() {
           }
           window.dispatchEvent(new CustomEvent('yourtj-tour-review-submitted'))
           if (id) localStorage.removeItem(`review_draft_${id}`)
-          navigate(`/course/${id}`)
+          navigate(buildCourseRefreshUrl())
         } else {
           alert(res.error || '提交失败')
         }
@@ -596,7 +602,7 @@ export default function WriteReview() {
                 {/* 头像预览 */}
                 <div className="mt-3 flex items-center gap-3">
                   <img
-                    src={getAvatarUrl()}
+                    src={getPreviewAvatarUrl()}
                     alt="头像预览"
                     className="w-12 h-12 rounded-full bg-slate-100 object-cover"
                   />

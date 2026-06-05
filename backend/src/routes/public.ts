@@ -36,11 +36,17 @@ import {
 } from '../helpers/db'
 import { verifyTurnstile, isAllowedTurnstileHostname } from '../helpers/turnstile'
 import { verifyTongjiCaptcha } from '../helpers/captcha'
-import { addSqidToReviews, getReviewLikeClientKey } from '../helpers/review'
-import { buildCacheControl, buildJsonResponse, setPublicCacheHeaders } from '../helpers/cache'
+import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar } from '../helpers/review'
+import {
+  buildCacheControl,
+  COURSE_DETAIL_CACHE_VERSION,
+  buildCourseDetailCacheRequest,
+  buildJsonResponse,
+  purgeRelatedCourseDetailCache,
+  setPublicCacheHeaders
+} from '../helpers/cache'
 
 const publicRoutes = new Hono<{ Bindings: Bindings }>()
-const CREDIT_FALLBACK_CACHE_VERSION = 'credit-fallback-v1'
 
 async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
   const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
@@ -158,7 +164,7 @@ publicRoutes.get('/courses', async (c) => {
     if (canUseWorkerCache) {
       const cacheUrl = new URL(c.req.url)
       cacheUrl.searchParams.set('__showIcu', showIcu ? '1' : '0')
-      cacheUrl.searchParams.set('__creditFallback', CREDIT_FALLBACK_CACHE_VERSION)
+      cacheUrl.searchParams.set('__creditFallback', COURSE_DETAIL_CACHE_VERSION)
       const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' })
       try {
         const cached = await caches.default.match(cacheKey)
@@ -369,7 +375,7 @@ publicRoutes.get('/courses', async (c) => {
 
     const cacheUrl = new URL(c.req.url)
     cacheUrl.searchParams.set('__showIcu', showIcu ? '1' : '0')
-    cacheUrl.searchParams.set('__creditFallback', CREDIT_FALLBACK_CACHE_VERSION)
+    cacheUrl.searchParams.set('__creditFallback', COURSE_DETAIL_CACHE_VERSION)
     const response = buildJsonResponse(payload, buildCacheControl(COURSE_LIST_CACHE_SECONDS, COURSE_LIST_CACHE_SWR_SECONDS))
     c.executionCtx.waitUntil(caches.default.put(new Request(cacheUrl.toString(), { method: 'GET' }), response.clone()))
     return response
@@ -411,14 +417,12 @@ publicRoutes.get('/course/:id', async (c) => {
 
     const hasClientId = Boolean((c.req.query('clientId') || '').trim())
     const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
-    const cacheKey = new Request(
-      `https://cache.yourtj.de/api/course-base/${encodeURIComponent(String(id))}?showIcu=${showIcu ? '1' : '0'}&creditFallback=${CREDIT_FALLBACK_CACHE_VERSION}`,
-      { method: 'GET' }
-    )
+    const bypassCourseDetailCache = Boolean((c.req.query('_') || c.req.query('reviewRefresh') || '').trim())
+    const cacheKey = buildCourseDetailCacheRequest(id, showIcu)
     const cache = caches.default
 
     try {
-      const cached = await cache.match(cacheKey)
+      const cached = bypassCourseDetailCache ? null : await cache.match(cacheKey)
       if (cached) {
         const cachedPayload = (await cached.json()) as Record<string, any>
         const basePayload = {
@@ -962,7 +966,7 @@ publicRoutes.post('/review', async (c) => {
   const safeComment = String(body.comment || '').trim().slice(0, 10000)
   if (!safeComment) return c.json({ error: '点评内容不能为空' }, 400)
   const safeName = String(reviewer_name || '').trim().slice(0, 100)
-  const safeAvatar = String(reviewer_avatar || '').trim().slice(0, 500)
+  const safeAvatar = normalizeReviewerAvatar(reviewer_avatar)
   const safeSemester = String(semester || '').trim().slice(0, 20)
 
   await ensureReviewsWalletColumn(c.env.DB)
@@ -975,6 +979,7 @@ publicRoutes.post('/review', async (c) => {
   const reviewId = Number((insert as any)?.meta?.last_row_id || 0)
 
   await refreshCourseStats(c.env.DB, courseId)
+  await purgeRelatedCourseDetailCache(c.env.DB, courseId)
 
   // Credit reward moved to PATCH /review/:id/edit-token after HMAC ownership proof
   return c.json({ success: true, reviewId })
@@ -1079,7 +1084,7 @@ publicRoutes.put('/review/:id', async (c) => {
   const safeComment = String(body.comment || '').trim().slice(0, 10000)
   const safeSemester = String(body.semester || '').trim().slice(0, 20)
   const safeName = String(reviewer_name || '').trim().slice(0, 100)
-  const safeAvatar = String(reviewer_avatar || '').trim().slice(0, 500)
+  const safeAvatar = normalizeReviewerAvatar(reviewer_avatar)
 
   await c.env.DB
     .prepare(
@@ -1091,6 +1096,7 @@ publicRoutes.put('/review/:id', async (c) => {
     .run()
 
   await refreshCourseStats(c.env.DB, Number(existing.course_id))
+  await purgeRelatedCourseDetailCache(c.env.DB, Number(existing.course_id))
 
   return c.json({ success: true })
 })

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import BoringAvatar from 'boring-avatars'
 import { toJpeg, toPng } from 'html-to-image'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview } from '../services/api'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
@@ -169,8 +169,9 @@ async function fetchImageAsDataUrl(url: string) {
 function getReviewAvatarUrl(review: Review, size = 72) {
   const reviewerName = String(review.reviewer_name || '').trim()
   const avatarUrl = String(review.reviewer_avatar || '').trim()
+  const isBrokenInlineAvatar = avatarUrl.startsWith('data:') && !avatarUrl.includes('</svg')
 
-  if (avatarUrl) return avatarUrl
+  if (avatarUrl && !isBrokenInlineAvatar) return avatarUrl
   if (reviewerName) return buildBeamAvatarDataUri(reviewerName, size)
   return ''
 }
@@ -505,6 +506,7 @@ async function renderCommentRaster(html: string, width = 640) {
 export default function Course() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [course, setCourse] = useState<CourseData | null>(null)
   const [related, setRelated] = useState<RelatedCourseData>({ teacher_other_courses: [], same_course_other_teachers: [] })
   const [isMobileRelatedPanel, setIsMobileRelatedPanel] = useState(() =>
@@ -517,6 +519,10 @@ export default function Course() {
   const [displayCount, setDisplayCount] = useState(20) // 初始显示20条评论
   const clientId = useMemo(() => getOrCreateClientId(), [])
   const walletHash = loadCreditWallet()?.userHash || ''
+  const shouldBypassCourseCache = useMemo(
+    () => new URLSearchParams(location.search || '').has('reviewRefresh'),
+    [location.search]
+  )
   const [sharePreview, setSharePreview] = useState<SharePreviewState | null>(null)
   const [shareBusyId, setShareBusyId] = useState<number | null>(null)
   const sharePreviewRef = useRef<HTMLDivElement | null>(null)
@@ -527,7 +533,7 @@ export default function Course() {
     setRelated({ teacher_other_courses: [], same_course_other_teachers: [] })
     setLoadError('')
     Promise.all([
-      fetchCourse(id, { clientId }),
+      fetchCourse(id, { clientId, cacheBust: shouldBypassCourseCache }),
       fetchCourseRelated(id).catch(() => ({ teacher_other_courses: [], same_course_other_teachers: [] }))
     ])
       .then(([courseData, relatedData]) => {
@@ -535,7 +541,7 @@ export default function Course() {
         setRelated(relatedData)
       })
       .catch(() => setLoadError('加载失败，请重试'))
-  }, [id, clientId])
+  }, [id, clientId, shouldBypassCourseCache])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -649,9 +655,11 @@ export default function Course() {
       const avatarSeed = review.reviewer_name?.trim() || `评论长图-${review.id}`
       let avatarUrl = buildBeamAvatarDataUri(avatarSeed, 88)
 
-      if (review.reviewer_avatar) {
+      const storedAvatar = String(review.reviewer_avatar || '').trim()
+      const isBrokenInlineAvatar = storedAvatar.startsWith('data:') && !storedAvatar.includes('</svg')
+      if (storedAvatar && !isBrokenInlineAvatar) {
         try {
-          avatarUrl = await fetchImageAsDataUrl(String(review.reviewer_avatar))
+          avatarUrl = await fetchImageAsDataUrl(storedAvatar)
         } catch {
           avatarUrl = buildBeamAvatarDataUri(avatarSeed, 88)
         }
@@ -776,7 +784,7 @@ export default function Course() {
             if (!id) return
             setCourse(null)
             setLoadError('')
-            fetchCourse(id, { clientId })
+            fetchCourse(id, { clientId, cacheBust: true })
               .then(setCourse)
               .catch(() => setLoadError('加载失败，请重试'))
           }}
