@@ -11,6 +11,11 @@ export function resolveApiBase() {
   if (typeof window === 'undefined') return ''
 
   const { hostname } = window.location
+  const isDevBuild = String(import.meta.env.VITE_APP_ENV || '').trim().toLowerCase() === 'dev'
+  if (isDevBuild && hostname !== '127.0.0.1' && hostname !== 'localhost') {
+    console.error('VITE_API_URL is required for the dev Pages build')
+    return ''
+  }
   if (hostname === 'xk.yourtj.de') return 'https://jcourse.yourtj.de'
   if (hostname === '127.0.0.1' || hostname === 'localhost') return ''
 
