@@ -86,7 +86,7 @@
 
 <script lang="ts">
 import { Table, Tag } from 'ant-design-vue';
-import { mapStatusToChinese } from '@/utils/statusManipulate';
+import { mapStatusToChinese, getStatusTextColor } from '@/utils/statusManipulate';
 import type { teacherlet, arrangementInfolet, courseDetaillet, stagedCourse } from '@/utils/myInterface';
 import CourseReviewDrawer from './CourseReviewDrawer.vue';
 import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
@@ -235,19 +235,7 @@ import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
                 }
             },
             mapStatusToChinese,
-            getStatusTextColor(status: number) {
-                // console.log("132", status);
-                switch (status) {
-                    case 0:
-                        return '';
-                    case 1:
-                        return 'text-yellow-300';
-                    case 2:
-                        return 'text-red-500';
-                    default:
-                        return '';
-                }
-            },
+            getStatusTextColor,
             getRowClass(record: {status: number}, index: number) {
                 let className = index % 2 === 0 ? 'bg-white' : 'bg-gray-50';
                 
