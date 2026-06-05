@@ -200,6 +200,41 @@ function addSqidToReviews(reviews: any[]): any[] {
   }))
 }
 
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+async function getReviewLikeClientKey(c: any) {
+  const hostname = (() => {
+    try {
+      return new URL(c.req.url).hostname
+    } catch {
+      return ''
+    }
+  })()
+  const isLocalDev = hostname === 'localhost' || hostname === '127.0.0.1'
+  const forwardedFor = isLocalDev
+    ? String(c.req.header('x-forwarded-for') || '').split(',')[0].trim()
+    : ''
+  const address = String(c.req.header('cf-connecting-ip') || (isLocalDev ? c.req.header('x-real-ip') || forwardedFor : ''))
+    .trim()
+    .slice(0, 128)
+  const localFallback = isLocalDev ? String(c.req.header('user-agent') || '').trim().slice(0, 512) : ''
+  if (!address && !localFallback) return ''
+
+  const salt = String(
+    c.env.JCOURSE_INTEGRATION_SECRET ||
+    c.env.CREDIT_JCOURSE_SECRET ||
+    c.env.ADMIN_SECRET ||
+    'yourtj-review-like-v2'
+  )
+  const key = await sha256Hex(['review-like-v2', salt, address || `local:${localFallback}`].join('\n'))
+  return `srv:${key}`
+}
+
 const AUX_SCHEMA_VERSION = '20260605-query-opt-v2'
 const COURSE_LIST_CACHE_SECONDS = 60
 const COURSE_LIST_CACHE_SWR_SECONDS = 300
@@ -1137,7 +1172,8 @@ app.get('/api/course/:id', async (c) => {
       return c.json({ error: 'Course not found' }, 404)
     }
 
-    const clientId = (c.req.query('clientId') || '').trim()
+    const hasClientId = Boolean((c.req.query('clientId') || '').trim())
+    const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
     const cacheKey = new Request(
       `https://cache.yourtj.de/api/course-base/${encodeURIComponent(String(id))}?showIcu=${showIcu ? '1' : '0'}`,
       { method: 'GET' }
@@ -1416,7 +1452,8 @@ app.get('/api/course/by-code/:code', async (c) => {
     if (!code) return c.json({ error: 'Missing code' }, 400)
     const teacherName = (c.req.query('teacherName') || '').trim()
     const teacherCode = (c.req.query('teacherCode') || '').trim()
-    const clientId = (c.req.query('clientId') || '').trim()
+    const hasClientId = Boolean((c.req.query('clientId') || '').trim())
+    const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
     const hasTeacherFilter = Boolean(teacherCode || teacherName)
 
     const buildTeacherFilter = (codeColumn: string, nameColumn: string) => {
@@ -1730,17 +1767,22 @@ app.post('/api/review/:id/like', async (c) => {
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))
-  const clientId = String(body?.clientId || '').trim()
-  if (!clientId) return c.json({ error: 'Missing clientId' }, 400)
+  const requestedClientId = String(body?.clientId || '').trim()
+  if (!requestedClientId) return c.json({ error: 'Missing clientId' }, 400)
+
+  const clientId = await getReviewLikeClientKey(c)
+  if (!clientId) return c.json({ error: 'Unable to identify client' }, 400)
 
   const existing = await c.env.DB
     .prepare('SELECT 1 as x FROM review_likes WHERE review_id = ? AND client_id = ? LIMIT 1')
     .bind(id, clientId)
     .first<{ x: number }>()
 
+  let changed = false
   if (!existing) {
     await c.env.DB.prepare('INSERT INTO review_likes (review_id, client_id) VALUES (?, ?)').bind(id, clientId).run()
     await c.env.DB.prepare('UPDATE reviews SET approve_count = approve_count + 1 WHERE id = ?').bind(id).run()
+    changed = true
   }
 
   const review = await c.env.DB
@@ -1750,9 +1792,8 @@ app.post('/api/review/:id/like', async (c) => {
   if (!review) return c.json({ error: 'Review not found' }, 404)
 
   const walletHash = String(review.wallet_user_hash || '').trim()
-  let creditLike: any = { ok: false, skipped: true }
-  if (walletHash && /^[a-f0-9]{64}$/i.test(walletHash)) {
-    creditLike = await postCreditJcourseEvent(c.env, {
+  if (changed && walletHash && /^[a-f0-9]{64}$/i.test(walletHash)) {
+    await postCreditJcourseEvent(c.env, {
       kind: 'like',
       reviewId: String(id),
       actorId: clientId,
@@ -1773,20 +1814,25 @@ app.delete('/api/review/:id/like', async (c) => {
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))
-  const clientId = String(body?.clientId || '').trim()
-  if (!clientId) return c.json({ error: 'Missing clientId' }, 400)
+  const requestedClientId = String(body?.clientId || '').trim()
+  if (!requestedClientId) return c.json({ error: 'Missing clientId' }, 400)
+
+  const clientId = await getReviewLikeClientKey(c)
+  if (!clientId) return c.json({ error: 'Unable to identify client' }, 400)
 
   const existing = await c.env.DB
     .prepare('SELECT 1 as x FROM review_likes WHERE review_id = ? AND client_id = ? LIMIT 1')
     .bind(id, clientId)
     .first<{ x: number }>()
 
+  let changed = false
   if (existing) {
     await c.env.DB.prepare('DELETE FROM review_likes WHERE review_id = ? AND client_id = ?').bind(id, clientId).run()
     await c.env.DB
       .prepare('UPDATE reviews SET approve_count = CASE WHEN approve_count > 0 THEN approve_count - 1 ELSE 0 END WHERE id = ?')
       .bind(id)
       .run()
+    changed = true
   }
 
   const review = await c.env.DB
@@ -1796,9 +1842,8 @@ app.delete('/api/review/:id/like', async (c) => {
   if (!review) return c.json({ error: 'Review not found' }, 404)
 
   const walletHash = String(review.wallet_user_hash || '').trim()
-  let creditLike: any = { ok: false, skipped: true }
-  if (walletHash && /^[a-f0-9]{64}$/i.test(walletHash)) {
-    creditLike = await postCreditJcourseEvent(c.env, {
+  if (changed && walletHash && /^[a-f0-9]{64}$/i.test(walletHash)) {
+    await postCreditJcourseEvent(c.env, {
       kind: 'unlike',
       reviewId: String(id),
       actorId: clientId,
