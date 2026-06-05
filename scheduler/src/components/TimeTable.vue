@@ -128,6 +128,7 @@ export default {
             maxSpans: Array.from({ length: 12 }, () => Array(7).fill(1)),
             occupied: Array.from({ length: 12 }, () => Array(7).fill(false)), // 这个 occupied 表示的并不是一个单元格内有没有课程，而是这个单元格有没有被 startTime 不是这节课的课程占用
             isMobile: getIsMobile(),
+            _cleanupMobile: null as (() => void) | null,
             pressTimer: null as any,
             pressStartX: 0,
             pressStartY: 0,

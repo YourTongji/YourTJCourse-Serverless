@@ -62,17 +62,6 @@ type SharePreviewState = {
 
 const AVATAR_COLORS = ['#0f172a', '#38bdf8', '#f8fafc', '#f59e0b', '#22c55e']
 
-function escapeHtml(value: string) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-
-
 function formatRating(value: number) {
   return Number(value || 0) > 0 ? value.toFixed(1) : '-'
 }
@@ -512,48 +501,6 @@ async function renderCommentRaster(html: string, width = 640) {
 
   return canvas.toDataURL('image/png')
 }
-
-function estimateShareCommentHeight(markdown: string) {
-  const lines = String(markdown || '').replace(/\r/g, '').split('\n')
-  let units = 0
-  let inCodeBlock = false
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-
-    if (trimmed.startsWith('```')) {
-      units += 2.4
-      inCodeBlock = !inCodeBlock
-      continue
-    }
-
-    if (!trimmed) {
-      units += 0.9
-      continue
-    }
-
-    if (inCodeBlock) {
-      units += Math.max(1.4, Math.ceil(trimmed.length / 28) * 1.2)
-      continue
-    }
-
-    if (/^#{1,6}\s/.test(trimmed)) {
-      units += 2.6 + Math.ceil(trimmed.length / 24) * 0.5
-      continue
-    }
-
-    if (/^[-*+]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed)) {
-      units += Math.max(1.5, Math.ceil(trimmed.length / 26) * 1.2)
-      continue
-    }
-
-    units += Math.max(1.35, Math.ceil(trimmed.length / 30) * 1.25)
-  }
-
-  return Math.max(360, Math.ceil(units * 24 + 56))
-}
-
-
 
 export default function Course() {
   const { id } = useParams()

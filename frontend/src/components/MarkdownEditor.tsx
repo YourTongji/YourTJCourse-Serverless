@@ -7,13 +7,12 @@ interface MarkdownEditorProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
-  onInsertText?: (before: string, after?: string) => void
   hints?: TemplateHints // 模板提示信息
 }
 
 type ViewMode = 'edit' | 'preview' | 'help'
 
-export default function MarkdownEditor({ value, onChange, placeholder, onInsertText, hints }: MarkdownEditorProps) {
+export default function MarkdownEditor({ value, onChange, placeholder, hints }: MarkdownEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)

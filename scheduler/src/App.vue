@@ -105,7 +105,8 @@ export default {
       openOptional: false,
       optionalCourseData: [],
       mobileTab: 'timetable',
-      isMobile: getIsMobile()
+      isMobile: getIsMobile(),
+      _cleanupMobile: null as (() => void) | null
     }
   },
   mounted() {

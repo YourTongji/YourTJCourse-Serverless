@@ -192,6 +192,7 @@ export default {
       currentIndex: 0,
       lastDir: 'next' as 'next' | 'prev',
       isMobile: false,
+      _cleanupMobile: null as (() => void) | null,
       navLockUntil: 0,
       clientId: '' as string,
       likeBusy: false,

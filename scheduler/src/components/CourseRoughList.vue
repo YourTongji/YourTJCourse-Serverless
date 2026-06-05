@@ -98,6 +98,7 @@ export default {
     data() {
         return {
             isMobile: getIsMobile(),
+            _cleanupMobile: null as (() => void) | null,
             columns: ([
             {
                 title: '课程名称',

@@ -99,6 +99,7 @@ import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
                 reviewTeacherName: '',
                 reviewTeacherCode: '',
                 isMobile: getIsMobile(),
+                _cleanupMobile: null as (() => void) | null,
                 columns: ([
                     {
                         title: '课程序号',
