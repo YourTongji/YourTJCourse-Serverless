@@ -12,12 +12,27 @@ import {
   invalidateSettingCaches,
   getMaintenanceSettingKeys,
   resolveRuntimeSettingKey,
+  isDevRuntime,
 } from '../helpers/db'
 import { adminAuthMiddleware } from '../middleware/admin-auth'
 import { addSqidToReviews } from '../helpers/review'
 
 const admin = new Hono<{ Bindings: Bindings }>()
 admin.use('/*', adminAuthMiddleware)
+
+function isDevPagesOrigin(origin: string | undefined) {
+  if (!origin) return false
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase()
+    return hostname === 'dev.jcourse-web.pages.dev'
+  } catch {
+    return false
+  }
+}
+
+function isMaintenanceSettingKey(key: string) {
+  return key === 'maintenance_mode' || key === 'maintenance_config'
+}
 
 // 手动同步一系统排课数据 -> D1（pk 数据域）
 // 由 GitHub Action / 管理端触发：POST /api/admin/pk/sync { calendarId, depth? }
@@ -251,6 +266,9 @@ admin.put('/settings/:key', async (c) => {
   const key = c.req.param('key')
   const body = await c.req.json()
   const { value } = body
+  if (isMaintenanceSettingKey(key) && !isDevRuntime(c.env) && isDevPagesOrigin(c.req.header('origin'))) {
+    return c.json({ error: 'dev 管理页不能修改生产维护模式' }, 409)
+  }
   const storageKey = resolveRuntimeSettingKey(key, c.env)
   await c.env.DB.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(storageKey, value).run()
   invalidateSettingCaches(storageKey)
