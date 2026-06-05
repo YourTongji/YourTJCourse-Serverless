@@ -81,6 +81,7 @@ import type { courseInfo } from './utils/myInterface';
 import MyHeader from './components/MyHeader.vue';
 import MajorInfo from './components/MajorInfo.vue';
 import TimeTable from './components/TimeTable.vue';
+import { isMobile as getIsMobile, onMobileChange } from './utils/responsive';
 
 dayjs.locale('zh-cn');
 
@@ -104,20 +105,15 @@ export default {
       openOptional: false,
       optionalCourseData: [],
       mobileTab: 'timetable',
-      isMobile: (typeof window !== 'undefined' ? window.innerWidth < 768 : false) as boolean
+      isMobile: getIsMobile()
     }
   },
   mounted() {
-    const update = () => {
-      this.isMobile = window.innerWidth < 768
-    }
-    ;(this as any).__onResize__ = update
-    update()
-    window.addEventListener('resize', update, { passive: true } as any)
+    this._cleanupMobile = onMobileChange((v: boolean) => { this.isMobile = v })
+    this.isMobile = getIsMobile()
   },
   beforeUnmount() {
-    const fn = (this as any).__onResize__
-    if (fn) window.removeEventListener('resize', fn as any)
+    if (this._cleanupMobile) this._cleanupMobile()
   },
   computed: {
     myIndicator() {
@@ -173,10 +169,6 @@ export default {
       this.openOverview = false;
       this.selectedRowKeys = []; // 清空一下，不然动画会保持原来的状态
       // console.log("清空！", this.selectedRowKeys);
-    },
-    handleCancelOptional() {
-      this.openOptional = false;
-      this.selectedRowKeys = [];
     },
     resetSelectedRows() {
       // console.log("resetSelectedRows");
@@ -346,7 +338,6 @@ export default {
     },
     async findCourseByTime(cell: { day: number; class: number; calendarId: number }) {
       this.$store.commit("setSpin", true);
-      console.log("cell", cell);
 
       try {
         const res = await axios({

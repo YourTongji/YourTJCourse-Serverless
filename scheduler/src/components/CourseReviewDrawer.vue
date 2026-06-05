@@ -159,6 +159,7 @@ import { Drawer } from 'ant-design-vue'
 import ReviewFanCard from './ReviewFanCard.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { getOrCreateClientId } from '@/utils/clientId'
+import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive'
 
 type Review = {
   id?: number
@@ -243,25 +244,11 @@ export default {
   },
   mounted() {
     this.clientId = getOrCreateClientId()
-    const updateDevice = () => {
-      const width = Math.min(
-        window.innerWidth || 0,
-        document.documentElement.clientWidth || window.innerWidth || 0,
-        (window as any).visualViewport?.width || window.innerWidth || 0
-      )
-      const media = window.matchMedia ? window.matchMedia('(max-width: 900px)') : null
-      const coarse = window.matchMedia ? window.matchMedia('(pointer: coarse)') : null
-      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
-      const uaMobile = /Android|iPhone|iPad|iPod|Mobi|Windows Phone/i.test(ua)
-      this.isMobile = uaMobile || (media?.matches ?? false) || (coarse?.matches ?? false) || width < 900
-    }
-    window.addEventListener('resize', updateDevice, { passive: true })
-    updateDevice()
-    ;(this as any)._onResize = updateDevice
+    this._cleanupMobile = onMobileChange((v: boolean) => { this.isMobile = v })
+    this.isMobile = getIsMobile()
   },
   beforeUnmount() {
-    const fn = (this as any)._onResize
-    if (fn) window.removeEventListener('resize', fn)
+    if (this._cleanupMobile) this._cleanupMobile()
   },
   methods: {
     emitClose() {

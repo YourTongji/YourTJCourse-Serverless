@@ -118,6 +118,7 @@
 <script lang="ts">
 import { errorNotify } from '@/utils/notify';
 import type { courseOnTable } from '@/utils/myInterface';
+import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
 
 export default {
     name: 'timeTable',
@@ -126,7 +127,7 @@ export default {
             timeTable: Array(12).fill(null).map(() => Array(7).fill(undefined).map(() => [])) as courseOnTable[][][],
             maxSpans: Array.from({ length: 12 }, () => Array(7).fill(1)),
             occupied: Array.from({ length: 12 }, () => Array(7).fill(false)), // 这个 occupied 表示的并不是一个单元格内有没有课程，而是这个单元格有没有被 startTime 不是这节课的课程占用
-            isMobile: typeof window !== 'undefined' ? window.innerWidth < 768 : false,
+            isMobile: getIsMobile(),
             pressTimer: null as any,
             pressStartX: 0,
             pressStartY: 0,
@@ -345,16 +346,11 @@ export default {
         this.updateTimeTable()
     },
     mounted() {
-        const onResize = () => {
-            this.isMobile = window.innerWidth < 768
-        }
-        window.addEventListener('resize', onResize, { passive: true })
-        onResize()
-        ;(this as any)._onResize = onResize
+        this._cleanupMobile = onMobileChange((v: boolean) => { this.isMobile = v })
+        this.isMobile = getIsMobile()
     },
     beforeUnmount() {
-        const fn = (this as any)._onResize
-        if (fn) window.removeEventListener('resize', fn)
+        if (this._cleanupMobile) this._cleanupMobile()
     },
     computed: {
         timeTableData() {
