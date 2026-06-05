@@ -13,10 +13,10 @@
 <script lang="ts">
 import { errorNotify, successNotify } from '@/utils/notify';
 import { isUpToDate } from '@/utils/misc';
-import axios from 'axios';
 import { Modal } from 'ant-design-vue';
 import { ExclamationCircleOutlined } from '@ant-design/icons-vue';
 import { createVNode } from 'vue';
+import { getLatestUpdateTime } from '@/services/api';
 import { 
     fetchLatestCourseInfo, 
     detectCourseChanges, 
@@ -38,20 +38,17 @@ export default {
     methods: {
         async getUpdateTime() {
             try {
-                const res = await axios({
-                    method: 'get',
-                    url: '/api/getLatestUpdateTime'
-                });
+                const latestTime = await getLatestUpdateTime();
 
                 this.$store.commit("loadSolidifyTime");
-                this.$store.commit("setLatestUpdateTime", res.data.data);
+                this.$store.commit("setLatestUpdateTime", latestTime);
 
                 if (this.$store.state.updateTime === '') {
                     // 初次加载，不弹窗
                     this.$store.commit("syncLatestData");
                     return;
                 }
-                else if (isUpToDate(this.$store.state.updateTime, res.data.data)) {
+                else if (isUpToDate(this.$store.state.updateTime, latestTime)) {
                     this.$store.commit("setDataOutdated", false);
                     return;
                 }
@@ -84,17 +81,11 @@ export default {
                     }
                     : undefined;
 
-                console.log("stagedCourses:", stagedCourses);
-                console.log("selectedCourses:", selectedCourses);
-                console.log("calendarId:", calendarId);
-
                 // 如果没有课程，提示用户直接更新时间
                 if (stagedCourses.length === 0 && selectedCourses.length === 0) {
                     this.$store.commit("syncLatestData");  // 静默更新时间
                     return;
                 }
-
-                console.log("majorInfo:", majorInfo);
 
                 // 获取最新课程信息
                 const latestCourses = await fetchLatestCourseInfo(calendarId, stagedCourses, selectedCourses, majorInfo);
@@ -111,7 +102,7 @@ export default {
                     // 没有变更，静默更新时间
                     this.$store.commit("setUpdateTime", this.$store.state.latestUpdateTime);
                     this.$store.commit("setDataOutdated", false);
-                    console.log("数据已更新但课程无变化，已自动同步时间");
+                    // 数据已更新但课程无变化，已自动同步时间
                     return;
                 }
 
