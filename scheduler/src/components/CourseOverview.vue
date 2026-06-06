@@ -24,14 +24,57 @@
             </div>
         </div>
         <div v-if="selectedType === 'compulsory'">
-            <div class="max-h-[60vh] md:h-150 overflow-auto">
+            <div class="h-[60vh] md:h-150 overflow-auto">
+                <template v-if="isMobile">
+                    <div
+                        v-for="courses in $store.getters.sortCompulsoryCoursesByGrade"
+                        :key="courses.grade"
+                        class="space-y-3 pb-4"
+                    >
+                        <div class="sticky top-0 z-10 bg-white/95 px-1 py-2 text-sm font-bold text-slate-700">
+                            {{ courses.grade }}级
+                        </div>
+                        <button
+                            v-for="course in filteredCourses(courses.courses)"
+                            :key="'mobile_必_' + courses.grade + '_' + course.courseCode"
+                            type="button"
+                            class="w-full rounded-2xl border bg-white p-3 text-left shadow-sm transition active:scale-[0.99]"
+                            :class="isCompulsorySelected(courses.grade, course) ? 'border-cyan-400 ring-2 ring-cyan-100' : 'border-slate-200'"
+                            @click="toggleCompulsoryCourse(courses.grade, course)"
+                        >
+                            <div class="flex items-start gap-3">
+                                <input
+                                    type="checkbox"
+                                    class="mt-1 h-4 w-4 shrink-0 accent-cyan-600"
+                                    :checked="isCompulsorySelected(courses.grade, course)"
+                                    @click.stop
+                                    @change="toggleCompulsoryCourse(courses.grade, course)"
+                                />
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-sm font-semibold leading-snug text-slate-900">
+                                        {{ course.courseName }}
+                                    </div>
+                                    <div class="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+                                        <span class="rounded-full bg-slate-100 px-2 py-0.5 font-mono">{{ course.courseCode }}</span>
+                                        <span class="rounded-full bg-cyan-50 px-2 py-0.5 text-cyan-800">{{ course.credit }} 学分</span>
+                                        <span v-if="course.faculty" class="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">{{ course.faculty }}</span>
+                                    </div>
+                                    <div v-if="formatList((course as any).courseNature)" class="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {{ formatList((course as any).courseNature) }}
+                                    </div>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
+                </template>
                 <a-table
+                v-else
+                class="min-w-[900px]"
                 :columns="columns.compulsory"
                 v-for="courses in $store.getters.sortCompulsoryCoursesByGrade"
                 :key="courses.grade"
                 :data-source="filteredCourses(courses.courses)"
                 :pagination="false"
-                :scroll="courseTableScroll"
                 :title="() => courses.grade + '级'"
                 :row-selection="{ 
                     selectedRowKeys: localSelectedRowKeys.filter((key: string) => key.startsWith('必_' + courses.grade + '_')), 
@@ -46,12 +89,48 @@
         <div v-else-if="selectedType === 'optional'">
             <a-tabs v-model:activeKey="selectedOptionalType">
                 <a-tab-pane v-for="type in mergedOptionalTypes" :key="type.courseLabelName" :tab="type.courseLabelName">
-                    <div class="max-h-[60vh] md:h-150 overflow-auto">
+                    <div class="h-[60vh] md:h-150 overflow-auto">
+                        <template v-if="isMobile">
+                            <div class="space-y-3 pb-4">
+                                <button
+                                    v-for="course in filteredCourses(type.courses)"
+                                    :key="'mobile_选_' + type.courseLabelName + '_' + course.courseCode"
+                                    type="button"
+                                    class="w-full rounded-2xl border bg-white p-3 text-left shadow-sm transition active:scale-[0.99]"
+                                    :class="isOptionalSelected(type.courseLabelName, course) ? 'border-cyan-400 ring-2 ring-cyan-100' : 'border-slate-200'"
+                                    @click="toggleOptionalCourse(type.courseLabelName, course)"
+                                >
+                                    <div class="flex items-start gap-3">
+                                        <input
+                                            type="checkbox"
+                                            class="mt-1 h-4 w-4 shrink-0 accent-cyan-600"
+                                            :checked="isOptionalSelected(type.courseLabelName, course)"
+                                            @click.stop
+                                            @change="toggleOptionalCourse(type.courseLabelName, course)"
+                                        />
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-sm font-semibold leading-snug text-slate-900">
+                                                {{ course.courseName }}
+                                            </div>
+                                            <div class="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+                                                <span class="rounded-full bg-slate-100 px-2 py-0.5 font-mono">{{ course.courseCode }}</span>
+                                                <span class="rounded-full bg-cyan-50 px-2 py-0.5 text-cyan-800">{{ course.credit }} 学分</span>
+                                                <span v-if="course.faculty" class="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">{{ course.faculty }}</span>
+                                            </div>
+                                            <div v-if="formatList((course as any).campus)" class="mt-2 text-xs leading-relaxed text-slate-500">
+                                                校区：{{ formatList((course as any).campus) }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                        </template>
                         <a-table
+                        v-else
+                        class="min-w-[900px]"
                         :columns="columns.optional"
                         :data-source="filteredCourses(type.courses)"
                         :pagination="false"
-                        :scroll="courseTableScroll"
                         :row-selection="{ 
                             selectedRowKeys: localSelectedRowKeys.filter((key: string) => key.startsWith('选_' + type.courseLabelName + '_')), 
                             onChange: (keys: any[]) => onOptionalSelectChange(type.courseLabelName, keys) 
@@ -77,6 +156,30 @@ import { SearchOutlined } from '@ant-design/icons-vue';
 import { Input, Radio, Table } from 'ant-design-vue';
 import type { stagedCourse, courseInfo } from '@/utils/myInterface';
 import { defineAsyncComponent } from 'vue';
+import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
+
+function formatCourseList(value: unknown): string {
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed || trimmed === '[]' || trimmed === '[""]') return '';
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+            try {
+                return formatCourseList(JSON.parse(trimmed));
+            } catch {
+                return trimmed;
+            }
+        }
+        return trimmed;
+    }
+    if (Array.isArray(value)) {
+        return value
+            .flatMap((item) => formatCourseList(item).split('、'))
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .join('、');
+    }
+    return '';
+}
 
 export default {
     data() {
@@ -91,29 +194,34 @@ export default {
                     {
                         title: '课程代码',
                         dataIndex: 'courseCode',
-                        align: 'center'
+                        align: 'center',
+                        width: 120
                     },
                     {
                         title: '课程名称',
                         dataIndex: 'courseName',
-                        align: 'center'
+                        align: 'center',
+                        width: 300
                     },
                     {
                         title: '开课学院',
                         dataIndex: 'faculty',
                         align: 'center',
+                        width: 220,
                         responsive: ['md']
                     },
                     {
                         title: '学分',
                         dataIndex: 'credit',
-                        align: 'center'
+                        align: 'center',
+                        width: 80
                     },
                     {
                         title: '课程性质',
                         dataIndex: 'courseNature',
                         align: 'center',
-                        customRender: ({ text }: { text: string[] }) => text ? text.join('、') : '',
+                        width: 180,
+                        customRender: ({ text }: { text: string[] | string }) => formatCourseList(text),
                         responsive: ['md']
                     }
                 ] as any[]),
@@ -121,29 +229,34 @@ export default {
                     {
                         title: '课程代码',
                         dataIndex: 'courseCode',
-                        align: 'center'
+                        align: 'center',
+                        width: 120
                     },
                     {
                         title: '课程名称',
                         dataIndex: 'courseName',
-                        align: 'center'
+                        align: 'center',
+                        width: 300
                     },
                     {
                         title: '开课学院',
                         dataIndex: 'faculty',
                         align: 'center',
+                        width: 220,
                         responsive: ['md']
                     },
                     {
                         title: '学分',
                         dataIndex: 'credit',
-                        align: 'center'
+                        align: 'center',
+                        width: 80
                     },
                     {
                         title: '校区',
                         dataIndex: 'campus',
                         align: 'center',
-                        customRender: ({ text }: { text: string[] }) => text ? text.join('、') : '',
+                        width: 180,
+                        customRender: ({ text }: { text: string[] | string }) => formatCourseList(text),
                         responsive: ['md']
                     }
                 ] as any[])
@@ -151,7 +264,8 @@ export default {
 
             // 搜索
             searchValue: '',
-            courseTableScroll: { x: 900 }
+            isMobile: getIsMobile(),
+            _cleanupMobile: null as (() => void) | null
         }
     },
     props: ['selectedRowKeys'],
@@ -166,6 +280,37 @@ export default {
         },
         onOptionalSelectChange(labelName: string, localSelectedRowKeys: any[]) {
             this.replaceKeysByPrefix(`选_${labelName}_`, localSelectedRowKeys);
+        },
+        formatList(value: unknown) {
+            return formatCourseList(value);
+        },
+        isKeySelected(key: string) {
+            return (this.localSelectedRowKeys || []).map((item: any) => String(item)).includes(key);
+        },
+        toggleSelectionKey(key: string) {
+            if (this.isKeySelected(key)) {
+                this.localSelectedRowKeys = (this.localSelectedRowKeys || []).filter((item: string) => String(item) !== key);
+                return;
+            }
+            this.localSelectedRowKeys = [...(this.localSelectedRowKeys || []), key];
+        },
+        compulsoryKey(grade: string | number, course: any) {
+            return `必_${grade}_${course.courseCode}`;
+        },
+        optionalKey(labelName: string, course: any) {
+            return `选_${labelName}_${course.courseCode}`;
+        },
+        isCompulsorySelected(grade: string | number, course: any) {
+            return this.isKeySelected(this.compulsoryKey(grade, course));
+        },
+        isOptionalSelected(labelName: string, course: any) {
+            return this.isKeySelected(this.optionalKey(labelName, course));
+        },
+        toggleCompulsoryCourse(grade: string | number, course: any) {
+            this.toggleSelectionKey(this.compulsoryKey(grade, course));
+        },
+        toggleOptionalCourse(labelName: string, course: any) {
+            this.toggleSelectionKey(this.optionalKey(labelName, course));
         },
         filteredCourses(courses: courseInfo[]) {
             const safeCourses = Array.isArray(courses) ? courses : [];
@@ -186,6 +331,11 @@ export default {
         }
     },
     mounted() {
+        this._cleanupMobile = onMobileChange((v: boolean) => { this.isMobile = v });
+        this.isMobile = getIsMobile();
+    },
+    beforeUnmount() {
+        if (this._cleanupMobile) this._cleanupMobile();
     },
     components: {
         SearchOutlined,

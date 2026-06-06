@@ -69,18 +69,28 @@
                                     @mouseup.stop="onPressCancel()"
                                     @mouseleave.stop="onPressCancel()"
                                 >
-                                    <div
-                                        class="font-extrabold tracking-tight break-words"
-                                        :class="isMobile ? 'tt-mobile-title text-[10px] leading-[1.05]' : ''"
-                                    >
-                                        {{ formatCourseLines(course).title }}
+                                    <div v-if="isMobile" class="tt-mobile-course">
+                                        <div class="tt-mobile-title" :title="formatCourseLines(course).title">
+                                            {{ formatCourseLines(course).mobileTitle }}
+                                        </div>
+                                        <div
+                                            v-if="course.occupyTime.length >= 2 && formatCourseLines(course).mobileMeta"
+                                            class="tt-mobile-meta"
+                                        >
+                                            {{ formatCourseLines(course).mobileMeta }}
+                                        </div>
                                     </div>
-                                    <div v-if="!isMobile" class="mt-1 opacity-95 whitespace-pre-line break-words">
-                                        {{ formatCourseLines(course).sub }}
-                                    </div>
-                                    <div v-if="!isMobile && formatCourseLines(course).meta" class="mt-1 text-[10px] opacity-90">
-                                      {{ formatCourseLines(course).meta }}
-                                    </div>
+                                    <template v-else>
+                                        <div class="font-extrabold tracking-tight break-words">
+                                            {{ formatCourseLines(course).title }}
+                                        </div>
+                                        <div class="mt-1 opacity-95 whitespace-pre-line break-words">
+                                            {{ formatCourseLines(course).sub }}
+                                        </div>
+                                        <div v-if="formatCourseLines(course).meta" class="mt-1 text-[10px] opacity-90">
+                                          {{ formatCourseLines(course).meta }}
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                         </td>
@@ -159,6 +169,25 @@ export default {
             // 桌面端：接近原版的紫色课程块
             return { background: 'linear-gradient(135deg, #5d57e8, #4b3fd9)' }
         },
+        compactCourseName(name: string) {
+            const cleaned = String(name || '')
+                .replace(/[（(][^()（）]*[）)]/g, '')
+                .replace(/\s+/g, '')
+                .trim()
+            if (!cleaned) return '课程'
+
+            const chars = Array.from(cleaned)
+            return chars.length > 7 ? `${chars.slice(0, 6).join('')}…` : cleaned
+        },
+        compactMobileMeta(teacher: string, room: string) {
+            const teacherText = String(teacher || '').replace(/[A-Z0-9]+$/i, '').trim()
+            const roomText = String(room || '')
+                .replace(/校区/g, '')
+                .replace(/教学楼|学院楼|综合楼/g, '')
+                .replace(/\s+/g, '')
+                .trim()
+            return [teacherText, roomText].filter(Boolean).join(' · ')
+        },
         formatCourseLines(course: courseOnTable) {
             const raw = String(course.showText || '').trim()
 
@@ -182,6 +211,8 @@ export default {
                 if (this.isMobile) {
                     return {
                         title: name,
+                        mobileTitle: this.compactCourseName(name),
+                        mobileMeta: this.compactMobileMeta(teacher, room),
                         sub: '',
                         meta: ''
                     }
@@ -189,13 +220,18 @@ export default {
 
                 return {
                     title: `${teacher} ${name}(${code})`,
+                    mobileTitle: this.compactCourseName(name),
+                    mobileMeta: this.compactMobileMeta(teacher, room),
                     sub: [shortDay, weekText, room].filter(Boolean).join(' '),
                     meta: ''
                 }
             }
 
+            const fallbackTitle = course.courseName || course.code || '课程'
             return {
-                title: course.courseName || course.code || '课程',
+                title: fallbackTitle,
+                mobileTitle: this.compactCourseName(fallbackTitle),
+                mobileMeta: course.code || '',
                 sub: raw,
                 meta: course.code || ''
             }
@@ -466,10 +502,44 @@ export default {
 </script>
 
 <style scoped>
+.tt-mobile-course {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .tt-mobile-title {
-  writing-mode: vertical-rl;
-  text-orientation: upright;
-  letter-spacing: 0.06em;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(15 23 42 / 0.24);
+  text-overflow: ellipsis;
+  word-break: break-all;
+  writing-mode: horizontal-tb;
+}
+
+.tt-mobile-meta {
+  font-size: 8px;
+  line-height: 1;
+  margin-top: 2px;
+  max-width: 100%;
+  opacity: 0.84;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgb(15 23 42 / 0.18);
+  white-space: nowrap;
 }
 
 .tt-detail-enter-active,
