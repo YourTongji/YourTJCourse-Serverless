@@ -1,9 +1,14 @@
 import {
   type RouteConfig,
   index,
+  layout,
   route,
 } from "@react-router/dev/routes";
 
 export const routes: RouteConfig = [
-  index("routes/_index.tsx"),
+  layout("components/Layout.tsx", [
+    index("routes/_index.tsx"),
+    route("courses", "routes/courses.tsx"),
+    route("course/:id", "routes/course.$id.tsx"),
+  ]),
 ];

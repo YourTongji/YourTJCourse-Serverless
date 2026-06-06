@@ -56,6 +56,34 @@ export function useCourseListQuery(keyword: string, filters: CourseFilters) {
   }), [keyword, filters]);
 }
 
+export function useInfiniteCourseListQuery(keyword: string, filters: CourseFilters) {
+  return useMemo(() => ({
+    queryKey: ["courses", "infinite", keyword, filters] as const,
+    queryFn: async ({ pageParam = 1, queryKey: [, , kw, fl] }: { pageParam?: number; queryKey: readonly [string, string, string, CourseFilters] }): Promise<CoursesResponse & { page: number }> => {
+      const params = new URLSearchParams({ page: String(pageParam), limit: "20" });
+      if (kw) params.set("q", kw);
+      if (fl.departments?.length) params.set("departments", fl.departments.join(","));
+      if (fl.onlyWithReviews) params.set("onlyWithReviews", "true");
+      if (fl.courseName) params.set("courseName", fl.courseName);
+      if (fl.courseCode) params.set("courseCode", fl.courseCode);
+      if (fl.teacherName) params.set("teacherName", fl.teacherName);
+      if (fl.teacherCode) params.set("teacherCode", fl.teacherCode);
+      if (fl.campus) params.set("campus", fl.campus);
+      if (fl.faculty) params.set("faculty", fl.faculty);
+
+      const res = await fetch(`${API_BASE}/api/courses?${params}`, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error("Failed to fetch courses");
+      return { ...(await res.json()), page: pageParam };
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage: CoursesResponse & { page: number }) =>
+      lastPage.hasMore ? lastPage.page + 1 : undefined,
+    staleTime: 30_000,
+  }), [keyword, filters]);
+}
+
+export type { Course, CourseFilters, CoursesResponse };
+
 export function useCourseDetail(courseId: number) {
   return useMemo(() => ({
     queryKey: ["course", courseId] as const,
