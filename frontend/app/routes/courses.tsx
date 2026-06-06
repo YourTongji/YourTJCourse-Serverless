@@ -578,20 +578,23 @@ export default function CoursesPage() {
         .marquee-row:hover {
           animation-play-state: paused;
         }
-        .marquee-row-inner {
+        .marquee-set {
           display: flex;
           gap: 1rem;
-          padding: 0 0.5rem;
         }
         .marquee-card {
           width: 16rem;
           flex-shrink: 0;
         }
+        .marquee-card > .group {
+          height: 100%;
+        }
         .marquee-card .card-inner {
           display: flex;
           flex-direction: column;
+          height: 100%;
         }
-        .marquee-card .card-inner .card-grow {
+        .marquee-card .card-grow {
           flex: 1;
         }
       `}</style>
@@ -619,50 +622,97 @@ export default function CoursesPage() {
             return (
               <div key={rowIndex} className="overflow-hidden rounded-xl">
                 <div className="marquee-row" style={{ "--speed": rowSpeed } as React.CSSProperties}>
-                  {/* Double for seamless loop */}
-                  {[...slice, ...slice].map((course, i) => (
-                    <div
-                      key={`${course.id}-${rowIndex}-${i}`}
-                      className="marquee-card course-card-wrapper"
-                      style={{ animationDelay: `${(i % slice.length) * 60}ms` }}
-                    >
-                      <Link to={`/course/${course.id}`} className="group block">
-                        <Card className="card-inner transition-all duration-200 hover:scale-[1.03] hover:shadow-md h-full">
-                          <CardHeader>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="font-mono text-[10px]">
-                                {course.code}
-                              </Badge>
-                              <Badge className="flex items-center gap-1 bg-amber-50 text-amber-700 border-amber-200">
-                                <Star className="size-3 fill-amber-400 text-amber-400" />
-                                {course.rating ? course.rating.toFixed(1) : "N/A"}
-                              </Badge>
-                            </div>
-                            <CardTitle className="mt-2 line-clamp-1 group-hover:text-cyan-600 transition-colors">
-                              {course.name}
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent className="card-grow">
-                            <div className="space-y-1 text-sm text-muted-foreground">
-                              {course.teacher_name && <p className="truncate">{course.teacher_name}</p>}
-                              {course.semesters && course.semesters.length > 0 && (
-                                <p className="truncate text-xs text-muted-foreground/70">
-                                  {course.semesters.join("、")}
-                                </p>
-                              )}
-                            </div>
-                            <Separator className="my-2" />
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span>{course.review_count ?? 0} 条评价</span>
-                              <span className="inline-flex items-center gap-0.5 text-cyan-600 transition-colors group-hover:text-cyan-500">
-                                详情 <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-                              </span>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </Link>
-                    </div>
-                  ))}
+                  {/* First set */}
+                  <div className="marquee-set">
+                    {slice.map((course, i) => (
+                      <div
+                        key={`${course.id}-set1`}
+                        className="marquee-card course-card-wrapper"
+                        style={{ animationDelay: `${i * 60}ms` }}
+                      >
+                        <Link to={`/course/${course.id}`} className="group block h-full">
+                          <Card className="card-inner transition-all duration-200 hover:scale-[1.03] hover:shadow-md">
+                            <CardHeader>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="font-mono text-[10px]">
+                                  {course.code}
+                                </Badge>
+                                <Badge className="flex items-center gap-1 bg-amber-50 text-amber-700 border-amber-200">
+                                  <Star className="size-3 fill-amber-400 text-amber-400" />
+                                  {course.rating ? course.rating.toFixed(1) : "N/A"}
+                                </Badge>
+                              </div>
+                              <CardTitle className="mt-2 line-clamp-1 group-hover:text-cyan-600 transition-colors">
+                                {course.name}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="card-grow">
+                              <div className="space-y-1 text-sm text-muted-foreground">
+                                {course.teacher_name && <p className="truncate">{course.teacher_name}</p>}
+                                {course.semesters && course.semesters.length > 0 && (
+                                  <p className="truncate text-xs text-muted-foreground/70">
+                                    {course.semesters.join("、")}
+                                  </p>
+                                )}
+                              </div>
+                              <Separator className="my-2" />
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{course.review_count ?? 0} 条评价</span>
+                                <span className="inline-flex items-center gap-0.5 text-cyan-600 transition-colors group-hover:text-cyan-500">
+                                  详情 <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+                                </span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Second set (identical copy for seamless loop) */}
+                  <div className="marquee-set">
+                    {slice.map((course, i) => (
+                      <div
+                        key={`${course.id}-set2`}
+                        className="marquee-card"
+                      >
+                        <Link to={`/course/${course.id}`} className="group block h-full">
+                          <Card className="card-inner transition-all duration-200 hover:scale-[1.03] hover:shadow-md">
+                            <CardHeader>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="font-mono text-[10px]">
+                                  {course.code}
+                                </Badge>
+                                <Badge className="flex items-center gap-1 bg-amber-50 text-amber-700 border-amber-200">
+                                  <Star className="size-3 fill-amber-400 text-amber-400" />
+                                  {course.rating ? course.rating.toFixed(1) : "N/A"}
+                                </Badge>
+                              </div>
+                              <CardTitle className="mt-2 line-clamp-1 group-hover:text-cyan-600 transition-colors">
+                                {course.name}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="card-grow">
+                              <div className="space-y-1 text-sm text-muted-foreground">
+                                {course.teacher_name && <p className="truncate">{course.teacher_name}</p>}
+                                {course.semesters && course.semesters.length > 0 && (
+                                  <p className="truncate text-xs text-muted-foreground/70">
+                                    {course.semesters.join("、")}
+                                  </p>
+                                )}
+                              </div>
+                              <Separator className="my-2" />
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{course.review_count ?? 0} 条评价</span>
+                                <span className="inline-flex items-center gap-0.5 text-cyan-600 transition-colors group-hover:text-cyan-500">
+                                  详情 <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+                                </span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             );
