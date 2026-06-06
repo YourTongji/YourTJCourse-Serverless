@@ -130,11 +130,11 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
           <Link to="/" className="flex items-center gap-3 min-w-0 flex-1 pr-2 md:pr-4">
             <Logo size={40} className="shrink-0" />
             <div className="hidden sm:block">
-              <h1 className="text-lg font-bold text-slate-800 tracking-tight hover:drop-shadow-[0_0_6px_rgba(6,182,212,0.35)] transition-colors duration-300">YOURTJ选课社区</h1>
+              <h1 className="text-lg font-bold text-slate-800 tracking-tight hover:drop-shadow-[0_0_6px_rgba(6,182,212,0.35)] transition duration-300">YOURTJ选课社区</h1>
               <p className="text-[10px] text-slate-500 font-medium tracking-wider uppercase">xk.yourtj.de</p>
             </div>
             <div className="block sm:hidden">
-              <h1 className="text-[17px] font-bold text-slate-800 tracking-tight whitespace-nowrap hover:drop-shadow-[0_0_6px_rgba(6,182,212,0.35)] transition-colors duration-300">YOURTJ选课社区</h1>
+              <h1 className="text-[17px] font-bold text-slate-800 tracking-tight whitespace-nowrap hover:drop-shadow-[0_0_6px_rgba(6,182,212,0.35)] transition duration-300">YOURTJ选课社区</h1>
             </div>
           </Link>
 
