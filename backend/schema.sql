@@ -71,6 +71,7 @@ CREATE TABLE reviews (
     reviewer_name TEXT DEFAULT '',
     reviewer_avatar TEXT DEFAULT '',
     wallet_user_hash TEXT,
+    edit_token TEXT,
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
 );
 

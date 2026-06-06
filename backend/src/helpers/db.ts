@@ -326,6 +326,11 @@ export async function ensureReviewsWalletColumn(db: D1Database) {
   } catch {
     // ignore: already exists
   }
+  try {
+    await db.prepare('ALTER TABLE reviews ADD COLUMN edit_token TEXT').run()
+  } catch {
+    // ignore: already exists
+  }
 }
 
 async function ensureLegacyAutoDocsPurged(db: D1Database) {
