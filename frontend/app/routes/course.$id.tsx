@@ -356,6 +356,10 @@ export default function CourseDetail() {
               <Star className="size-4" />
               撰写评价
             </Button>
+
+            <div className="flex">
+              <WalletSheet />
+            </div>
           </CardContent>
         </Card>
 
@@ -446,10 +450,6 @@ export default function CourseDetail() {
       </div>
     </div>
 
-    {/* Wallet floating button */}
-    <div className="fixed bottom-6 right-6 z-40">
-      <WalletSheet />
-    </div>
     </>
   );
 }

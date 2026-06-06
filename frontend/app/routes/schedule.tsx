@@ -8,8 +8,9 @@ export default function Schedule() {
       </Card>
       <div className="w-full rounded-lg overflow-hidden border border-border">
         <iframe
-          src="/sim/index.html"
+          src="/scheduler/index.html"
           title="排课模拟"
+          loading="lazy"
           className="w-full"
           style={{ height: "calc(100vh - 12rem)" }}
         />
