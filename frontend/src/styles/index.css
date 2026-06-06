@@ -304,3 +304,43 @@ a:hover { color: #0284c7; }
   }
 }
 
+/* AI Summary loading — Gemini-style thinking dots */
+@keyframes summaryDot {
+  0%, 80%, 100% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-summary-dot {
+  animation: summaryDot 1.4s ease-in-out infinite;
+}
+
+/* AI Summary loading — shimmer sweep */
+@keyframes summaryShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-summary-shimmer {
+  background-size: 200% 100%;
+  animation: summaryShimmer 2s ease-in-out infinite;
+}
+
+/* ─── Motion Sensitivity: Honor prefers-reduced-motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

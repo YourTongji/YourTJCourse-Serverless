@@ -148,7 +148,7 @@ export default function WriteReview() {
 
   // 草稿自动保存
   useEffect(() => {
-    if (!id) return
+    if (!id || isEdit) return
 
     // 加载草稿
     const draftKey = `review_draft_${id}`
@@ -167,11 +167,11 @@ export default function WriteReview() {
         console.error('Failed to load draft:', e)
       }
     }
-  }, [id])
+  }, [id, isEdit])
 
   // 自动保存草稿（防抖）
   useEffect(() => {
-    if (!id) return
+    if (!id || isEdit) return
 
     const draftKey = `review_draft_${id}`
     const timer = setTimeout(() => {
@@ -189,7 +189,7 @@ export default function WriteReview() {
     }, 1000) // 1秒防抖
 
     return () => clearTimeout(timer)
-  }, [id, comment, rating, semester, showReviewer, reviewerName, avatarType, qqNumber])
+  }, [id, isEdit, comment, rating, semester, showReviewer, reviewerName, avatarType, qqNumber])
 
   // Markdown 插入功能
   const handleInsert = (before: string, after?: string) => {
