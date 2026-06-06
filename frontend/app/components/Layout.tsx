@@ -1,4 +1,4 @@
-import { Link, Outlet, useNavigate } from "react-router";
+import { Link, Outlet } from "react-router";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -13,18 +13,16 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "~/components/ui/sheet";
-import { ArrowLeft, ArrowRight, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/courses", label: "课程目录" },
-  { to: "/scheduler", label: "排课模拟" },
+  { to: "/schedule", label: "排课模拟" },
   { to: "/about", label: "关于" },
   { to: "/feedback", label: "反馈" },
 ];
 
 export default function Layout() {
-  const navigate = useNavigate();
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-cyan-50">
       {/* ─── Navbar ─── */}
@@ -58,23 +56,6 @@ export default function Layout() {
 
           {/* Right actions */}
           <div className="flex items-center gap-0.5 shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate(-1)}
-              aria-label="后退"
-            >
-              <ArrowLeft className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate(1)}
-              aria-label="前进"
-            >
-              <ArrowRight className="size-4" />
-            </Button>
-
             {/* Mobile sheet trigger */}
             <Sheet>
               <SheetTrigger

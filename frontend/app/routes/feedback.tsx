@@ -34,27 +34,24 @@ export default function Feedback() {
     if (!walineRef.current) return;
 
     let cancelled = false;
-    let cssLink: HTMLLinkElement | null = null;
     let observer: IntersectionObserver | null = null;
-    let loadedOnce = false;
 
-    const initWaline = async () => {
-      if (cancelled || loadedOnce) return;
-      loadedOnce = true;
+    const initWaline = () => {
+      if (cancelled) return;
 
-      cssLink = document.createElement("link");
+      // Load CSS
+      const cssLink = document.createElement("link");
       cssLink.rel = "stylesheet";
       cssLink.href = "https://unpkg.com/@waline/client@v3/dist/waline.css";
       document.head.appendChild(cssLink);
 
-      try {
-        // Dynamic ESM import from CDN (runtime-only, not bundled)
-        const walineUrl = "https://unpkg.com/@waline/client@v3/dist/waline.js";
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const mod: any = await import(walineUrl);
+      // Load JS via script tag (ESM import from CDN doesn't work with Vite bundler)
+      const script = document.createElement("script");
+      script.src = "https://unpkg.com/@waline/client@v3/dist/waline.js";
+      script.async = true;
+      script.crossOrigin = "anonymous";
+      script.onload = () => {
         if (cancelled) return;
-        window.Waline = { init: mod.init };
-
         if (window.Waline && walineRef.current) {
           window.Waline.init({
             el: walineRef.current,
@@ -105,24 +102,14 @@ export default function Feedback() {
           });
           setWalineReady(true);
         }
-      } catch {
-        // Waline init failed silently
-      }
-    };
-
-    const scheduleInit = () => {
-      const rIC = (window as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
-        .requestIdleCallback;
-      if (typeof rIC === "function")
-        rIC(() => void initWaline(), { timeout: 2000 });
-      else window.setTimeout(() => void initWaline(), 60);
+      };
+      document.head.appendChild(script);
     };
 
     observer = new IntersectionObserver(
       (entries) => {
-        const e = entries[0];
-        if (!e?.isIntersecting) return;
-        scheduleInit();
+        if (!entries[0]?.isIntersecting) return;
+        initWaline();
         observer?.disconnect();
         observer = null;
       },
@@ -133,7 +120,6 @@ export default function Feedback() {
     return () => {
       cancelled = true;
       observer?.disconnect();
-      if (cssLink && cssLink.parentNode) cssLink.parentNode.removeChild(cssLink);
     };
   }, [walineServerUrl]);
 
@@ -148,23 +134,6 @@ export default function Feedback() {
           <p className="text-sm md:text-base text-slate-500">
             欢迎在这里留下你的建议、反馈或想法，我们会认真倾听每一条留言
           </p>
-        </div>
-      </Card>
-
-      {/* Waline comment area */}
-      <Card className="p-6 md:p-8">
-        <div className="relative">
-          {!walineReady && (
-            <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500 pointer-events-none">
-              正在加载评论区...
-            </div>
-          )}
-          <div
-            ref={walineRef}
-            id="waline-feedback"
-            className="h-[70vh] min-h-[720px] overflow-auto"
-            style={{ visibility: walineReady ? "visible" : "hidden" }}
-          />
         </div>
       </Card>
 
@@ -185,6 +154,23 @@ export default function Feedback() {
               如有紧急问题，请通过"关于"页面的联系方式直接联系我们
             </li>
           </ul>
+        </div>
+      </Card>
+
+      {/* Waline comment area */}
+      <Card className="p-6 md:p-8">
+        <div className="relative">
+          {!walineReady && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500 pointer-events-none">
+              正在加载评论区...
+            </div>
+          )}
+          <div
+            ref={walineRef}
+            id="waline-feedback"
+            className="h-[70vh] min-h-[720px] overflow-auto"
+            style={{ visibility: walineReady ? "visible" : "hidden" }}
+          />
         </div>
       </Card>
     </div>
