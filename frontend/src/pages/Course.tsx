@@ -798,8 +798,8 @@ export default function Course() {
 
   if (!course) {
     return (
-      <div className="min-h-[100vh] grid grid-cols-1 lg:grid-cols-12 gap-8 animate-pulse" style={{ animationDuration: '2s' }}>
-        <div className="lg:col-span-4 space-y-6">
+      <div className="min-h-[100vh] grid grid-cols-1 lg:grid-cols-12 gap-6 animate-pulse" style={{ animationDuration: '2s' }}>
+        <div className="lg:col-span-4 space-y-4">
           <GlassCard hover={false}>
             <div className="h-6 w-28 rounded-full bg-slate-200 mb-4" />
             <div className="h-8 w-3/4 rounded-2xl bg-slate-200 mb-3" />
@@ -832,9 +832,9 @@ export default function Course() {
 
   return (
     <>
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Left: Course Info */}
-      <div className="lg:col-span-4 space-y-6">
+      <div className="lg:col-span-4 space-y-4">
         <GlassCard className="bg-gradient-to-b from-cyan-50/80 to-white" hover={false}>
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-white rounded-full text-xs font-bold text-cyan-600 shadow-sm ring-1 ring-cyan-200/60 mb-4">
             <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
@@ -842,9 +842,9 @@ export default function Course() {
           </div>
 
           <h2 className="text-2xl font-bold text-slate-800 mb-1 animate-fade-in" style={{ animationDelay: '0.05s' }}>{course.name}</h2>
-          <p className="text-slate-500 font-medium mb-6">{course.department}</p>
+          <p className="text-slate-500 font-medium mb-4">{course.department}</p>
           {Array.isArray(course.semesters) && course.semesters.length > 0 && (
-            <div className="mb-6 flex flex-wrap gap-2">
+            <div className="mb-4 flex flex-wrap gap-2">
               {course.semesters.map((s) => (
                 <span
                   key={s}
@@ -894,7 +894,7 @@ export default function Course() {
             </div>
           </div>
 
-          <div className="mt-6 pt-6 border-t border-cyan-100/50">
+          <div className="mt-5 pt-5 border-t border-cyan-100/50">
             <Link
               to={`/write-review/${course.id}`}
               data-tour="tour-write-review-button"
