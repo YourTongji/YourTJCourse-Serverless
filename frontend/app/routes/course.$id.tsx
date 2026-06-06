@@ -6,7 +6,7 @@ import {
   type LoaderFunctionArgs,
   type MetaFunction,
 } from "react-router";
-import { Star, Heart, User, BookOpen, Sparkles, ChevronDown } from "lucide-react";
+import { Star, Heart, User, BookOpen, Sparkles, ChevronDown, ArrowLeft } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -306,6 +306,15 @@ export default function CourseDetail() {
 
   return (
     <>
+      <div className="mb-4">
+        <Link
+          to="/courses"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-cyan-600 transition-colors"
+        >
+          <ArrowLeft className="size-4" />
+          返回课程列表
+        </Link>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-8">
       {/* ─── Left Panel ─── */}
       <div className="space-y-4">
