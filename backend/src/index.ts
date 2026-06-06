@@ -6,6 +6,7 @@ import { cacheControlMiddleware } from './middleware/cache-control'
 import publicRoutes from './routes/public'
 import adminRoutes from './routes/admin'
 import settingsRoutes from './routes/settings'
+import aiSummaryRoutes from './routes/ai-summary'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -25,6 +26,7 @@ app.onError((err, c) => {
 app.route('/api', publicRoutes)
 app.route('/api/settings', settingsRoutes)
 app.route('/api/admin', adminRoutes)
+app.route('/api', aiSummaryRoutes)
 
 // pk(排课模拟器) 兼容接口：给嵌入的 Vue 子应用使用
 registerPkRoutes(app)
