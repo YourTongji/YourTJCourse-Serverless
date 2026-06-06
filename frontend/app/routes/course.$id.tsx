@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useLoaderData,
   Link,
@@ -15,6 +16,8 @@ import { Button } from "~/components/ui/button";
 import { Avatar, AvatarFallback } from "~/components/ui/avatar";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Separator } from "~/components/ui/separator";
+import { getClientId } from "~/lib/clientId";
+import { WalletSheet } from "~/lib/credit";
 
 /* ─── Types ─── */
 
@@ -126,27 +129,34 @@ function getInitial(name: string): string {
 /* ─── Review Card ─── */
 
 function ReviewCard({ review }: { review: Review }) {
+  const queryClient = useQueryClient();
   const [liked, setLiked] = useState(review.liked);
   const [likeCount, setLikeCount] = useState(review.like_count);
-  const [liking, setLiking] = useState(false);
 
-  const toggleLike = async () => {
-    if (liking) return;
-    setLiking(true);
-    try {
+  const likeMutation = useMutation({
+    mutationFn: async ({ liked: wasLiked }: { liked: boolean }) => {
+      const clientId = getClientId();
       const res = await fetch(`/api/review/${review.id}/like`, {
-        method: liked ? "DELETE" : "POST",
+        method: wasLiked ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: "temp-anonymous" }),
+        body: JSON.stringify({ clientId }),
       });
-      if (res.ok) {
-        setLiked((prev) => !prev);
-        setLikeCount((c) => (liked ? c - 1 : c + 1));
-      }
-    } finally {
-      setLiking(false);
-    }
-  };
+      if (!res.ok) throw new Error("Failed to toggle like");
+      return res.json();
+    },
+    onMutate: async ({ liked: wasLiked }) => {
+      await queryClient.cancelQueries({ queryKey: ["course"] });
+      setLiked((prev) => !prev);
+      setLikeCount((c) => (wasLiked ? c - 1 : c + 1));
+    },
+    onError: (_err, { liked: wasLiked }) => {
+      setLiked(wasLiked);
+      setLikeCount((c) => (wasLiked ? c + 1 : c - 1));
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["course"] });
+    },
+  });
 
   const displayName = review.reviewer_name || "匿名";
 
@@ -201,8 +211,8 @@ function ReviewCard({ review }: { review: Review }) {
             className={`gap-1 text-xs h-6 px-2 ${
               liked ? "text-red-500 hover:text-red-600" : "text-muted-foreground"
             }`}
-            onClick={toggleLike}
-            disabled={liking}
+            onClick={() => likeMutation.mutate({ liked })}
+            disabled={likeMutation.isPending}
           >
             <Heart
               className={`size-3.5 ${liked ? "fill-red-500 text-red-500" : ""}`}
@@ -295,7 +305,8 @@ export default function CourseDetail() {
   const hasMoreReviews = course.reviews.length > INITIAL_REVIEW_COUNT;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-8">
+    <>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-8">
       {/* ─── Left Panel ─── */}
       <div className="space-y-4">
         {/* Course Info Card */}
@@ -434,5 +445,11 @@ export default function CourseDetail() {
         )}
       </div>
     </div>
+
+    {/* Wallet floating button */}
+    <div className="fixed bottom-6 right-6 z-40">
+      <WalletSheet />
+    </div>
+    </>
   );
 }
