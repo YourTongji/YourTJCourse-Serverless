@@ -47,7 +47,10 @@ export interface courseInfo {
     courseNameReserved: string;
     courseCode: string;
     courseType: string;
+    faculty?: string;
     credit: number;
+    courseNature?: string[];
+    campus?: string[];
     status: number,
     teacher: string[];
     courseDetail: courseDetaillet[];

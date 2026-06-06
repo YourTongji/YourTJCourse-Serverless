@@ -18,9 +18,15 @@
             >
                 <template #bodyCell="{ column, record }">
                     <template v-if="column.key === 'campus'">
-                        <div :class="getCampusClass(record.campus)" class="absolute inset-0 flex items-center justify-center">
-                            <p>{{ record.campus }}</p>
+                        <div :class="getCampusClass(formatCampus(record.campus))" class="absolute inset-0 flex items-center justify-center">
+                            <p>{{ formatCampus(record.campus) || '-' }}</p>
                         </div>
+                    </template>
+                    <template v-else-if="column.key === 'teachers'">
+                        <span>{{ formatTeachers(record.teachers) || '-' }}</span>
+                    </template>
+                    <template v-else-if="column.key === 'arrangementInfo'">
+                        <span>{{ formatArrangementList(record.arrangementInfo) || '-' }}</span>
                     </template>
                     <template v-else-if="column.key === 'status'">
                         <span :class="getStatusTextColor(record.status)">
@@ -51,8 +57,8 @@
                                 <div class="text-sm font-bold text-slate-800 truncate">{{ d.code }}</div>
                             </div>
                             <div class="mt-1 text-[11px] text-slate-500">
-                                <span>教师：{{ (d.teachers || []).map((t: any) => t.teacherName).join('、') || '未知' }}</span>
-                                <span class="ml-2">语言：{{ d.teachingLanguage || '-' }}</span>
+                                <span>教师：{{ formatTeachers(d.teachers) || '未知' }}</span>
+                                <span class="ml-2">语言：{{ formatPlainText(d.teachingLanguage) || '-' }}</span>
                             </div>
                         </div>
                         <div class="shrink-0 text-[11px]" :class="getStatusTextColor(d.status)">
@@ -60,14 +66,26 @@
                         </div>
                     </div>
 
-                    <div class="mt-2">
-                        <div class="inline-flex items-center gap-2 text-[11px] text-slate-600">
-                            <span class="px-2 py-1 rounded-lg" :class="getCampusClass(d.campus)">{{ d.campus || '-' }}</span>
-                        </div>
+                    <div class="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                        <span class="px-2 py-1 rounded-lg" :class="getCampusClass(formatCampus(d.campus))">
+                            {{ formatCampus(d.campus) || '-' }}
+                        </span>
+                        <span
+                            v-if="formatPlainText(d.teachingLanguage)"
+                            class="rounded-lg bg-slate-100 px-2 py-1 text-slate-600"
+                        >
+                            {{ formatPlainText(d.teachingLanguage) }}
+                        </span>
                     </div>
 
-                    <div class="mt-2 text-[11px] leading-snug text-slate-700 whitespace-pre-wrap break-words">
-                        {{ (d.arrangementInfo || []).map((a: any) => a.arrangementText).join('\\n') }}
+                    <div class="mt-3 space-y-1.5">
+                        <div
+                            v-for="(line, lineIndex) in arrangementLines(d.arrangementInfo)"
+                            :key="d.code + '_arr_' + lineIndex"
+                            class="rounded-xl bg-slate-50 px-2.5 py-2 text-[11px] leading-relaxed text-slate-700"
+                        >
+                            {{ line }}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -91,6 +109,52 @@ import type { teacherlet, arrangementInfolet, courseDetaillet, stagedCourse } fr
 import CourseReviewDrawer from './CourseReviewDrawer.vue';
 import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
 
+function formatCampusValue(value: unknown): string {
+    if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (!trimmed || trimmed === '[]' || trimmed === '[""]') return ''
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+            try {
+                return formatCampusValue(JSON.parse(trimmed))
+            } catch {
+                return trimmed
+            }
+        }
+        return trimmed
+    }
+    if (Array.isArray(value)) {
+        return value
+            .flatMap((item) => formatCampusValue(item).split('、'))
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .join('、')
+    }
+    return ''
+}
+
+function formatPlainTextValue(value: unknown): string {
+    if (value === null || value === undefined) return ''
+    return String(value)
+        .replace(/\\r\\n|\\n|\\r/g, ' ')
+        .replace(/\r\n|\n|\r/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+function arrangementTextLines(value: unknown): string[] {
+    if (value === null || value === undefined) return []
+    return String(value)
+        .replace(/\\r\\n|\\n|\\r/g, '\n')
+        .split(/\r\n|\n|\r/)
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+}
+
+function formatArrangementInfo(value: unknown): string[] {
+    if (!Array.isArray(value)) return []
+    return value.flatMap((item: any) => arrangementTextLines(item?.arrangementText))
+}
+
     export default {
         components: { CourseReviewDrawer, ATable: Table, ATag: Tag },
         data() {
@@ -112,8 +176,7 @@ import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
                         title: '教师',
                         dataIndex: 'teachers',
                         key: 'teachers',
-                        align: 'center',
-                        customRender: ({ text }: { text: teacherlet[] }) => text?.map(teacher => teacher.teacherName).join(', ')
+                        align: 'center'
                     },
                     {
                         title: '校区',
@@ -131,8 +194,7 @@ import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
                         title: '课程安排',
                         dataIndex: 'arrangementInfo',
                         key: 'arrangementInfo',
-                        align: 'center',
-                        customRender: ({ text }: { text: arrangementInfolet[] }) => text?.map(arrangement => arrangement.arrangementText).join(', ')
+                        align: 'center'
                     },
                     {
                         title: '状态',
@@ -214,6 +276,26 @@ import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
             selectDetail(courseDetaillet: courseDetaillet) {
                 this.syncTeacherSelection(courseDetaillet)
                 this.$store.commit('updateTimeTable', courseDetaillet);
+            },
+            formatCampus(campus: unknown) {
+                return formatCampusValue(campus)
+            },
+            formatPlainText(value: unknown) {
+                return formatPlainTextValue(value)
+            },
+            formatTeachers(teachers: unknown) {
+                if (!Array.isArray(teachers)) return ''
+                return teachers
+                    .map((teacher: any) => formatPlainTextValue(teacher?.teacherName))
+                    .filter(Boolean)
+                    .join('、')
+            },
+            arrangementLines(arrangementInfo: unknown) {
+                const lines = formatArrangementInfo(arrangementInfo)
+                return lines.length > 0 ? lines : ['暂无课程安排']
+            },
+            formatArrangementList(arrangementInfo: unknown) {
+                return formatArrangementInfo(arrangementInfo).join(', ')
             },
             getCampusClass(campus: string) {
                 switch (campus) {
