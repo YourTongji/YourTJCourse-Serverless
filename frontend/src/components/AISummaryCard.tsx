@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { API_BASE } from '../services/api'
 
 interface AiSummaryData {
   rating_consensus: string
@@ -19,7 +20,7 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
     setState('loading')
     try {
       const res = await fetch(
-        `/api/course/${courseId}/summary${refresh ? '?refresh=true' : ''}`
+        `${API_BASE}/api/course/${courseId}/summary${refresh ? '?refresh=true' : ''}`
       )
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
