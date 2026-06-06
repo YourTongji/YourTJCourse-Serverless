@@ -28,7 +28,7 @@
             </div>
           </div>
 
-          <div class="p-4 flex-1 overflow-hidden">
+          <div class="review-panel__body p-4 flex-1 overflow-hidden">
             <a-spin :spinning="loading">
               <div v-if="error" class="text-red-500 text-sm">{{ error }}</div>
 
@@ -36,7 +36,7 @@
                 暂无评价
               </div>
 
-              <div v-else class="mt-2">
+              <div v-else class="review-panel__content">
                 <div class="review-viewport">
                   <div v-if="reviews.length > 1" class="fan-card fan-left">
                     <ReviewFanCard :review="prevReview" />
@@ -383,10 +383,24 @@ export default {
   transition: transform 260ms ease, opacity 260ms ease, filter 260ms ease;
 }
 
+.review-panel__body :deep(.ant-spin-nested-loading),
+.review-panel__body :deep(.ant-spin-container) {
+  height: 100%;
+}
+
+.review-panel__content {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+}
+
 .review-viewport {
   position: relative;
+  width: 100%;
   height: 100%;
-  min-height: 320px;
+  min-height: min(440px, calc(100dvh - 190px));
+  max-height: calc(100dvh - 150px);
   display: flex;
   align-items: center;
   justify-content: center;

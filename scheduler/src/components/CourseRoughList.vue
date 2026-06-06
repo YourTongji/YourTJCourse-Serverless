@@ -264,6 +264,7 @@ export default {
             } else {
                 // 清除操作直接执行，无需确认
                 this.$store.commit('popStagedCourse', record.courseCode);
+                this.$store.commit('solidify');
             }
         }
     },
