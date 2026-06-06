@@ -55,6 +55,20 @@ export interface SiteRuntimeStateResponse {
   updatedAt: number
 }
 
+async function readApiErrorMessage(res: Response, fallback: string) {
+  const text = await res.text().catch(() => '')
+  if (text) {
+    try {
+      const json = JSON.parse(text)
+      const message = String(json?.error || json?.message || '').trim()
+      if (message) return message
+    } catch {
+      // Fall back to raw response text below.
+    }
+  }
+  return text || fallback
+}
+
 export async function fetchCourses(
   keyword?: string,
   legacy?: boolean,
@@ -139,13 +153,7 @@ export async function submitReview(data: {
     body: JSON.stringify(data)
   }, 15000)
   if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    try {
-      const json = JSON.parse(text)
-      throw new Error(json?.error || json?.message || `提交失败 (HTTP ${res.status})`)
-    } catch {
-      throw new Error(text || `提交失败 (HTTP ${res.status})`)
-    }
+    throw new Error(await readApiErrorMessage(res, `提交失败 (HTTP ${res.status})`))
   }
   return res.json()
 }
@@ -194,13 +202,7 @@ export async function updateReview(reviewId: number, data: {
     body: JSON.stringify(data)
   }, 15000)
   if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    try {
-      const json = JSON.parse(text)
-      throw new Error(json?.error || json?.message || `提交失败 (HTTP ${res.status})`)
-    } catch {
-      throw new Error(text || `提交失败 (HTTP ${res.status})`)
-    }
+    throw new Error(await readApiErrorMessage(res, `提交失败 (HTTP ${res.status})`))
   }
   return res.json()
 }
