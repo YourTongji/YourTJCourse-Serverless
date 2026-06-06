@@ -572,6 +572,7 @@ export default function CoursesPage() {
         }
         .marquee-row {
           display: flex;
+          gap: 1rem;
           width: fit-content;
           animation: marqueeRow var(--speed, 60s) linear infinite;
         }
