@@ -14,6 +14,7 @@ import {
   SheetTrigger,
 } from "~/components/ui/sheet";
 import { Menu } from "lucide-react";
+import AnnouncementBell from "~/components/AnnouncementBell";
 
 const NAV_ITEMS = [
   { to: "/courses", label: "课程目录" },
@@ -56,6 +57,8 @@ export default function Layout() {
 
           {/* Right actions */}
           <div className="flex items-center gap-0.5 shrink-0">
+            <AnnouncementBell />
+
             {/* Mobile sheet trigger */}
             <Sheet>
               <SheetTrigger
