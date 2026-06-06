@@ -183,7 +183,8 @@ export default function Courses() {
       } else {
         setCourses(shouldShuffle ? shuffleCoursesForSession(nextCourses, sessionShuffleSeed) : nextCourses)
       }
-      setHasMore(Boolean(data.hasMore))
+      const total = typeof data.total === 'number' ? data.total : null
+      setHasMore(total != null ? nextPage * PAGE_SIZE < total : Boolean(data.hasMore))
       setPage(nextPage)
     } catch (err) {
       console.error('Failed to fetch courses:', err)
