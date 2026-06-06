@@ -5,12 +5,12 @@ import { generateSummary } from '../helpers/summary'
 
 const aiSummary = new Hono<{ Bindings: Bindings }>()
 
-// Per-course rate limit (10 min window)
+// Per-course rate limit (10 min window) — only for active AI generation
 const summaryRateLimit = new Map<string, { count: number; windowStart: number }>()
 const SUMMARY_LIMIT_WINDOW = 600_000 // 10 min
 const SUMMARY_LIMIT_MAX = 1
 
-function checkSummaryLimit(courseId: string | number): boolean {
+function tryConsumeLimit(courseId: string | number): boolean {
   const key = `course:${courseId}`
   const now = Date.now()
   const entry = summaryRateLimit.get(key)
@@ -23,6 +23,14 @@ function checkSummaryLimit(courseId: string | number): boolean {
   return true
 }
 
+interface AiSummaryRow {
+  course_id: number
+  summary_json: string
+  rating_consensus: string
+  model: string
+  generated_at: number
+}
+
 aiSummary.get('/course/:id/summary', async (c) => {
   try {
     const courseId = Number(c.req.param('id'))
@@ -31,25 +39,37 @@ aiSummary.get('/course/:id/summary', async (c) => {
     }
 
     const refresh = c.req.query('refresh') === 'true'
-    const cacheKey = `summary:${courseId}`
+    const db = c.env.DB
 
-    // Check cache (unless refresh)
+    // Try DB lookup first (unless refresh)
     if (!refresh) {
-      const cache = caches.default
-      const cached = await cache.match(`https://jcourse-summary/${cacheKey}`)
-      if (cached) {
-        const data: any = await cached.json()
-        return c.json({ ...(data || {}), cache: 'hit' })
+      const row = await db
+        .prepare('SELECT course_id, summary_json, rating_consensus, model, generated_at FROM ai_summaries WHERE course_id = ?')
+        .bind(courseId)
+        .first<AiSummaryRow>()
+
+      if (row) {
+        const data: AiSummaryResult = JSON.parse(row.summary_json)
+        return c.json({ data, generatedAt: Number(row.generated_at) * 1000, cache: 'db' })
       }
     }
 
-    // Rate limit (only applies to active generation)
-    if (!checkSummaryLimit(courseId)) {
-      return c.json({ error: '该课程的 AI 总结已生成，10 分钟内可刷新一次' }, 429)
+    // Rate limit — protects AI API calls
+    if (!tryConsumeLimit(courseId)) {
+      // Rate limited: try DB fallback (for when refresh is rate-limited but DB has data)
+      const row = await db
+        .prepare('SELECT course_id, summary_json, rating_consensus, model, generated_at FROM ai_summaries WHERE course_id = ?')
+        .bind(courseId)
+        .first<AiSummaryRow>()
+      if (row) {
+        const data: AiSummaryResult = JSON.parse(row.summary_json)
+        return c.json({ data, generatedAt: Number(row.generated_at) * 1000, cache: 'rate-limited' })
+      }
+      return c.json({ error: '该课程正在生成总结，请稍后再试' }, 429)
     }
 
     // Get course info
-    const course = await c.env.DB
+    const course = await db
       .prepare('SELECT id, code, name FROM courses WHERE id = ? LIMIT 1')
       .bind(courseId)
       .first<{ id: number; code: string; name: string }>()
@@ -57,7 +77,7 @@ aiSummary.get('/course/:id/summary', async (c) => {
     if (!course) return c.json({ error: 'Course not found' }, 404)
 
     // Get reviews (non-hidden, with content)
-    const { results } = await c.env.DB
+    const { results } = await db
       .prepare(
         `SELECT id, rating, comment FROM reviews
          WHERE course_id = ? AND is_hidden = 0 AND comment IS NOT NULL AND comment != ''
@@ -89,18 +109,27 @@ aiSummary.get('/course/:id/summary', async (c) => {
     // Generate summary via AI
     const data = await generateSummary(c.env, course.name, course.code, reviews)
 
-    const responseBody = { data, generatedAt: Date.now() }
+    const nowUnix = Math.floor(Date.now() / 1000)
+    const model = String(c.env.AI_SUMMARY_MODEL || '').trim() || 'qwen3.6-flash-2026-04-16'
 
-    // Cache for 1 hour
-    const cacheRes = new Response(JSON.stringify(responseBody), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=3600'
-      }
-    })
-    c.executionCtx.waitUntil(caches.default.put(`https://jcourse-summary/${cacheKey}`, cacheRes.clone()))
+    // Persist to DB
+    c.executionCtx.waitUntil(
+      db
+        .prepare(
+          `INSERT OR REPLACE INTO ai_summaries (course_id, summary_json, rating_consensus, model, generated_at)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .bind(
+          courseId,
+          JSON.stringify(data),
+          data.rating_consensus || '',
+          model,
+          nowUnix
+        )
+        .run()
+    )
 
-    return c.json({ ...responseBody, cache: 'miss' })
+    return c.json({ data, generatedAt: nowUnix * 1000, cache: 'miss' })
   } catch (err: any) {
     console.error('AI summary error:', err)
     return c.json({ error: err.message || '生成失败' }, 500)
