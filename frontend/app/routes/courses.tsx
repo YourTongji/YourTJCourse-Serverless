@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, Link, type MetaFunction } from "react-router";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Search,
   ChevronRight,
-  ChevronDown,
   Filter,
   RefreshCw,
   X,
@@ -24,7 +23,7 @@ import {
 } from "~/components/ui/sheet";
 import { Separator } from "~/components/ui/separator";
 import { Checkbox } from "~/components/ui/checkbox";
-import { useInfiniteCourseListQuery } from "~/lib/queries";
+import { useCourseListQuery } from "~/lib/queries";
 import type { CourseFilters } from "~/lib/queries";
 import { cn } from "~/lib/utils";
 
@@ -201,20 +200,17 @@ export default function CoursesPage() {
     campus: campus || undefined,
   };
 
-  const queryOptions = useInfiniteCourseListQuery(q, filters);
+  const queryOptions = useCourseListQuery(q, filters);
   const {
     data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
     isLoading,
     isError,
     error,
     refetch,
-  } = useInfiniteQuery(queryOptions);
+  } = useQuery(queryOptions);
 
-  const courses = data?.pages.flatMap((p) => p.data) ?? [];
-  const total = data?.pages[0]?.total;
+  const courses = data?.data ?? [];
+  const total = data?.total;
 
   // Local state for search input
   const [searchValue, setSearchValue] = useState(q);
@@ -722,36 +718,7 @@ export default function CoursesPage() {
       )}
       {/* end course marquee */}
 
-      {/* ─── Load more ─── */}
-      {!isLoading && !isError && courses.length > 0 && (
-        <div className="flex justify-center py-6">
-          {hasNextPage ? (
-            <Button
-              variant="outline"
-              size="lg"
-              disabled={isFetchingNextPage}
-              onClick={() => fetchNextPage()}
-              className="min-w-48"
-            >
-              {isFetchingNextPage ? (
-                <>
-                  <RefreshCw className="mr-2 size-4 animate-spin" />
-                  加载中...
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="mr-2 size-4" />
-                  加载更多课程
-                </>
-              )}
-            </Button>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              已显示全部课程
-            </p>
-          )}
-        </div>
-      )}
+
     </div>
   );
 }
