@@ -538,7 +538,7 @@ export default function Courses() {
 
         {!isInitialLoading && !error && (
           <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:gap-4">
+            <div className="columns-1 gap-3 sm:columns-2 lg:columns-3 xl:gap-4">
               {courses.map((course, index) => {
                 const semesters = Array.isArray(course.semesters) ? course.semesters.map(formatSemesterLabel).filter(Boolean) : []
                 const uniqueSemesters = Array.from(new Set(semesters))
@@ -555,9 +555,9 @@ export default function Courses() {
                     key={course.id}
                     to={`/course/${course.id}`}
                     data-tour={course.id === tourTargetCourseId ? 'tour-course-target' : undefined}
-                    className="block h-full"
+                    className="mb-3 block break-inside-avoid xl:mb-4"
                   >
-                    <GlassCard hover={false} className="animate-scale-in group flex min-h-[172px] flex-col justify-between border-white/70 bg-white/80 !p-4 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_12px_30px_-8px_rgba(6,182,212,0.22)] hover:border-cyan-200/80" style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
+                    <GlassCard hover={false} className="animate-scale-in group flex flex-col border-white/70 bg-white/80 !p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_30px_-8px_rgba(6,182,212,0.22)] hover:border-cyan-200/80" style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
                       <div>
                         <div className="mb-2 flex items-start justify-between gap-3">
                           <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] font-bold tracking-wide ${course.is_legacy ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-cyan-100 bg-cyan-50 text-cyan-700'}`}>
@@ -578,7 +578,7 @@ export default function Courses() {
                           )}
                         </div>
 
-                        <h3 className="mb-1 line-clamp-1 text-base font-bold text-slate-800 transition-colors group-hover:text-cyan-700 md:text-lg">
+                        <h3 className="mb-1 line-clamp-2 text-base font-bold text-slate-800 transition-colors group-hover:text-cyan-700 md:text-lg">
                           {course.name}
                         </h3>
 
