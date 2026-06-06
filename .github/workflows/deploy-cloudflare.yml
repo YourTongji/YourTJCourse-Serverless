@@ -93,6 +93,11 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Apply backend migrations
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute jcourse-db --remote --file="./migrations/015_ai_summaries.sql"
+
       - name: Ensure backend secrets
         run: |
           set -euo pipefail
