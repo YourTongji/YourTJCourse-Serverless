@@ -116,6 +116,7 @@ export async function ensureDbInitialized(db: D1Database) {
       await ensurePkSearchIndexes(db)
       await ensureCourseSearchIndexes(db)
       await ensureReviewLikesTable(db)
+      await ensureReviewReportsTable(db)
       await ensureReviewsWalletColumn(db)
       await ensureLegacyAutoDocsPurged(db)
       await ensureCourseAuxiliaryTables(db)
@@ -495,6 +496,26 @@ export async function ensureReviewLikesTable(db: D1Database) {
     .run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_likes_review_id ON review_likes(review_id)').run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_likes_client_id ON review_likes(client_id)').run()
+}
+
+export async function ensureReviewReportsTable(db: D1Database) {
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS review_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        review_id INTEGER NOT NULL,
+        client_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        status TEXT DEFAULT 'open',
+        created_at INTEGER DEFAULT (strftime('%s', 'now')),
+        updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+        UNIQUE(review_id, client_id),
+        FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
+      )`
+    )
+    .run()
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_review_id ON review_reports(review_id)').run()
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_status ON review_reports(status)').run()
 }
 
 export async function ensureReviewsWalletColumn(db: D1Database) {
