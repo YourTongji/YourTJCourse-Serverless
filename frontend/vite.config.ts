@@ -11,4 +11,12 @@ export default defineConfig({
     reactRouter(),
     tsconfigPaths(),
   ],
+  server: {
+    proxy: {
+      "/api": {
+        target: "https://jcourse.yourtj.de",
+        changeOrigin: true,
+      },
+    },
+  },
 });
