@@ -9,6 +9,7 @@ import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } fro
 import { getOrCreateClientId } from '../utils/clientId'
 import { loadCreditWallet } from '../utils/creditWallet'
 import { formatSemesterLabel } from '../utils/format'
+import AISummaryCard from '../components/AISummaryCard'
 
 interface Review {
   id: number
@@ -906,6 +907,8 @@ export default function Course() {
             </Link>
           </div>
         </GlassCard>
+
+        {course?.id && <AISummaryCard courseId={course.id} />}
 
         <GlassCard className="bg-white/90" hover={false}>
           {showCollapsedRelatedPanel ? (
