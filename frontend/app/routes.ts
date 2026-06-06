@@ -11,5 +11,10 @@ export const routes: RouteConfig = [
     route("courses", "routes/courses.tsx"),
     route("course/:id", "routes/course.$id.tsx"),
     route("course/:id/write", "routes/course.$id_.write.tsx"),
+    route("about", "routes/about.tsx"),
+    route("faq", "routes/faq.tsx"),
+    route("feedback", "routes/feedback.tsx"),
+    route("schedule", "routes/schedule.tsx"),
+    route("admin", "routes/admin.tsx"),
   ]),
 ];
