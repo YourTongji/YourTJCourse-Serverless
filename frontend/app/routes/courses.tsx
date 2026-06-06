@@ -557,7 +557,7 @@ export default function CoursesPage() {
         </div>
       )}
 
-      {/* ─── Course marquee carousel ─── */}
+      {/* ─── Course marquee 3-row carousel ─── */}
       <style>{`
         @keyframes cardEnter {
           from { opacity: 0; transform: translateY(16px); }
@@ -566,31 +566,44 @@ export default function CoursesPage() {
         .course-card-wrapper {
           animation: cardEnter 0.35s ease-out both;
         }
-        @keyframes marqueeScroll {
+        @keyframes marqueeRow {
           from { transform: translateX(0); }
           to   { transform: translateX(-50%); }
         }
-        .marquee-track {
-          animation: marqueeScroll 60s linear infinite;
+        .marquee-row {
           display: flex;
           width: fit-content;
+          animation: marqueeRow var(--speed, 60s) linear infinite;
         }
-        .marquee-track:hover {
+        .marquee-row:hover {
           animation-play-state: paused;
         }
-        /* card vertical stagger offsets */
-        .marquee-card:nth-child(3n+2) { margin-top: 16px; }
-        .marquee-card:nth-child(3n+3) { margin-top: 8px; }
-        @media (max-width: 640px) {
-          .marquee-card:nth-child(odd) { margin-top: 10px; }
-          .marquee-card:nth-child(even) { margin-top: 0; }
+        .marquee-row-inner {
+          display: flex;
+          gap: 1rem;
+          padding: 0 0.5rem;
+        }
+        .marquee-card {
+          width: 16rem;
+          flex-shrink: 0;
+        }
+        .marquee-card .card-inner {
+          display: flex;
+          flex-direction: column;
+        }
+        .marquee-card .card-inner .card-grow {
+          flex: 1;
         }
       `}</style>
 
       {isLoading ? (
-        <div className="flex gap-4 overflow-hidden">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="w-64 shrink-0"><SkeletonCard /></div>
+        <div className="space-y-4">
+          {[0, 1, 2].map((row) => (
+            <div key={row} className="flex gap-4 overflow-hidden">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="w-64 shrink-0"><SkeletonCard /></div>
+              ))}
+            </div>
           ))}
         </div>
       ) : isError ? (
@@ -598,53 +611,62 @@ export default function CoursesPage() {
       ) : courses.length === 0 ? (
         <EmptyState hasFilters={hasFilters} />
       ) : (
-        <div className="overflow-hidden rounded-xl">
-          <div className="marquee-track gap-5 px-2">
-            {/* Double the list for seamless loop */}
-            {[...courses, ...courses].map((course, i) => (
-              <div
-                key={`${course.id}-${i}`}
-                className="marquee-card w-64 shrink-0 course-card-wrapper"
-                style={{ animationDelay: `${(i % courses.length) * 50}ms` }}
-              >
-                <Link to={`/course/${course.id}`} className="group block">
-                  <Card className="transition-all duration-200 hover:scale-[1.03] hover:shadow-md">
-                    <CardHeader>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="font-mono text-[10px]">
-                          {course.code}
-                        </Badge>
-                        <Badge className="flex items-center gap-1 bg-amber-50 text-amber-700 border-amber-200">
-                          <Star className="size-3 fill-amber-400 text-amber-400" />
-                          {course.rating ? course.rating.toFixed(1) : "N/A"}
-                        </Badge>
-                      </div>
-                      <CardTitle className="mt-2 line-clamp-1 group-hover:text-cyan-600 transition-colors">
-                        {course.name}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-1 text-sm text-muted-foreground">
-                        {course.teacher_name && <p className="truncate">{course.teacher_name}</p>}
-                        {course.semesters && course.semesters.length > 0 && (
-                          <p className="truncate text-xs text-muted-foreground/70">
-                            {course.semesters.join("、")}
-                          </p>
-                        )}
-                      </div>
-                      <Separator className="my-2" />
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{course.review_count ?? 0} 条评价</span>
-                        <span className="inline-flex items-center gap-0.5 text-cyan-600 transition-colors group-hover:text-cyan-500">
-                          详情 <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
+        <div className="space-y-4">
+          {/* Split courses into 3 rows */}
+          {[0, 1, 2].map((rowIndex) => {
+            const slice = courses.filter((_, i) => i % 3 === rowIndex);
+            const rowSpeed = `${[70, 55, 85][rowIndex]}s`;
+            return (
+              <div key={rowIndex} className="overflow-hidden rounded-xl">
+                <div className="marquee-row" style={{ "--speed": rowSpeed } as React.CSSProperties}>
+                  {/* Double for seamless loop */}
+                  {[...slice, ...slice].map((course, i) => (
+                    <div
+                      key={`${course.id}-${rowIndex}-${i}`}
+                      className="marquee-card course-card-wrapper"
+                      style={{ animationDelay: `${(i % slice.length) * 60}ms` }}
+                    >
+                      <Link to={`/course/${course.id}`} className="group block">
+                        <Card className="card-inner transition-all duration-200 hover:scale-[1.03] hover:shadow-md h-full">
+                          <CardHeader>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="font-mono text-[10px]">
+                                {course.code}
+                              </Badge>
+                              <Badge className="flex items-center gap-1 bg-amber-50 text-amber-700 border-amber-200">
+                                <Star className="size-3 fill-amber-400 text-amber-400" />
+                                {course.rating ? course.rating.toFixed(1) : "N/A"}
+                              </Badge>
+                            </div>
+                            <CardTitle className="mt-2 line-clamp-1 group-hover:text-cyan-600 transition-colors">
+                              {course.name}
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="card-grow">
+                            <div className="space-y-1 text-sm text-muted-foreground">
+                              {course.teacher_name && <p className="truncate">{course.teacher_name}</p>}
+                              {course.semesters && course.semesters.length > 0 && (
+                                <p className="truncate text-xs text-muted-foreground/70">
+                                  {course.semesters.join("、")}
+                                </p>
+                              )}
+                            </div>
+                            <Separator className="my-2" />
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>{course.review_count ?? 0} 条评价</span>
+                              <span className="inline-flex items-center gap-0.5 text-cyan-600 transition-colors group-hover:text-cyan-500">
+                                详情 <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+                              </span>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
       {/* end course marquee */}
