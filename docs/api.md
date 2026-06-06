@@ -94,6 +94,7 @@ GET /api/course/by-code/:code
 ```http
 POST /api/review
 PUT /api/review/:id
+POST /api/review/:id/report
 POST /api/review/:id/like
 DELETE /api/review/:id/like
 ```
@@ -120,6 +121,14 @@ DELETE /api/review/:id/like
 ```
 
 当前没有点踩接口。取消点赞使用 `DELETE /api/review/:id/like`。
+
+举报接口用于 App Store UGC 合规，`reason` 支持 `spam`、`harassment`、`misinformation`、`other`：
+
+```json
+{ "reason": "spam", "clientId": "browser-client-id" }
+```
+
+同一服务端派生客户端对同一评价重复举报会更新原因与时间，不会重复创建多条记录。
 
 ## 排课模拟器接口
 

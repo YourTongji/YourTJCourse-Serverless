@@ -33,6 +33,7 @@ import {
   postCreditJcourseEvent,
   ensureReviewsWalletColumn,
   ensureReviewLikesTable,
+  ensureReviewReportsTable,
 } from '../helpers/db'
 import { verifyTurnstile, isAllowedTurnstileHostname } from '../helpers/turnstile'
 import { verifyTongjiCaptcha } from '../helpers/captcha'
@@ -47,6 +48,8 @@ import {
 } from '../helpers/cache'
 
 const publicRoutes = new Hono<{ Bindings: Bindings }>()
+
+const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'other'])
 
 async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
   const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
@@ -1099,6 +1102,46 @@ publicRoutes.put('/review/:id', async (c) => {
   await purgeRelatedCourseDetailCache(c.env.DB, Number(existing.course_id))
 
   return c.json({ success: true })
+})
+
+publicRoutes.post('/review/:id/report', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id) || id <= 0) return c.json({ error: 'Invalid review id' }, 400)
+
+  await ensureReviewReportsTable(c.env.DB)
+
+  const body = await c.req.json().catch(() => ({} as any))
+  const requestedClientId = String(body?.clientId || '').trim()
+  const rawReason = String(body?.reason || '').trim()
+  const reason = REPORT_REASONS.has(rawReason) ? rawReason : 'other'
+
+  if (!requestedClientId) return c.json({ error: 'Missing clientId' }, 400)
+
+  const clientId = await getReviewLikeClientKey(c)
+  if (!clientId) return c.json({ error: 'Unable to identify client' }, 400)
+
+  const existingReview = await c.env.DB
+    .prepare('SELECT id FROM reviews WHERE id = ? AND is_hidden = 0 LIMIT 1')
+    .bind(id)
+    .first<{ id: number }>()
+  if (!existingReview) return c.json({ error: 'Review not found' }, 404)
+
+  await c.env.DB
+    .prepare(
+      `INSERT INTO review_reports (review_id, client_id, reason, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'open', strftime('%s', 'now'), strftime('%s', 'now'))
+       ON CONFLICT(review_id, client_id)
+       DO UPDATE SET reason = excluded.reason, status = 'open', updated_at = strftime('%s', 'now')`
+    )
+    .bind(id, clientId, reason)
+    .run()
+
+  const report = await c.env.DB
+    .prepare('SELECT id FROM review_reports WHERE review_id = ? AND client_id = ? LIMIT 1')
+    .bind(id, clientId)
+    .first<{ id: number }>()
+
+  return c.json({ success: true, reportId: Number(report?.id || 0) || null })
 })
 
 publicRoutes.post('/review/:id/like', async (c) => {
