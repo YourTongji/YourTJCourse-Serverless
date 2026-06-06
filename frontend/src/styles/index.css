@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Custom Fonts ─── */
 @font-face {
   font-family: 'YuFanLixing';
   src: url('/fonts/YuFanLixing.otf') format('opentype');
@@ -20,118 +21,112 @@
   font-display: swap;
 }
 
-.yourtj-font-brand {
-  font-family: 'KKT', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
-}
+/* ─── Design Tokens (CSS Custom Properties) ─── */
+:root {
+  --color-cyan: 14 165 233;
+  --color-sky: 56 189 248;
+  --color-teal: 20 184 166;
+  --color-slate: 30 41 59;
+  --color-amber: 245 158 11;
+  --color-emerald: 16 185 129;
+  --color-rose: 244 63 94;
 
-.yourtj-font-slogan {
-  font-family: 'YuFanLixing', 'LXGW WenKai', 'HanziPen SC', 'STXingkai', 'Kaiti SC', 'KaiTi',
-    'STKaiti', 'Noto Serif SC', serif;
-}
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-shadow: 0 4px 24px -8px rgba(6, 182, 212, 0.12);
+  --glass-shadow-hover: 0 12px 48px -12px rgba(6, 182, 212, 0.22);
 
-.yourtj-font-domain {
-  font-family: 'AllertaStencil', 'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono',
+  --card-radius: 1.25rem;
+  --card-padding: 1.5rem;
+
+  --transition-default: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-spring: 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --font-brand: 'KKT', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --font-slogan: 'YuFanLixing', 'LXGW WenKai', 'HanziPen SC', 'STXingkai',
+    'Kaiti SC', 'KaiTi', 'STKaiti', 'Noto Serif SC', serif;
+  --font-mono: 'AllertaStencil', 'Cascadia Mono', 'JetBrains Mono',
     'SFMono-Regular', 'Menlo', 'Consolas', ui-monospace, monospace;
 }
 
-.yourtj-md-overlay {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
+/* ─── Font Utilities ─── */
+.yourtj-font-brand { font-family: var(--font-brand); }
+.yourtj-font-slogan { font-family: var(--font-slogan); }
+.yourtj-font-domain { font-family: var(--font-mono); }
 
-.yourtj-md-overlay::-webkit-scrollbar {
-  display: none;
-}
-
-.yourtj-scrollbar-hidden {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.yourtj-scrollbar-hidden::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
-}
-
-.yourtj-md-mirror {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.yourtj-markdown {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.yourtj-markdown .yourtj-md-table-wrap {
-  margin: 0.9rem 0;
-  overflow-x: auto;
-  border: 1px solid rgb(226 232 240);
-  border-radius: 0.9rem;
-  background: rgba(248, 250, 252, 0.75);
-}
-
-.yourtj-markdown table {
-  width: 100%;
-  min-width: 420px;
-  border-collapse: collapse;
-  font-size: 0.95em;
-}
-
-.yourtj-markdown thead {
-  background: rgba(226, 232, 240, 0.55);
-}
-
-.yourtj-markdown th,
-.yourtj-markdown td {
-  padding: 0.7rem 0.85rem;
-  border-bottom: 1px solid rgb(226 232 240);
-  border-right: 1px solid rgb(226 232 240);
-  text-align: left;
-  vertical-align: top;
-}
-
-.yourtj-markdown th:last-child,
-.yourtj-markdown td:last-child {
-  border-right: none;
-}
-
-.yourtj-markdown tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.yourtj-markdown blockquote {
-  margin: 0.9rem 0;
-  padding: 0.15rem 0 0.15rem 0.9rem;
-  border-left: 3px solid rgb(125 211 252);
-  color: rgb(71 85 105);
-  background: rgba(240, 249, 255, 0.55);
-}
-
-.yourtj-markdown hr {
-  margin: 1rem 0;
-  border: 0;
-  border-top: 1px solid rgb(226 232 240);
-}
-
-* {
-  margin: 0;
-  padding: 0;
+/* ─── Base Reset ─── */
+*, *::before, *::after {
   box-sizing: border-box;
 }
 
 @layer base {
   body {
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
     line-height: 1.6;
     color: #1e293b;
   }
 }
 
-/* Captcha modal: blur the whole app (everything except the modal itself, which is portaled to body) */
+/* ─── Background: Soft Gradient + Subtle Noise ─── */
+body {
+  background-color: #f6fafd;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 0% -10%, rgba(186, 230, 253, 0.35) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 100% 20%, rgba(167, 243, 208, 0.2) 0%, transparent 50%),
+    radial-gradient(ellipse 70% 40% at 50% 100%, rgba(191, 219, 254, 0.2) 0%, transparent 50%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(148, 163, 184, 0.015) 2px,
+      rgba(148, 163, 184, 0.015) 4px
+    );
+  background-attachment: fixed;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ─── Glass Card ─── */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--card-radius);
+  box-shadow: var(--glass-shadow);
+  padding: var(--card-padding);
+  transition: background var(--transition-default),
+              box-shadow var(--transition-default);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--glass-shadow-hover);
+}
+
+@media (max-width: 768px) {
+  .glass-card {
+    border-radius: 1rem;
+    padding: 1rem;
+  }
+  :root {
+    --card-radius: 1rem;
+    --card-padding: 1rem;
+  }
+}
+
+/* ─── Captcha Modal ─── */
 body.captcha-modal-open #root {
   filter: blur(12px) saturate(1.05);
   transform: scale(1.01);
@@ -143,41 +138,16 @@ body:not(.captcha-modal-open) #root {
   transition: filter 180ms ease, transform 180ms ease;
 }
 
+/* ─── Links ─── */
 a {
   color: #0ea5e9;
-  text-decoration: none;
   transition: color 0.2s;
 }
+a:hover { color: #0284c7; }
 
-a:hover {
-  color: #0284c7;
-}
+/* ─── Rating, Tags, Hidden Review ─── */
+.rating { color: #f59e0b; font-weight: 700; }
 
-/* 玻璃卡片基础样式 */
-.glass-card {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: 1.5rem;
-  box-shadow: 0 4px 20px -4px rgba(6, 182, 212, 0.15);
-  padding: 1.5rem;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.glass-card:hover {
-  transform: scale(1.02);
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 10px 40px -10px rgba(6, 182, 212, 0.3);
-}
-
-/* 评分星星 */
-.rating {
-  color: #f59e0b;
-  font-weight: 700;
-}
-
-/* 标签样式 */
 .tag {
   display: inline-flex;
   align-items: center;
@@ -189,47 +159,67 @@ a:hover {
   color: #64748b;
 }
 
-/* 隐藏评论样式 */
 .hidden-review {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(239, 68, 68, 0.02) 100%);
   border-left: 3px solid #ef4444;
 }
 
-/* 响应式 */
-@media (max-width: 768px) {
-  .glass-card {
-    border-radius: 1rem;
-    padding: 1rem;
-  }
+/* ─── Scrollbar utils ─── */
+.yourtj-md-overlay { scrollbar-width: none; -ms-overflow-style: none; }
+.yourtj-md-overlay::-webkit-scrollbar { display: none; }
+.yourtj-scrollbar-hidden { scrollbar-width: none; -ms-overflow-style: none; }
+.yourtj-scrollbar-hidden::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* ─── Markdown ─── */
+.yourtj-md-mirror { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.yourtj-markdown { overflow-wrap: anywhere; word-break: break-word; }
+
+.yourtj-markdown .yourtj-md-table-wrap {
+  margin: 0.9rem 0;
+  overflow-x: auto;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 0.9rem;
+  background: rgba(248, 250, 252, 0.75);
+}
+.yourtj-markdown table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.yourtj-markdown thead { background: rgba(226, 232, 240, 0.55); }
+.yourtj-markdown th,
+.yourtj-markdown td {
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid rgb(226 232 240);
+  border-right: 1px solid rgb(226 232 240);
+  text-align: left;
+  vertical-align: top;
+}
+.yourtj-markdown th:last-child, .yourtj-markdown td:last-child { border-right: none; }
+.yourtj-markdown tbody tr:last-child td { border-bottom: none; }
+.yourtj-markdown blockquote {
+  margin: 0.9rem 0;
+  padding: 0.15rem 0 0.15rem 0.9rem;
+  border-left: 3px solid rgb(125 211 252);
+  color: rgb(71 85 105);
+  background: rgba(240, 249, 255, 0.55);
+}
+.yourtj-markdown hr {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid rgb(226 232 240);
 }
 
-@keyframes yourtjLogoSpin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.yourtj-logo-spin {
-  animation: yourtjLogoSpin 2s linear infinite;
-}
+/* ─── Existing Animations ─── */
+@keyframes yourtjLogoSpin { to { transform: rotate(360deg); } }
+.yourtj-logo-spin { animation: yourtjLogoSpin 2s linear infinite; }
 
 @keyframes yourtjPaperReveal {
-  0% {
-    opacity: 0;
-    transform: translateY(-96px) scale(0.94);
-  }
-
-  60% {
-    opacity: 1;
-    transform: translateY(8px) scale(1.01);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  0% { opacity: 0; transform: translateY(-96px) scale(0.94); }
+  60% { opacity: 1; transform: translateY(8px) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
-
 .yourtj-share-paper {
   animation: yourtjPaperReveal 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
   transform-origin: top center;
@@ -239,21 +229,13 @@ a:hover {
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.7) transparent;
 }
-
-.yourtj-share-printer::-webkit-scrollbar {
-  width: 8px;
-}
-
+.yourtj-share-printer::-webkit-scrollbar { width: 8px; }
 .yourtj-share-printer::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.7);
   border-radius: 999px;
 }
 
-.yourtj-printer-bar {
-  position: relative;
-  overflow: hidden;
-}
-
+.yourtj-printer-bar { position: relative; overflow: hidden; }
 .yourtj-printer-bar::after {
   content: '';
   position: absolute;
@@ -264,11 +246,61 @@ a:hover {
 }
 
 @keyframes yourtjPrinterSweep {
-  0% {
-    transform: translateX(-120%);
-  }
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
 
-  100% {
-    transform: translateX(120%);
+/* ─── AI Summary Animations ─── */
+@keyframes summaryDot {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+.animate-summary-dot { animation: summaryDot 1.4s ease-in-out infinite; }
+
+@keyframes summaryShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-summary-shimmer {
+  background-size: 200% 100%;
+  animation: summaryShimmer 2s ease-in-out infinite;
+}
+
+/* ─── ✨ NEW: Staggered Fade-Reveal ✨ ─── */
+@keyframes fadeSlideUp {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  opacity: 0;
+  animation: fadeSlideUp 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+/* ─── ✨ NEW: Scale In (for cards) ✨ ─── */
+@keyframes scaleIn {
+  0% { opacity: 0; transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.animate-scale-in {
+  opacity: 0;
+  animation: scaleIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+
+/* ─── ✨ NEW: Border Glow (for hover states) ✨ ─── */
+@keyframes borderGlow {
+  0%, 100% { border-color: rgba(14, 165, 233, 0.25); }
+  50% { border-color: rgba(14, 165, 233, 0.5); }
+}
+
+/* ─── Motion Sensitivity: Honor prefers-reduced-motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
+
