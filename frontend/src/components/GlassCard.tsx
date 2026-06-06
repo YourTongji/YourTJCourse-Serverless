@@ -3,14 +3,16 @@ import { ReactNode } from 'react'
 interface GlassCardProps {
   children: ReactNode
   className?: string
+  style?: React.CSSProperties
   onClick?: () => void
   hover?: boolean
 }
 
-export default function GlassCard({ children, className = '', onClick, hover = true }: GlassCardProps) {
+export default function GlassCard({ children, className = '', style, onClick, hover = true }: GlassCardProps) {
   return (
     <div
       onClick={onClick}
+      style={style}
       className={`
         relative overflow-hidden
         bg-white/95 md:bg-white/70 backdrop-blur-md md:backdrop-blur-xl
