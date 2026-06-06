@@ -80,12 +80,19 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
     '👎': 'bg-red-50 text-red-500',
   }
 
-  // Collapsed trigger button
+  // Collapsed trigger button (both initial idle and collapsed-with-data)
   if (collapsed) {
+    const hasData = data && data.keywords?.length
     return (
       <button
         type="button"
-        onClick={() => fetchSummary(false)}
+        onClick={() => {
+          setCollapsed(false)
+          // Only fetch if we haven't loaded data yet
+          if (!hasData && state === 'idle') {
+            fetchSummary(false)
+          }
+        }}
         className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white/80 px-3 py-2.5 text-left transition hover:border-cyan-200 hover:bg-cyan-50/60"
       >
         <div className="flex min-w-0 items-center gap-2">
@@ -95,6 +102,15 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
           <p className="truncate text-sm font-black text-slate-700">
             AI 评课总结
           </p>
+          {hasData && (
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ml-1 ${
+                consensusColors[data.rating_consensus] || 'text-slate-400 bg-slate-50 border-slate-200'
+              }`}
+            >
+              {data.rating_consensus}
+            </span>
+          )}
         </div>
         <svg className="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -236,16 +252,29 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
             <span className="text-[10px] text-slate-400 font-bold ml-1">已缓存</span>
           )}
         </div>
-        <button
-          onClick={() => fetchSummary(true)}
-          disabled={loadingRefresh}
-          className="text-[11px] font-bold text-cyan-600 hover:text-cyan-700 disabled:opacity-40 flex items-center gap-1"
-        >
-          <svg className={`w-3.5 h-3.5 ${loadingRefresh ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {loadingRefresh ? '生成中' : '刷新'}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            title="折叠"
+            aria-label="折叠AI评课总结"
+            className="text-[11px] font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
+          <button
+            onClick={() => fetchSummary(true)}
+            disabled={loadingRefresh}
+            className="text-[11px] font-bold text-cyan-600 hover:text-cyan-700 disabled:opacity-40 flex items-center gap-1"
+          >
+            <svg className={`w-3.5 h-3.5 ${loadingRefresh ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {loadingRefresh ? '生成中' : '刷新'}
+          </button>
+        </div>
       </div>
 
       {/* Keywords */}
