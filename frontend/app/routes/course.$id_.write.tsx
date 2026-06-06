@@ -69,11 +69,12 @@ const SEMESTERS = [
 
 /* ─── Loader ─── */
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not Found", { status: 404 });
 
-  const res = await fetch(`http://127.0.0.1:8787/api/course/${id}`);
+  const apiUrl = new URL(`/api/course/${id}`, request.url);
+  const res = await fetch(apiUrl);
   if (!res.ok) throw new Response("Course not found", { status: 404 });
 
   const course: CourseInfo = await res.json();
@@ -109,8 +110,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
     return { error: "请完成人机验证" };
   }
 
-  // Forward to backend
-  const res = await fetch(`http://127.0.0.1:8787/api/review`, {
+  const apiUrl = new URL("/api/review", request.url);
+  const res = await fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...result.data, turnstile_token }),

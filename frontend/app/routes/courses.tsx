@@ -617,7 +617,7 @@ export default function CoursesPage() {
             const slice = courses.filter((_, i) => i % 3 === rowIndex);
             const rowSpeed = `${[70, 55, 85][rowIndex]}s`;
             return (
-              <div key={rowIndex} className="overflow-hidden rounded-xl">
+              <div key={rowIndex} className="rounded-xl py-2">
                 <div className="marquee-row" style={{ "--speed": rowSpeed } as React.CSSProperties}>
                   {/* First set */}
                   <div className="marquee-set">

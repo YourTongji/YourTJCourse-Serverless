@@ -64,11 +64,12 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => {
 
 /* ─── Loader ─── */
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not Found", { status: 404 });
 
-  const res = await fetch(`http://127.0.0.1:8787/api/course/${id}`);
+  const apiUrl = new URL(`/api/course/${id}`, request.url);
+  const res = await fetch(apiUrl);
   if (!res.ok) throw new Response("Course not found", { status: 404 });
 
   return res.json() as Promise<CourseDetail>;
