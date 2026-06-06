@@ -74,8 +74,19 @@ export function deleteOccupied(occupied: occupyCell[][][], code: string) {
     }
 }
 
-// 判断两个课是否相同
-// 依据是比较课号除了后两位的部分
+// 从班级课号取基础课号，兼容 12200401 和 122004.01 两种格式。
+export function getCourseBaseCode(code: string) {
+    const value = String(code || '').trim();
+    const dot = value.lastIndexOf('.');
+    if (dot > 0) return value.substring(0, dot);
+    return value.length > 2 ? value.slice(0, -2) : value;
+}
+
+export function isClassOfCourse(classCode: string, courseCode: string) {
+    return getCourseBaseCode(classCode) === String(courseCode || '').trim();
+}
+
+// 判断两个班级课号是否属于同一门课
 export function isSameCourse(code1: string, code2: string) {
-    return code1?.slice(0, -2) === code2?.slice(0, -2);
+    return getCourseBaseCode(code1) === getCourseBaseCode(code2);
 }
