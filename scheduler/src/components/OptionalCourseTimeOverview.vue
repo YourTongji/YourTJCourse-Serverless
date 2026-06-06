@@ -42,6 +42,7 @@
             :columns="columns"
             :data-source="filteredCourses(optionalCourseData)"
             :pagination="false"
+            :scroll="tableScroll"
             :row-selection="{ 
                 selectedRowKeys: localSelectedRowKeys,
                 onChange: (keys: any[]) => onOptionalSelectChange(keys) 
@@ -127,7 +128,8 @@ export default {
                     width: 170,
                     customRender: ({ text }: { text: string[] | string }) => formatCourseList(text)
                 }
-            ] as any[])
+            ] as any[]),
+            tableScroll: { x: 1040 }
         }
     },
     methods: {

@@ -75,6 +75,7 @@
                 :key="courses.grade"
                 :data-source="filteredCourses(courses.courses)"
                 :pagination="false"
+                :scroll="courseTableScroll"
                 :title="() => courses.grade + '级'"
                 :row-selection="{ 
                     selectedRowKeys: localSelectedRowKeys.filter((key: string) => key.startsWith('必_' + courses.grade + '_')), 
@@ -131,6 +132,7 @@
                         :columns="columns.optional"
                         :data-source="filteredCourses(type.courses)"
                         :pagination="false"
+                        :scroll="courseTableScroll"
                         :row-selection="{ 
                             selectedRowKeys: localSelectedRowKeys.filter((key: string) => key.startsWith('选_' + type.courseLabelName + '_')), 
                             onChange: (keys: any[]) => onOptionalSelectChange(type.courseLabelName, keys) 
@@ -265,7 +267,8 @@ export default {
             // 搜索
             searchValue: '',
             isMobile: getIsMobile(),
-            _cleanupMobile: null as (() => void) | null
+            _cleanupMobile: null as (() => void) | null,
+            courseTableScroll: { x: 900 }
         }
     },
     props: ['selectedRowKeys'],

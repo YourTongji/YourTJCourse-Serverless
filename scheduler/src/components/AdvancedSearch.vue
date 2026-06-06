@@ -76,6 +76,7 @@
                         :columns="searchColumn"
                         :data-source="filteredCourses($store.state.commonLists.searchCourses)"
                         :pagination="false"
+                        :scroll="searchTableScroll"
                         :row-selection="{ 
                             selectedRowKeys: localSelectedRowKeys.filter((key: string) => key.startsWith('查' + '_')), 
                             onChange: (keys: any[]) => onSearchSelectChange(keys) 
@@ -177,7 +178,8 @@ export default {
                         width: 170,
                         customRender: ({ text }: { text: string[] | string }) => formatCourseList(text)
                     }
-                ] as any[])
+                ] as any[]),
+            searchTableScroll: { x: 1040 }
         }
     },
     methods: {
