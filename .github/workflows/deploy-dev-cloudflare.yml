@@ -78,6 +78,9 @@ jobs:
       JCOURSE_INTEGRATION_SECRET: ${{ secrets.JCOURSE_INTEGRATION_SECRET }}
       TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
       TURNSTILE_SITEVERIFY_URL: ${{ secrets.TURNSTILE_SITEVERIFY_URL }}
+      AI_SUMMARY_KEY: ${{ secrets.AI_SUMMARY_KEY }}
+      AI_SUMMARY_MODEL: ${{ secrets.AI_SUMMARY_MODEL }}
+      AI_SUMMARY_BASE_URL: ${{ secrets.AI_SUMMARY_BASE_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,6 +92,11 @@ jobs:
 
       - name: Install deps
         run: npm ci
+
+      - name: Apply backend migrations (env.dev)
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute jcourse-db --remote --env dev --file="./migrations/015_ai_summaries.sql"
 
       - name: Ensure backend secrets (env.dev)
         run: |
@@ -129,6 +137,27 @@ jobs:
             echo "turnstile siteverify url: set (dev)"
           else
             echo "turnstile siteverify url: default (dev)"
+          fi
+
+          if [ -n "${AI_SUMMARY_KEY:-}" ]; then
+            echo "$AI_SUMMARY_KEY" | npx wrangler versions secret put AI_SUMMARY_KEY --env dev
+            echo "ai summary key: set (dev)"
+          else
+            echo "ai summary key: missing (dev)"
+          fi
+
+          if [ -n "${AI_SUMMARY_MODEL:-}" ]; then
+            echo "$AI_SUMMARY_MODEL" | npx wrangler versions secret put AI_SUMMARY_MODEL --env dev
+            echo "ai summary model: set (dev)"
+          else
+            echo "ai summary model: missing (dev)"
+          fi
+
+          if [ -n "${AI_SUMMARY_BASE_URL:-}" ]; then
+            echo "$AI_SUMMARY_BASE_URL" | npx wrangler versions secret put AI_SUMMARY_BASE_URL --env dev
+            echo "ai summary base url: set (dev)"
+          else
+            echo "ai summary base url: missing (dev)"
           fi
 
       - name: Deploy Worker (env.dev)
