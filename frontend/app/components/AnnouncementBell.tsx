@@ -89,20 +89,6 @@ export default function AnnouncementBell() {
     (a) => !getReadIds().includes(a.id),
   ).length;
 
-  const typeIcon: Record<string, string> = {
-    info: "💡",
-    warning: "⚠️",
-    error: "❌",
-    success: "✅",
-  };
-
-  const typeColor: Record<string, string> = {
-    info: "bg-blue-50 border-blue-200 text-blue-700",
-    warning: "bg-amber-50 border-amber-200 text-amber-700",
-    error: "bg-red-50 border-red-200 text-red-700",
-    success: "bg-emerald-50 border-emerald-200 text-emerald-700",
-  };
-
   return (
     <>
       {/* Announcement Modal */}
@@ -110,9 +96,7 @@ export default function AnnouncementBell() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <span className="text-xl">
-                {pendingModal ? typeIcon[pendingModal.type] || "💡" : "💡"}
-              </span>
+              <Bell className="size-5 text-cyan-600" />
               公告
             </DialogTitle>
             {pendingModal && (
@@ -170,27 +154,11 @@ export default function AnnouncementBell() {
                 return (
                   <div
                     key={a.id}
-                    className={`flex items-start gap-2 border-b border-border p-3 text-xs transition-colors last:border-0 hover:bg-muted/50 ${
+                    className={`flex items-start gap-3 border-b border-border p-3 text-xs transition-colors last:border-0 hover:bg-muted/50 ${
                       isRead ? "opacity-60" : ""
                     }`}
                   >
-                    <span className="mt-0.5 shrink-0 text-sm">
-                      {typeIcon[a.type] || "💡"}
-                    </span>
                     <div className="min-w-0 flex-1">
-                      <span
-                        className={`inline-block rounded-full px-1.5 py-0.5 text-[9px] font-medium ${
-                          typeColor[a.type]
-                        }`}
-                      >
-                        {a.type === "info"
-                          ? "通知"
-                          : a.type === "warning"
-                          ? "警告"
-                          : a.type === "error"
-                          ? "错误"
-                          : "成功"}
-                      </span>
                       <p className="mt-1 text-slate-600 leading-relaxed whitespace-pre-wrap">
                         {a.content}
                       </p>
