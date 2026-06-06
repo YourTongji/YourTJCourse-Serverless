@@ -11,4 +11,7 @@ export type Bindings = {
   VITE_CREDIT_API_BASE?: string
   JCOURSE_INTEGRATION_SECRET?: string
   APP_ENV?: string
+  AI_SUMMARY_KEY?: string
+  AI_SUMMARY_MODEL?: string
+  AI_SUMMARY_BASE_URL?: string
 }
