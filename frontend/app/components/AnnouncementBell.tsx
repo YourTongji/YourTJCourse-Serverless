@@ -101,7 +101,26 @@ export default function AnnouncementBell() {
             </DialogTitle>
             {pendingModal && (
               <DialogDescription className="text-sm text-slate-600 leading-relaxed pt-2 whitespace-pre-wrap">
-                {pendingModal.content}
+                <span
+                  className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium mb-2 ${
+                    pendingModal.type === "warning"
+                      ? "bg-amber-50 text-amber-700"
+                      : pendingModal.type === "error"
+                      ? "bg-red-50 text-red-700"
+                      : pendingModal.type === "success"
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-blue-50 text-blue-700"
+                  }`}
+                >
+                  {pendingModal.type === "info"
+                    ? "通知"
+                    : pendingModal.type === "warning"
+                    ? "警告"
+                    : pendingModal.type === "error"
+                    ? "错误"
+                    : "成功"}
+                </span>
+                <div className="mt-1">{pendingModal.content}</div>
               </DialogDescription>
             )}
           </DialogHeader>
@@ -159,7 +178,26 @@ export default function AnnouncementBell() {
                     }`}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="mt-1 text-slate-600 leading-relaxed whitespace-pre-wrap">
+                      <span
+                        className={`inline-block rounded-full px-1.5 py-0.5 text-[9px] font-medium mb-1 ${
+                          a.type === "warning"
+                            ? "bg-amber-50 text-amber-700"
+                            : a.type === "error"
+                            ? "bg-red-50 text-red-700"
+                            : a.type === "success"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-blue-50 text-blue-700"
+                        }`}
+                      >
+                        {a.type === "info"
+                          ? "通知"
+                          : a.type === "warning"
+                          ? "警告"
+                          : a.type === "error"
+                          ? "错误"
+                          : "成功"}
+                      </span>
+                      <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">
                         {a.content}
                       </p>
                     </div>
