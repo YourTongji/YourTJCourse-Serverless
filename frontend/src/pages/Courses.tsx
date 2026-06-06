@@ -352,6 +352,10 @@ export default function Courses() {
     || String(course.name || '').includes('评论区测试')
   ))?.id
 
+  // Only show the full-page skeleton on the very first load; keep the existing
+  // list visible while re-searching or appending ("加载更多").
+  const isInitialLoading = loading && courses.length === 0
+
   return (
     <div className="space-y-4 md:space-y-4">
       <FilterPanel
@@ -496,7 +500,7 @@ export default function Courses() {
       )}
 
       <div className="min-h-[60vh]">
-        {loading && (
+        {isInitialLoading && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:gap-4">
             {[1, 2, 3, 4, 5, 6].map((skeleton) => (
               <div
@@ -532,9 +536,9 @@ export default function Courses() {
           </div>
         )}
 
-        {!loading && !error && (
+        {!isInitialLoading && !error && (
           <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:gap-4" style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 500px' }}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:gap-4">
               {courses.map((course, index) => {
                 const semesters = Array.isArray(course.semesters) ? course.semesters.map(formatSemesterLabel).filter(Boolean) : []
                 const uniqueSemesters = Array.from(new Set(semesters))
@@ -552,9 +556,8 @@ export default function Courses() {
                     to={`/course/${course.id}`}
                     data-tour={course.id === tourTargetCourseId ? 'tour-course-target' : undefined}
                     className="block h-full"
-                    style={{ contentVisibility: 'auto', containIntrinsicSize: '0 208px' }}
                   >
-                    <GlassCard hover={false} className="animate-scale-in group flex min-h-[172px] flex-col justify-between border-white/70 bg-white/80 !p-4 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_12px_30px_-8px_rgba(6,182,212,0.22)] hover:border-cyan-200/80" style={{ animationDelay: `${index * 50}ms` }}>
+                    <GlassCard hover={false} className="animate-scale-in group flex min-h-[172px] flex-col justify-between border-white/70 bg-white/80 !p-4 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_12px_30px_-8px_rgba(6,182,212,0.22)] hover:border-cyan-200/80" style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
                       <div>
                         <div className="mb-2 flex items-start justify-between gap-3">
                           <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] font-bold tracking-wide ${course.is_legacy ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-cyan-100 bg-cyan-50 text-cyan-700'}`}>
