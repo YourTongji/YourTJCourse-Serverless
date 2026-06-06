@@ -1,41 +1,31 @@
 {
-  "name": "jcourse-frontend",
+  "name": "yourtj-frontend",
   "private": true,
-  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "prepare:embedded": "node ./scripts/prepare-embedded-assets.mjs",
-    "dev": "npm run prepare:embedded && vite",
-    "dev:local": "npm run prepare:embedded && vite --host 127.0.0.1 --port 5173",
-    "dev:lan": "npm run prepare:embedded && vite --host 0.0.0.0 --port 5173",
-    "dev:with-sim": "npm run build:scheduler && vite",
-    "build:scheduler": "npm --prefix ../scheduler run build",
-    "build:wlc": "node ./scripts/build-wlc.mjs",
-    "build": "npm run build:wlc && npm run build:scheduler && tsc && vite build",
-    "preview": "vite preview",
-    "deploy": "wrangler pages deploy dist --project-name jcourse-web"
+    "dev": "react-router dev",
+    "build": "react-router build",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "boring-avatars": "^2.0.4",
-    "dompurify": "^3.2.6",
-    "gsap": "^3.15.0",
-    "html-to-image": "^1.11.13",
-    "markdown-it": "^14.2.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.21.0",
-    "react-turnstile": "^1.1.2"
+    "isbot": "^5.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router": "^7.6.0"
   },
   "devDependencies": {
-    "@types/markdown-it": "^14.1.2",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "@vitejs/plugin-react": "6.0.2",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.5.3",
-    "tailwindcss": "^3.4.17",
-    "typescript": "^5.3.0",
-    "vite": "8.0.16",
-    "wrangler": "4.98.0"
+    "@cloudflare/workers-types": "^4.20250501.0",
+    "@react-router/cloudflare": "^7.6.0",
+    "@react-router/dev": "^7.6.0",
+    "@tailwindcss/typography": "^0.5.16",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.3.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "wrangler": "^4.98.0"
   }
 }

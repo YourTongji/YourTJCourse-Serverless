@@ -1,0 +1,40 @@
+@import "tailwindcss";
+@import "@tailwindcss/typography";
+
+/* ─── Brand Fonts (subset via glyphhanger in M4) ─── */
+@font-face {
+  font-family: "KKT";
+  src: url("/fonts/kkt.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "YuFanLixing";
+  src: url("/fonts/YuFanLixing.woff2") format("woff2");
+  font-display: swap;
+}
+
+/* ─── Brand Utilities ─── */
+@utility font-brand {
+  font-family: "KKT", ui-sans-serif, system-ui, sans-serif;
+}
+
+@utility font-slogan {
+  font-family: "YuFanLixing", "LXGW WenKai", "KaiTi", serif;
+}
+
+/* ─── CSS Variables ─── */
+:root {
+  --color-brand: oklch(0.685 0.169 237.323); /* cyan-500 */
+  --radius: 1rem;
+}
+
+/* ─── Reduced Motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

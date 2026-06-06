@@ -1,0 +1,13 @@
+{
+  "name": "yourtj-frontend",
+  "private": true,
+  "main": "./build/worker/index.js",
+  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "./build/client"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
