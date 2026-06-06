@@ -35,6 +35,25 @@ function ensureArray<T = unknown>(value: unknown): T[] {
     return Array.isArray(value) ? value as T[] : [];
 }
 
+function normalizeStringList(value: unknown): string[] {
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed || trimmed === "[]" || trimmed === "[\"\"]") return [];
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            const parsed = safeParseJson<unknown>(trimmed);
+            if (parsed !== undefined) return normalizeStringList(parsed);
+        }
+        return trimmed.split(",").map((item) => item.trim()).filter(Boolean);
+    }
+    if (Array.isArray(value)) {
+        return value
+            .flatMap((item) => normalizeStringList(item))
+            .map((item) => item.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+
 function normalizeCredit(value: unknown): number {
     const n = typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : NaN;
     return Number.isFinite(n) ? n : 0;
@@ -61,7 +80,7 @@ function sanitizeArrangementInfo(raw: unknown): arrangementInfolet[] {
 function sanitizeCourseDetail(raw: unknown): courseDetaillet[] {
     return ensureArray(raw).map((detail: any) => ({
         arrangementInfo: sanitizeArrangementInfo(detail?.arrangementInfo),
-        campus: typeof detail?.campus === "string" ? detail.campus : "",
+        campus: normalizeStringList(detail?.campus).join("、"),
         code: typeof detail?.code === "string" ? detail.code : "",
         isExclusive: typeof detail?.isExclusive === "boolean" ? detail.isExclusive : undefined,
         status: typeof detail?.status === "number" ? detail.status : 0,
@@ -134,12 +153,13 @@ function sanitizeCourseCollection(raw: unknown) {
         courseNameReserved: typeof item?.courseNameReserved === "string" ? item.courseNameReserved : "",
         faculty: typeof item?.faculty === "string" ? item.faculty : "",
         credit: normalizeCredit(item?.credit),
-        courseNature: ensureArray(item?.courseNature).filter((nature: unknown) => typeof nature === "string"),
-        campus: ensureArray(item?.campus).filter((campus: unknown) => typeof campus === "string"),
+        courseNature: normalizeStringList(item?.courseNature),
+        campus: normalizeStringList(item?.campus),
         courses: ensureArray(item?.courses).map((course: any) => ({
             ...course,
             code: typeof course?.code === "string" ? course.code : "",
-            campus: typeof course?.campus === "string" ? course.campus : "",
+            courseNature: normalizeStringList(course?.courseNature),
+            campus: normalizeStringList(course?.campus),
             teachers: sanitizeTeachers(course?.teachers),
             arrangementInfo: sanitizeArrangementInfo(course?.arrangementInfo)
         }))
@@ -209,7 +229,7 @@ const store = createStore<StoreState>({
             state.commonLists.searchCourses = sanitizeCourseCollection(payload);
         },
         pushStagedCourse(state: StoreState, payload: stagedCourse) {
-            state.commonLists.stagedCourses.push(payload);
+            state.commonLists.stagedCourses.push(sanitizeStagedCourse(payload));
             // console.log(state.commonLists.stagedCourses.length);
         },
         popStagedCourse(state: StoreState, payload: string) {

@@ -42,8 +42,8 @@
       @cancel="handleCancel"
       :centered="true"
       :maskClosable="true"
-      :bodyStyle="{ maxHeight: '70vh', overflow: 'auto' }"
-      style="width: 100%; max-width: 960px"
+      :bodyStyle="courseModalBodyStyle"
+      :style="courseModalStyle"
       >
       <CourseOverview v-if="openOverview" v-model:selectedRowKeys="selectedRowKeys" />
     </a-modal>
@@ -56,8 +56,8 @@
       @cancel="handleCancel"
       :centered="true"
       :maskClosable="true"
-      :bodyStyle="{ maxHeight: '70vh', overflow: 'auto' }"
-      style="width: 100%; max-width: 960px"
+      :bodyStyle="courseModalBodyStyle"
+      :style="courseModalStyle"
     >
       <OptionalCourseTimeOverview
         v-if="openOptional"
@@ -84,6 +84,25 @@ import TimeTable from './components/TimeTable.vue';
 import { isMobile as getIsMobile, onMobileChange } from './utils/responsive';
 
 dayjs.locale('zh-cn');
+
+function normalizeDisplayList(value: unknown): string[] {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === '[]' || trimmed === '[""]') return [];
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        return normalizeDisplayList(JSON.parse(trimmed));
+      } catch {
+        return [trimmed];
+      }
+    }
+    return trimmed.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => normalizeDisplayList(item)).filter(Boolean);
+  }
+  return [];
+}
 
 export default {
   name: 'App',
@@ -128,6 +147,16 @@ export default {
           d: 'M512 64a32 32 0 0 1 32 32v192a32 32 0 0 1-64 0V96a32 32 0 0 1 32-32m0 640a32 32 0 0 1 32 32v192a32 32 0 1 1-64 0V736a32 32 0 0 1 32-32m448-192a32 32 0 0 1-32 32H736a32 32 0 1 1 0-64h192a32 32 0 0 1 32 32m-640 0a32 32 0 0 1-32 32H96a32 32 0 0 1 0-64h192a32 32 0 0 1 32 32M195.2 195.2a32 32 0 0 1 45.248 0L376.32 331.008a32 32 0 0 1-45.248 45.248L195.2 240.448a32 32 0 0 1 0-45.248m452.544 452.544a32 32 0 0 1 45.248 0L828.8 783.552a32 32 0 0 1-45.248 45.248L647.744 692.992a32 32 0 0 1 0-45.248M828.8 195.264a32 32 0 0 1 0 45.184L692.992 376.32a32 32 0 0 1-45.248-45.248l135.808-135.808a32 32 0 0 1 45.248 0m-452.544 452.48a32 32 0 0 1 0 45.248L240.448 828.8a32 32 0 0 1-45.248-45.248l135.808-135.808a32 32 0 0 1 45.248 0'
         })
       ]);
+    },
+    courseModalStyle() {
+      return this.isMobile
+        ? { width: 'calc(100vw - 24px)', maxWidth: 'none' }
+        : { width: '80%', maxWidth: 'none' };
+    },
+    courseModalBodyStyle() {
+      return this.isMobile
+        ? { maxHeight: '72vh', overflow: 'auto' }
+        : { overflow: 'visible' };
     }
   },
   methods: {
@@ -147,6 +176,7 @@ export default {
 
       return {
         ...detail,
+        campus: normalizeDisplayList(detail?.campus).join('、'),
         status: 0,
         arrangementInfo,
       };
