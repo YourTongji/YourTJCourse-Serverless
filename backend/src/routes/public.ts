@@ -420,6 +420,8 @@ publicRoutes.get('/course/:id', async (c) => {
 
     const hasClientId = Boolean((c.req.query('clientId') || '').trim())
     const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
+    const requestedWalletHash = String(c.req.query('walletUserHash') || c.req.query('wallet_user_hash') || '').trim()
+    const editableWalletHash = /^[a-f0-9]{64}$/i.test(requestedWalletHash) ? requestedWalletHash : ''
     const bypassCourseDetailCache = Boolean((c.req.query('_') || c.req.query('reviewRefresh') || '').trim())
     const cacheKey = buildCourseDetailCacheRequest(id, showIcu)
     const cache = caches.default
@@ -433,7 +435,7 @@ publicRoutes.get('/course/:id', async (c) => {
           credit: effectiveCourse.credit
         }
 
-        if (!clientId) {
+        if (!clientId && !editableWalletHash) {
           return new Response(JSON.stringify(basePayload), {
             headers: {
               'Content-Type': 'application/json; charset=utf-8',
@@ -447,7 +449,7 @@ publicRoutes.get('/course/:id', async (c) => {
           : []
 
         let likedSet = new Set<number>()
-        if (reviewIds.length > 0) {
+        if (clientId && reviewIds.length > 0) {
           const placeholders2 = reviewIds.map(() => '?').join(',')
           const likedRows = await c.env.DB
             .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders2})`)
@@ -456,11 +458,22 @@ publicRoutes.get('/course/:id', async (c) => {
           likedSet = new Set<number>((likedRows.results || []).map((r: any) => Number(r.review_id)))
         }
 
+        let editableSet = new Set<number>()
+        if (editableWalletHash && reviewIds.length > 0) {
+          const placeholders2 = reviewIds.map(() => '?').join(',')
+          const editableRows = await c.env.DB
+            .prepare(`SELECT id FROM reviews WHERE wallet_user_hash = ? AND id IN (${placeholders2})`)
+            .bind(editableWalletHash, ...reviewIds)
+            .all<{ id: number }>()
+          editableSet = new Set<number>((editableRows.results || []).map((r: any) => Number(r.id)))
+        }
+
         const personalized = {
           ...(basePayload as any),
           reviews: ((basePayload as any).reviews || []).map((r: any) => ({
             ...r,
-            liked: likedSet.has(Number(r?.id))
+            liked: likedSet.has(Number(r?.id)),
+            can_edit: editableSet.has(Number(r?.id))
           }))
         }
 
@@ -521,13 +534,19 @@ publicRoutes.get('/course/:id', async (c) => {
       .prepare(
         `SELECT id, course_id, semester, rating, comment, score, created_at,
                 approve_count, disapprove_count, is_hidden, is_legacy, is_icu,
-                reviewer_name, reviewer_avatar
+                reviewer_name, reviewer_avatar, wallet_user_hash
          FROM reviews WHERE ${baseWhere} ORDER BY created_at DESC`
       )
       .bind(...idList)
       .all()
 
     const rawReviews = (reviews.results || []) as any[]
+    const editableSet = new Set<number>(
+      rawReviews
+        .filter((r: any) => editableWalletHash && String(r?.wallet_user_hash || '').trim() === editableWalletHash)
+        .map((r: any) => Number(r?.id))
+        .filter((n: number) => Number.isFinite(n))
+    )
     const reviewsWithSqid = addSqidToReviews(rawReviews).map((r: any) => ({
       ...r,
       like_count: Number(r?.approve_count || 0),
@@ -558,11 +577,11 @@ publicRoutes.get('/course/:id', async (c) => {
     })
     c.executionCtx.waitUntil(cache.put(cacheKey, cacheRes.clone()))
 
-    if (!clientId) return cacheRes
+    if (!clientId && !editableWalletHash) return cacheRes
 
     const reviewIds = rawReviews.map((r) => Number(r?.id)).filter((n) => Number.isFinite(n))
     let likedSet = new Set<number>()
-    if (reviewIds.length > 0) {
+    if (clientId && reviewIds.length > 0) {
       const placeholders2 = reviewIds.map(() => '?').join(',')
       const likedRows = await c.env.DB
         .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders2})`)
@@ -575,7 +594,8 @@ publicRoutes.get('/course/:id', async (c) => {
       ...basePayload,
       reviews: (basePayload.reviews || []).map((r: any) => ({
         ...r,
-        liked: likedSet.has(Number(r?.id))
+        liked: likedSet.has(Number(r?.id)),
+        can_edit: editableSet.has(Number(r?.id))
       }))
     }
 
