@@ -1,5 +1,5 @@
 import { createStore } from "vuex";
-import { canAddCourse, insertOccupied, deleteOccupied, isSameCourse } from "@/utils/courseManipulate";
+import { canAddCourse, insertOccupied, deleteOccupied, getCourseBaseCode, isClassOfCourse, isSameCourse } from "@/utils/courseManipulate";
 import type { 
     courseDetaillet, 
     baseInfoTriplet, 
@@ -235,15 +235,11 @@ const store = createStore<StoreState>({
         popStagedCourse(state: StoreState, payload: string) {
             // 清除和退课共用一个方法
             // payload = base course code (e.g. "XM104032"), code with suffix = "XM104032.01"
-            const stripSuffix = (code: string) => {
-                const dot = code.lastIndexOf('.')
-                return dot > 0 ? code.substring(0, dot) : code
-            }
             // console.log("退课", payload);
             state.commonLists.stagedCourses = state.commonLists.stagedCourses.filter((course: stagedCourse) => course.courseCode !== payload);
-            state.commonLists.selectedCourses = state.commonLists.selectedCourses.filter((course: string) => stripSuffix(course) !== payload);
-            state.timeTableData = state.timeTableData.filter((course: courseOnTable) => stripSuffix(course.code) !== payload);
-            const codeOfCourse = state.occupied.flat().flat().find((item: occupyCell) => stripSuffix(item.code) === payload)?.code;
+            state.commonLists.selectedCourses = state.commonLists.selectedCourses.filter((course: string) => !isClassOfCourse(course, payload));
+            state.timeTableData = state.timeTableData.filter((course: courseOnTable) => !isClassOfCourse(course.code, payload));
+            const codeOfCourse = state.occupied.flat().flat().find((item: occupyCell) => isClassOfCourse(item.code, payload))?.code;
 
             if (codeOfCourse) {
                 deleteOccupied(state.occupied, codeOfCourse); // deleteOccupied 接收的是包含班号的课号，所以对于 courseCode，需要找到班号
@@ -292,7 +288,7 @@ const store = createStore<StoreState>({
 
                     // 修改状态文字
                     const stagedCourse = state.commonLists.stagedCourses
-                                        .find((course: stagedCourse) => course.courseCode === payload.code.substring(0, payload.code.length - 2));
+                                        .find((course: stagedCourse) => course.courseCode === getCourseBaseCode(payload.code));
                     if (stagedCourse) {
                         // console.log("目标", stagedCourse);
                         const targetCourse = stagedCourse.courseDetail.find((course: courseDetaillet) => isSameCourse(course.code, payload.code) && course.status === 1);
@@ -327,7 +323,7 @@ const store = createStore<StoreState>({
 
                 // 修改状态文字
                 payload.status = 1;
-                const stagedCourse = state.commonLists.stagedCourses.find((course: stagedCourse) => course.courseCode === payload.code.substring(0, payload.code.length - 2));
+                const stagedCourse = state.commonLists.stagedCourses.find((course: stagedCourse) => course.courseCode === getCourseBaseCode(payload.code));
                 if (stagedCourse) {
                     stagedCourse.status = 1;
                     stagedCourse.teacher = payload.teachers;
