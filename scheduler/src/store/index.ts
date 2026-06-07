@@ -107,6 +107,7 @@ function sanitizeStagedCourse(raw: unknown) {
         courseNameReserved: typeof input.courseNameReserved === "string" ? input.courseNameReserved : "",
         credit: normalizeCredit(input.credit),
         courseType: typeof input.courseType === "string" ? input.courseType : "",
+        courseNature: normalizeStringList(input.courseNature),
         teacher: sanitizeTeachers(input.teacher),
         status: typeof input.status === "number" ? input.status : 0,
         courseDetail: sanitizeCourseDetail(input.courseDetail)

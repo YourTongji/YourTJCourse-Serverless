@@ -86,6 +86,7 @@ export interface stagedCourse {
     courseNameReserved: string;
     credit: number;
     courseType: string;
+    courseNature?: string[];
     teacher: teacherlet[];
     status: number;
     courseDetail: courseDetaillet[];

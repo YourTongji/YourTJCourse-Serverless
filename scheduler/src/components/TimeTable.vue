@@ -7,17 +7,16 @@
             class="overflow-x-hidden max-w-full rounded-2xl border border-slate-200 bg-white/70 shadow-sm"
             :style="{ minHeight: tableMinHeight() + 'px' }"
         >
-        <div v-if="creditSummary.show" class="px-3 py-2 border-b border-slate-200 bg-white/70">
-            <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] md:text-xs">
+        <div v-if="creditSummary.show" class="relative px-3 py-2 pr-8 border-b border-slate-200 bg-white/70">
+            <a-tooltip placement="left" title="由于教务信息不完善，专业课的识别存在误差">
+                <span class="absolute right-2 top-2 flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-orange-500 text-[10px] font-black leading-none text-white shadow-sm ring-1 ring-orange-200">!</span>
+            </a-tooltip>
+            <div class="flex flex-wrap items-center gap-3 text-[11px] md:text-xs">
                 <div class="flex flex-wrap items-center gap-3">
                     <span class="font-extrabold text-slate-700">学分</span>
-                    <span class="text-slate-600">应修专业 {{ creditSummary.targetMajor.toFixed(1) }}</span>
-                    <span class="text-slate-600">可选专选 {{ creditSummary.targetMajorElective.toFixed(1) }}</span>
-                </div>
-                <div class="flex flex-wrap items-center gap-3">
-                    <span class="text-slate-600">已选专业 {{ creditSummary.selectedMajor.toFixed(1) }}</span>
-                    <span class="text-slate-600">已选专选 {{ creditSummary.selectedMajorElective.toFixed(1) }}</span>
-                    <span class="text-slate-600">已选通识 {{ creditSummary.selectedOptional.toFixed(1) }}</span>
+                    <span class="text-slate-600">目前已选学分 {{ creditSummary.selectedTotal.toFixed(1) }}</span>
+                    <span class="text-slate-600">专业学分 {{ creditSummary.selectedMajor.toFixed(1) }}</span>
+                    <span class="text-slate-600">通识学分 {{ creditSummary.selectedGeneral.toFixed(1) }}</span>
                 </div>
             </div>
         </div>
@@ -412,11 +411,9 @@ export default {
         creditSummary() {
             const empty = {
                 show: false,
-                targetMajor: 0,
-                targetMajorElective: 0,
+                selectedTotal: 0,
                 selectedMajor: 0,
-                selectedMajorElective: 0,
-                selectedOptional: 0,
+                selectedGeneral: 0,
             }
 
             if (!this.$store.getters.isMajorSelected) return empty
@@ -426,25 +423,23 @@ export default {
             const staged: any[] = this.$store.state.commonLists?.stagedCourses || []
             const selected: string[] = this.$store.state.commonLists?.selectedCourses || []
 
-            const classifyMajor = (natures: any): 'major' | 'elective' | 'other' => {
+            const classifyCourse = (course: any): 'major' | 'general' => {
+                const courseType = String(course?.courseType || '')
+                if (courseType === '选' || courseType === '跨') return 'general'
+
+                const natures = course?.courseNature || course?.courseLabelName
                 const list = Array.isArray(natures) ? natures.map((x) => String(x || '')) : [String(natures || '')]
                 const text = list.join(' ')
-                if (text.includes('专业选修') || text.includes('专选') || text.includes('专业方向') || text.includes('专业任选')) return 'elective'
-                if (text.includes('专业')) return 'major'
-                return 'other'
+                if (text.includes('通识') || text.includes('核心') || text.includes('美育') || text.includes('创新') || text.includes('创业')) return 'general'
+                return 'major'
             }
 
-            const compulsoryCat = new Map<string, 'major' | 'elective' | 'other'>()
-            let targetMajor = 0
-            let targetMajorElective = 0
+            const compulsoryCat = new Map<string, 'major' | 'general'>()
             for (const c of compulsory) {
                 const cc = String(c?.courseCode || '')
                 if (!cc) continue
-                const credit = Number(c?.credit || 0)
-                const cat = classifyMajor(c?.courseNature)
+                const cat = classifyCourse(c)
                 compulsoryCat.set(cc, cat)
-                if (cat === 'elective') targetMajorElective += credit
-                else if (cat === 'major') targetMajor += credit
             }
 
             const optionalCodes = new Set<string>()
@@ -462,31 +457,30 @@ export default {
                 selectedBases.add(s.length > 2 ? s.slice(0, -2) : s)
             }
 
+            let selectedTotal = 0
             let selectedMajor = 0
-            let selectedMajorElective = 0
-            let selectedOptional = 0
+            let selectedGeneral = 0
             for (const c of staged) {
                 const cc = String(c?.courseCode || '')
                 if (!cc || !selectedBases.has(cc)) continue
                 const credit = Number(c?.credit || 0)
+                selectedTotal += credit
 
                 if (optionalCodes.has(cc)) {
-                    selectedOptional += credit
+                    selectedGeneral += credit
                     continue
                 }
 
-                const cat = compulsoryCat.get(cc) || 'other'
-                if (cat === 'elective') selectedMajorElective += credit
-                else if (cat === 'major') selectedMajor += credit
+                const cat = compulsoryCat.get(cc) || classifyCourse(c)
+                if (cat === 'general') selectedGeneral += credit
+                else selectedMajor += credit
             }
 
             return {
                 show: true,
-                targetMajor,
-                targetMajorElective,
+                selectedTotal,
                 selectedMajor,
-                selectedMajorElective,
-                selectedOptional,
+                selectedGeneral,
             }
         }
     },
