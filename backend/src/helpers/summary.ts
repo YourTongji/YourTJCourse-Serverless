@@ -68,8 +68,8 @@ export async function generateSummary(
   const apiKey = String(env.AI_SUMMARY_KEY || '').trim()
   if (!apiKey) throw new Error('AI_SUMMARY_KEY not configured')
 
-  const model = String(env.AI_SUMMARY_MODEL || '').trim() || 'qwen3.6-flash-2026-04-16'
-  const baseUrl = String(env.AI_SUMMARY_BASE_URL || '').trim().replace(/\/+$/, '') || 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+  const model = String(env.AI_SUMMARY_MODEL || '').trim() || 'openai/gpt-4o-mini'
+  const baseUrl = String(env.AI_SUMMARY_BASE_URL || '').trim().replace(/\/+$/, '') || 'https://openrouter.ai/api/v1'
   const url = `${baseUrl}/chat/completions`
 
   const userContent = buildPrompt(courseName, courseCode, reviews)
