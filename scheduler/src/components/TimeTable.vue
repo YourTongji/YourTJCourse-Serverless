@@ -126,6 +126,7 @@
 
 <script lang="ts">
 import { errorNotify } from '@/utils/notify';
+import { getCourseBaseCode } from '@/utils/courseManipulate';
 import type { courseOnTable } from '@/utils/myInterface';
 import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
 
@@ -454,7 +455,7 @@ export default {
             for (const code of selected) {
                 const s = String(code || '')
                 if (!s) continue
-                selectedBases.add(s.length > 2 ? s.slice(0, -2) : s)
+                selectedBases.add(getCourseBaseCode(s))
             }
 
             let selectedTotal = 0
