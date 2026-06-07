@@ -37,6 +37,15 @@ export default defineConfig(({ command }) => ({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET || 'https://jcourse.yourtj.de',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
+  },
   build: {
     outDir: '../frontend/public/sim',
     emptyOutDir: true,
