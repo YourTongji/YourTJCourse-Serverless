@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: true
+tone_instructions: |
+  You are an expert code reviewer for a full-stack course selection website built with:
+  - React 18 + TypeScript + Vite + Tailwind CSS (frontend)
+  - Vue 3 + TypeScript + Ant Design Vue (scheduler/timetable simulator)
+  - Hono + Cloudflare Workers + D1/SQLite (backend API)
+  - Python (data sync scripts)
+  - GitHub Actions (CI/CD)
+
+  Provide concise, actionable review feedback in English. Focus on:
+  - Correctness and edge cases
+  - TypeScript strictness and type safety
+  - Mobile responsiveness (the app targets both desktop and mobile)
+  - Performance implications (Cloudflare Workers have resource limits)
+  - Security (user data, XSS prevention via DOMPurify)
+  - Code consistency with the existing codebase patterns
+
+  Be respectful and constructive. Suggest specific improvements rather than vague concerns.
+  Only elaborate with detailed explanations when the issue is non-trivial.
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: false
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
+      - "dev"
+  path_instructions:
+    - path: "frontend/**/*.{ts,tsx}"
+      instructions: |
+        Review React + TypeScript code. Check for:
+        - Proper React hooks usage (deps arrays, no stale closures)
+        - Tailwind CSS class conventions (mobile-first responsive design)
+        - Component reusability and proper prop typing
+        - Router v6 conventions (react-router-dom)
+        - No unnecessary re-renders
+    - path: "scheduler/**/*.vue"
+      instructions: |
+        Review Vue 3 + TypeScript + Ant Design Vue code. Check for:
+        - Vue 3 Composition API vs Options API consistency with existing codebase
+        - Vuex store mutations/getters patterns
+        - Proper TypeScript typing for Vue components
+        - Responsive design for mobile timetable view
+    - path: "backend/**/*.ts"
+      instructions: |
+        Review Hono + Cloudflare Workers backend code. Check for:
+        - D1 database query patterns and performance (limit batch sizes)
+        - Worker memory/cpu limits (respect Cloudflare Free plan constraints)
+        - Proper error handling and HTTP status codes
+        - Cache-Control headers for API responses
+        - Request validation and edge cases
+    - path: "**/*.yml"
+      instructions: |
+        Review GitHub Actions workflow files. Check for:
+        - Proper secret handling
+        - Wrangler CLI compatibility (pin versions)
+        - Deployment workflow correctness
+  finishing_touches:
+    - path: "frontend/"
+    - path: "scheduler/"
+    - path: "backend/"
+chat:
+  auto_reply: true
