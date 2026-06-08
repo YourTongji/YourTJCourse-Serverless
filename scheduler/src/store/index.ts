@@ -121,8 +121,7 @@ function sanitizeTimeTableData(raw: unknown) {
         courseName: typeof item?.courseName === "string" ? item.courseName : "",
         code: typeof item?.code === "string" ? item.code : "",
         occupyTime: ensureArray(item?.occupyTime).filter((slot: unknown) => typeof slot === "number" && slot >= 1 && slot <= 12),
-        occupyDay: typeof item?.occupyDay === "number" && item.occupyDay >= 1 && item.occupyDay <= 7 ? item.occupyDay : 0,
-        occupyWeek: ensureArray(item?.occupyWeek).filter((w: unknown) => typeof w === "number")
+        occupyDay: typeof item?.occupyDay === "number" && item.occupyDay >= 1 && item.occupyDay <= 7 ? item.occupyDay : 0
     })).filter((item) => item.code && item.courseName && item.occupyDay > 0 && item.occupyTime.length > 0);
 }
 
@@ -305,14 +304,13 @@ const store = createStore<StoreState>({
                 payload.arrangementInfo.forEach(
                     (arrangement) => {
                         const courseOnTable = { // 每次需要重新创建一个对象，否则会出现引用问题
-                            showText: arrangement.teacherAndCode + ' '
-                                      + state.clickedCourseInfo.courseName + '(' + payload.code + ') '
+                            showText: arrangement.teacherAndCode + ' ' 
+                                      + state.clickedCourseInfo.courseName + '(' + payload.code + ') ' 
                                       + arrangement.arrangementText,
                             courseName: state.clickedCourseInfo.courseName,
                             code: payload.code,
                             occupyTime: arrangement.occupyTime,
                             occupyDay: arrangement.occupyDay,
-                            occupyWeek: arrangement.occupyWeek,
                         }
                         // console.log("push 了星期", courseOnTable.occupyDay);
                         state.timeTableData.push(courseOnTable);

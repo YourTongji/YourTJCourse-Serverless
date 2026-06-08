@@ -7,17 +7,16 @@
             class="overflow-x-hidden max-w-full rounded-2xl border border-slate-200 bg-white/70 shadow-sm"
             :style="{ minHeight: tableMinHeight() + 'px' }"
         >
-        <div v-if="creditSummary.show" class="px-3 py-2 border-b border-slate-200 bg-white/70">
-            <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] md:text-xs">
+        <div v-if="creditSummary.show" class="relative px-3 py-2 pr-8 border-b border-slate-200 bg-white/70">
+            <a-tooltip placement="left" title="由于教务信息不完善，专业课的识别存在误差">
+                <span class="absolute right-2 top-2 flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-orange-500 text-[10px] font-black leading-none text-white shadow-sm ring-1 ring-orange-200">!</span>
+            </a-tooltip>
+            <div class="flex flex-wrap items-center gap-3 text-[11px] md:text-xs">
                 <div class="flex flex-wrap items-center gap-3">
                     <span class="font-extrabold text-slate-700">学分</span>
-                    <span class="text-slate-600">应修专业 {{ creditSummary.targetMajor.toFixed(1) }}</span>
-                    <span class="text-slate-600">可选专选 {{ creditSummary.targetMajorElective.toFixed(1) }}</span>
-                </div>
-                <div class="flex flex-wrap items-center gap-3">
-                    <span class="text-slate-600">已选专业 {{ creditSummary.selectedMajor.toFixed(1) }}</span>
-                    <span class="text-slate-600">已选专选 {{ creditSummary.selectedMajorElective.toFixed(1) }}</span>
-                    <span class="text-slate-600">已选通识 {{ creditSummary.selectedOptional.toFixed(1) }}</span>
+                    <span class="text-slate-600">目前已选学分 {{ creditSummary.selectedTotal.toFixed(1) }}</span>
+                    <span class="text-slate-600">专业学分 {{ creditSummary.selectedMajor.toFixed(1) }}</span>
+                    <span class="text-slate-600">通识学分 {{ creditSummary.selectedGeneral.toFixed(1) }}</span>
                 </div>
             </div>
         </div>
@@ -43,52 +42,54 @@
                         第{{ index + 1 }}节
                     </td>
                     <template v-for="(courses, dayIndex) in row">
-                        <td
+                        <td 
                             v-if="!occupied[index][dayIndex]"
                             :key="dayIndex"
-                            class="border border-slate-200 align-top text-center p-[2px] md:p-1 bg-white/60 tt-cell"
+                            class="border border-slate-200 align-top text-center p-[2px] md:p-1 bg-white/60"
                             :rowspan="maxSpans[index][dayIndex]"
-                            :style="{ overflowY: 'auto', maxHeight: (maxSpans[index][dayIndex] * cellUnitHeight()) + 'px' }"
                             @click="handleCellClick({ dayIndex, rowIndex: index })"
                         >
-                            <div v-if="courses.length > 0" class="tt-cell-inner">
-                                <template v-for="(course, courseIndex) in visibleCourses(courses, index, dayIndex)" :key="course.code + '_' + courseIndex">
-                                    <div v-if="courseIndex > 0 && courseIndex <= visibleCourses(courses, index, dayIndex).length - 1" class="border-t border-dashed border-white/60"></div>
-                                    <div
-                                        class="px-1 md:px-2 py-1 md:py-2 text-[10px] md:text-[11px] leading-tight text-white"
-                                        :class="[isMobile ? 'text-center' : 'text-left']"
-                                        :style="courseCardStyle(course)"
-                                        @touchstart.stop="onPressStart(course, $event)"
-                                        @touchmove.stop="onPressMove($event)"
-                                        @touchend.stop="onPressCancel()"
-                                        @touchcancel.stop="onPressCancel()"
-                                        @mousedown.stop="onPressStart(course, $event)"
-                                        @mouseup.stop="onPressCancel()"
-                                        @mouseleave.stop="onPressCancel()"
-                                    >
+                            <div
+                                v-if="courses.length > 0"
+                                class="h-full rounded-xl overflow-hidden"
+                                :style="{ height: (maxSpans[index][dayIndex] * cellUnitHeight()) + 'px' }"
+                            >
+                                <div
+                                    v-for="(course, courseIndex) in courses"
+                                    :key="course.code + '_' + courseIndex"
+                                    class="h-full px-1 md:px-2 py-1 md:py-2 text-[10px] md:text-[11px] leading-tight text-white"
+                                    :class="[isMobile ? 'text-center' : 'text-left', courseIndex !== courses.length - 1 ? 'border-b border-dashed border-white/60' : '']"
+                                    :style="courseCardStyle(course)"
+                                    @touchstart.stop="onPressStart(course, $event)"
+                                    @touchmove.stop="onPressMove($event)"
+                                    @touchend.stop="onPressCancel()"
+                                    @touchcancel.stop="onPressCancel()"
+                                    @mousedown.stop="onPressStart(course, $event)"
+                                    @mouseup.stop="onPressCancel()"
+                                    @mouseleave.stop="onPressCancel()"
+                                >
+                                    <div v-if="isMobile" class="tt-mobile-course">
+                                        <div class="tt-mobile-title" :title="formatCourseLines(course).title">
+                                            {{ formatCourseLines(course).mobileTitle }}
+                                        </div>
                                         <div
-                                            class="font-extrabold tracking-tight break-words"
-                                            :class="isMobile ? 'tt-mobile-title text-[10px] leading-[1.05]' : ''"
+                                            v-if="course.occupyTime.length >= 2 && formatCourseLines(course).mobileMeta"
+                                            class="tt-mobile-meta"
                                         >
-                                            {{ formatCourseLines(course).title }}
-                                        </div>
-                                        <div v-if="!isMobile" class="mt-1 opacity-95 whitespace-pre-line break-words">
-                                            {{ formatCourseLines(course).sub }}
-                                        </div>
-                                        <!-- #97: week label on every course card -->
-                                        <div v-if="formatCourseLines(course).meta" class="mt-1 text-[10px] font-bold opacity-90 bg-white/20 rounded px-1 inline-block">
-                                          {{ formatCourseLines(course).meta }}
+                                            {{ formatCourseLines(course).mobileMeta }}
                                         </div>
                                     </div>
-                                </template>
-                                <!-- #97: 3+ courses: show "更多 N 门" chip -->
-                                <div v-if="courses.length > 2 && !isCellExpanded(index, dayIndex)" class="text-center py-1">
-                                    <span
-                                        class="text-[9px] font-bold text-white/80 bg-white/15 rounded-full px-2 py-0.5 cursor-pointer hover:bg-white/25"
-                                        @click.stop="toggleCellExpand(index, dayIndex)"
-                                    >
-                                        +{{ courses.length - 2 }} 门
-                                    </span>
+                                    <template v-else>
+                                        <div class="font-extrabold tracking-tight break-words">
+                                            {{ formatCourseLines(course).title }}
+                                        </div>
+                                        <div class="mt-1 opacity-95 whitespace-pre-line break-words">
+                                            {{ formatCourseLines(course).sub }}
+                                        </div>
+                                        <div v-if="formatCourseLines(course).meta" class="mt-1 text-[10px] opacity-90">
+                                          {{ formatCourseLines(course).meta }}
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                         </td>
@@ -125,7 +126,9 @@
 
 <script lang="ts">
 import { errorNotify } from '@/utils/notify';
+import { getCourseBaseCode } from '@/utils/courseManipulate';
 import type { courseOnTable } from '@/utils/myInterface';
+import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive';
 
 export default {
     name: 'timeTable',
@@ -134,13 +137,13 @@ export default {
             timeTable: Array(12).fill(null).map(() => Array(7).fill(undefined).map(() => [])) as courseOnTable[][][],
             maxSpans: Array.from({ length: 12 }, () => Array(7).fill(1)),
             occupied: Array.from({ length: 12 }, () => Array(7).fill(false)), // 这个 occupied 表示的并不是一个单元格内有没有课程，而是这个单元格有没有被 startTime 不是这节课的课程占用
-            isMobile: typeof window !== 'undefined' ? window.innerWidth < 768 : false,
+            isMobile: getIsMobile(),
+            _cleanupMobile: null as (() => void) | null,
             pressTimer: null as any,
             pressStartX: 0,
             pressStartY: 0,
             mobileDetailOpen: false,
             mobileDetailCourse: null as null | courseOnTable,
-            expandedCells: [] as string[], // #97: tracked expanded cells for 3+ courses
         }
     },
     methods: {
@@ -166,6 +169,25 @@ export default {
             // 桌面端：接近原版的紫色课程块
             return { background: 'linear-gradient(135deg, #5d57e8, #4b3fd9)' }
         },
+        compactCourseName(name: string) {
+            const cleaned = String(name || '')
+                .replace(/[（(][^()（）]*[）)]/g, '')
+                .replace(/\s+/g, '')
+                .trim()
+            if (!cleaned) return '课程'
+
+            const chars = Array.from(cleaned)
+            return chars.length > 7 ? `${chars.slice(0, 6).join('')}…` : cleaned
+        },
+        compactMobileMeta(teacher: string, room: string) {
+            const teacherText = String(teacher || '').replace(/[A-Z0-9]+$/i, '').trim()
+            const roomText = String(room || '')
+                .replace(/校区/g, '')
+                .replace(/教学楼|学院楼|综合楼/g, '')
+                .replace(/\s+/g, '')
+                .trim()
+            return [teacherText, roomText].filter(Boolean).join(' · ')
+        },
         formatCourseLines(course: courseOnTable) {
             const raw = String(course.showText || '').trim()
 
@@ -186,45 +208,33 @@ export default {
                     room = room.replace(/校区/g, '').replace(/\\s+/g, ' ').trim()
                 }
 
-                const weekLabel = this.formatWeekPattern(course.occupyWeek || [])
-
                 if (this.isMobile) {
                     return {
                         title: name,
+                        mobileTitle: this.compactCourseName(name),
+                        mobileMeta: this.compactMobileMeta(teacher, room),
                         sub: '',
-                        meta: weekLabel
+                        meta: ''
                     }
                 }
 
                 return {
                     title: `${teacher} ${name}(${code})`,
+                    mobileTitle: this.compactCourseName(name),
+                    mobileMeta: this.compactMobileMeta(teacher, room),
                     sub: [shortDay, weekText, room].filter(Boolean).join(' '),
-                    meta: weekLabel
+                    meta: ''
                 }
             }
 
+            const fallbackTitle = course.courseName || course.code || '课程'
             return {
-                title: course.courseName || course.code || '课程',
+                title: fallbackTitle,
+                mobileTitle: this.compactCourseName(fallbackTitle),
+                mobileMeta: course.code || '',
                 sub: raw,
-                meta: this.formatWeekPattern(course.occupyWeek || [])
+                meta: course.code || ''
             }
-        },
-        formatWeekPattern(weeks: number[]) {
-            if (!weeks || weeks.length === 0) return ''
-            const isOdd = weeks.every(w => w % 2 === 1)
-            const isEven = weeks.every(w => w % 2 === 0)
-            if (isOdd && weeks.length >= 8) return '单周'
-            if (isEven && weeks.length >= 8) return '双周'
-            if (weeks.length <= 3) return weeks.join(',') + '周'
-            const sorted = [...weeks].sort((a, b) => a - b)
-            if (sorted[sorted.length - 1] - sorted[0] === sorted.length - 1) {
-                return `${sorted[0]}-${sorted[sorted.length - 1]}周`
-            }
-            return weeks.join(',') + '周'
-        },
-        hasWeekOverlap(weeksA: number[], weeksB: number[]) {
-            if (!weeksA || !weeksB || weeksA.length === 0 || weeksB.length === 0) return false
-            return weeksA.some(w => weeksB.includes(w))
         },
         parseShowText(raw: string) {
             const text = String(raw || '').trim()
@@ -281,40 +291,33 @@ export default {
             // 步骤1: 按课程长度排序（长课程优先处理）
             const sortedCourses = [...safeCourses].sort((a, b) => b.occupyTime.length - a.occupyTime.length)
 
-            // 步骤2: 记录每个单元格覆盖的时间范围
-            const cellRanges: Array<Array<{ startTime: number, endTime: number, courses: courseOnTable[] } | null>> =
+            // 步骤2: 记录每个单元格覆盖的时间范围（用于判断重叠）
+            // cellRanges[row][col] = { startTime, endTime, courses }
+            const cellRanges: Array<Array<{ startTime: number, endTime: number, courses: courseOnTable[] } | null>> = 
                 Array(maxRows).fill(null).map(() => Array(7).fill(null))
 
-            // 步骤3: 填充课程数据 - 按周模式分离
+            // 步骤3: 填充课程数据 - 短课程合并到长课程的单元格中
             sortedCourses.forEach((course: courseOnTable) => {
                 const startRow = course.occupyTime[0] - 1
                 const dayIndex = course.occupyDay - 1
 
-                // 检查是否完全在某已有课程的时间范围内
+                // 检查是否有已存在的课程覆盖了当前课程的时间段
                 let mergedIntoExisting = false
+                
                 for (let checkRow = 0; checkRow <= startRow; checkRow++) {
                     const existingRange = cellRanges[checkRow][dayIndex]
-                    if (existingRange &&
-                        existingRange.startTime <= course.occupyTime[0] &&
+                    if (existingRange && 
+                        existingRange.startTime <= course.occupyTime[0] && 
                         existingRange.endTime >= course.occupyTime[course.occupyTime.length - 1]) {
-
-                        // #97: 检查周是否重叠 - 不重叠的课程分开存放
-                        const hasOverlap = existingRange.courses.some((c: courseOnTable) =>
-                            this.hasWeekOverlap(c.occupyWeek || [], course.occupyWeek || [])
-                        )
-                        if (hasOverlap) {
-                            // 周重叠 → 冲突（由 canAddCourse 处理）
-                            mergedIntoExisting = true
-                        } else {
-                            // 周不重叠 → 添加到同一单元格
-                            existingRange.courses.push(course)
-                            newTimeTable[checkRow][dayIndex].push(course)
-                            mergedIntoExisting = true
-                        }
+                        // 当前课程的时间段完全在已有课程的范围内，合并到该单元格
+                        existingRange.courses.push(course)
+                        newTimeTable[checkRow][dayIndex].push(course)
+                        mergedIntoExisting = true
                         break
                     }
                 }
 
+                // 如果没有合并到已有单元格，创建新的单元格
                 if (!mergedIntoExisting) {
                     newTimeTable[startRow][dayIndex].push(course)
                     cellRanges[startRow][dayIndex] = {
@@ -325,11 +328,12 @@ export default {
                 }
             })
 
-            // 步骤4: 计算最大跨度
+            // 步骤4: 计算最大跨度（基于实际的课程长度）
             for (let row = 0; row < maxRows; row++) {
                 for (let col = 0; col < 7; col++) {
                     const courses = newTimeTable[row][col]
                     if (courses.length > 0) {
+                        // 取所有课程中最长的跨度
                         newMaxSpans[row][col] = Math.max(...courses.map(c => c.occupyTime.length))
                     }
                 }
@@ -353,24 +357,6 @@ export default {
             this.timeTable = newTimeTable
             this.maxSpans = newMaxSpans
             this.occupied = newOccupied
-        },
-        // #97: show first 2 courses if cell has 3+; expand on "more" click
-        visibleCourses(courses: courseOnTable[], rowIndex: number, dayIndex: number) {
-            if (courses.length <= 2) return courses
-            const key = `${rowIndex}-${dayIndex}`
-            if (this.expandedCells.includes(key)) return courses
-            return courses.slice(0, 2)
-        },
-        isCellExpanded(rowIndex: number, dayIndex: number) {
-            return this.expandedCells.includes(`${rowIndex}-${dayIndex}`)
-        },
-        toggleCellExpand(rowIndex: number, dayIndex: number) {
-            const key = `${rowIndex}-${dayIndex}`
-            if (this.expandedCells.includes(key)) {
-                this.expandedCells = this.expandedCells.filter(k => k !== key)
-            } else {
-                this.expandedCells.push(key)
-            }
         },
         handleCellClick(cell: { dayIndex: number, rowIndex: number }) {
             // 如果输入了个人信息，再允许点击
@@ -397,16 +383,11 @@ export default {
         this.updateTimeTable()
     },
     mounted() {
-        const onResize = () => {
-            this.isMobile = window.innerWidth < 768
-        }
-        window.addEventListener('resize', onResize, { passive: true })
-        onResize()
-        ;(this as any)._onResize = onResize
+        this._cleanupMobile = onMobileChange((v: boolean) => { this.isMobile = v })
+        this.isMobile = getIsMobile()
     },
     beforeUnmount() {
-        const fn = (this as any)._onResize
-        if (fn) window.removeEventListener('resize', fn)
+        if (this._cleanupMobile) this._cleanupMobile()
     },
     computed: {
         timeTableData() {
@@ -431,11 +412,9 @@ export default {
         creditSummary() {
             const empty = {
                 show: false,
-                targetMajor: 0,
-                targetMajorElective: 0,
+                selectedTotal: 0,
                 selectedMajor: 0,
-                selectedMajorElective: 0,
-                selectedOptional: 0,
+                selectedGeneral: 0,
             }
 
             if (!this.$store.getters.isMajorSelected) return empty
@@ -445,25 +424,23 @@ export default {
             const staged: any[] = this.$store.state.commonLists?.stagedCourses || []
             const selected: string[] = this.$store.state.commonLists?.selectedCourses || []
 
-            const classifyMajor = (natures: any): 'major' | 'elective' | 'other' => {
+            const classifyCourse = (course: any): 'major' | 'general' => {
+                const courseType = String(course?.courseType || '')
+                if (courseType === '选' || courseType === '跨') return 'general'
+
+                const natures = course?.courseNature || course?.courseLabelName
                 const list = Array.isArray(natures) ? natures.map((x) => String(x || '')) : [String(natures || '')]
                 const text = list.join(' ')
-                if (text.includes('专业选修') || text.includes('专选') || text.includes('专业方向') || text.includes('专业任选')) return 'elective'
-                if (text.includes('专业')) return 'major'
-                return 'other'
+                if (text.includes('通识') || text.includes('核心') || text.includes('美育') || text.includes('创新') || text.includes('创业')) return 'general'
+                return 'major'
             }
 
-            const compulsoryCat = new Map<string, 'major' | 'elective' | 'other'>()
-            let targetMajor = 0
-            let targetMajorElective = 0
+            const compulsoryCat = new Map<string, 'major' | 'general'>()
             for (const c of compulsory) {
                 const cc = String(c?.courseCode || '')
                 if (!cc) continue
-                const credit = Number(c?.credit || 0)
-                const cat = classifyMajor(c?.courseNature)
+                const cat = classifyCourse(c)
                 compulsoryCat.set(cc, cat)
-                if (cat === 'elective') targetMajorElective += credit
-                else if (cat === 'major') targetMajor += credit
             }
 
             const optionalCodes = new Set<string>()
@@ -478,34 +455,33 @@ export default {
             for (const code of selected) {
                 const s = String(code || '')
                 if (!s) continue
-                selectedBases.add(s.length > 2 ? s.slice(0, -2) : s)
+                selectedBases.add(getCourseBaseCode(s))
             }
 
+            let selectedTotal = 0
             let selectedMajor = 0
-            let selectedMajorElective = 0
-            let selectedOptional = 0
+            let selectedGeneral = 0
             for (const c of staged) {
                 const cc = String(c?.courseCode || '')
                 if (!cc || !selectedBases.has(cc)) continue
                 const credit = Number(c?.credit || 0)
+                selectedTotal += credit
 
                 if (optionalCodes.has(cc)) {
-                    selectedOptional += credit
+                    selectedGeneral += credit
                     continue
                 }
 
-                const cat = compulsoryCat.get(cc) || 'other'
-                if (cat === 'elective') selectedMajorElective += credit
-                else if (cat === 'major') selectedMajor += credit
+                const cat = compulsoryCat.get(cc) || classifyCourse(c)
+                if (cat === 'general') selectedGeneral += credit
+                else selectedMajor += credit
             }
 
             return {
                 show: true,
-                targetMajor,
-                targetMajorElective,
+                selectedTotal,
                 selectedMajor,
-                selectedMajorElective,
-                selectedOptional,
+                selectedGeneral,
             }
         }
     },
@@ -521,32 +497,44 @@ export default {
 </script>
 
 <style scoped>
-.tt-mobile-title {
-  writing-mode: vertical-rl;
-  text-orientation: upright;
-  letter-spacing: 0.06em;
-}
-
-/* #97: mini scrollbar for timetable cells */
-.tt-cell {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0,0,0,0.2) transparent;
-}
-.tt-cell::-webkit-scrollbar {
-  width: 4px;
-}
-.tt-cell::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.25);
-  border-radius: 2px;
-}
-.tt-cell::-webkit-scrollbar-track {
-  background: transparent;
-}
-.tt-cell-inner {
-  min-height: 100%;
+.tt-mobile-course {
+  align-items: center;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  height: 100%;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tt-mobile-title {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(15 23 42 / 0.24);
+  text-overflow: ellipsis;
+  word-break: break-all;
+  writing-mode: horizontal-tb;
+}
+
+.tt-mobile-meta {
+  font-size: 8px;
+  line-height: 1;
+  margin-top: 2px;
+  max-width: 100%;
+  opacity: 0.84;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgb(15 23 42 / 0.18);
+  white-space: nowrap;
 }
 
 .tt-detail-enter-active,

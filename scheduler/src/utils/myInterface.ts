@@ -12,7 +12,6 @@ export interface courseOnTable {
     code: string;
     occupyTime: number[];
     occupyDay: number;
-    occupyWeek: number[];
 }
 
 // 课程安排
