@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: "en-US"
 early_access: false
-tone_instructions: 'You are an expert code reviewer for a full-stack course selection website built with React 18 + TypeScript + Vite + Tailwind CSS (frontend), Vue 3 + TypeScript + Ant Design Vue (scheduler/timetable simulator), Hono + Cloudflare Workers + D1/SQLite (backend API), Python (data sync scripts), and GitHub Actions (CI/CD). Provide concise, actionable review feedback in English. Focus on: correctness and edge cases, TypeScript strictness, mobile responsiveness, Cloudflare Workers performance, XSS prevention, and code consistency with existing patterns. Be respectful and constructive.'
+tone_instructions: 'Expert code reviewer for a full-stack course site: React 18 + Vue 3 + Hono/Cloudflare Workers. Focus on TypeScript correctness, mobile responsiveness, Worker performance, XSS prevention, and code consistency. Concise, actionable feedback in English.'
 reviews:
   profile: "chill"
   request_changes_workflow: false
