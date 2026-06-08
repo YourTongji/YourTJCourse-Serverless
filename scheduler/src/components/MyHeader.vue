@@ -230,8 +230,7 @@ export default {
                                                 courseName: course.courseNameReserved,
                                                 code: detail.code,
                                                 occupyTime: arrangement.occupyTime,
-                                                occupyDay: arrangement.occupyDay,
-                                                occupyWeek: arrangement.occupyWeek
+                                                occupyDay: arrangement.occupyDay
                                             });
                                         });
                                     }
