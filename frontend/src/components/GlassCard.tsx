@@ -17,7 +17,7 @@ export default function GlassCard({ children, className = '', style, onClick, ho
         relative overflow-hidden
         bg-white/95 md:bg-white/70 backdrop-blur-md md:backdrop-blur-xl
         border border-white/75 md:border-white/60
-        shadow-[0_12px_30px_-20px_rgba(15,23,42,0.28)] md:shadow-[0_4px_20px_-4px_rgba(6,182,212,0.15)]
+        shadow-[0_12px_30px_-20px_rgba(15,23,42,0.28)] md:shadow-[0_4px_20px_-8px_rgba(6,182,212,0.15)]
         rounded-3xl p-6
         ${hover ? 'active:scale-[0.98] md:hover:scale-[1.02] md:hover:bg-white/85 md:hover:shadow-[0_10px_40px_-10px_rgba(6,182,212,0.3)] cursor-pointer' : ''}
         transition-all duration-300
