@@ -17,6 +17,7 @@ import {
   canAddCourse,
   createEmptyOccupied,
   deleteOccupied,
+  getBaseCourseCode,
   insertOccupied,
   isSameCourse,
 } from "./course-manipulate";
@@ -67,7 +68,10 @@ export interface SchedulerState {
   selectMajor: (code: string) => void;
   loadCompulsoryCourses: () => Promise<void>;
   loadOptionalCourses: () => Promise<void>;
-  stageCourses: (courseKeys: string[]) => Promise<void>;
+  stageCourses: (
+    courseKeys: string[],
+    courseInfoByCode?: Record<string, Partial<CourseInfo>>,
+  ) => Promise<void>;
   removeCourse: (courseCode: string) => void;
   selectClass: (classDetail: ClassDetail) => { ok: boolean; conflict?: string };
   clickTimeCell: (day: number, section: number) => Promise<CourseInfo[]>;
@@ -200,7 +204,10 @@ export const useSchedulerStore = create<SchedulerState>()(
 
       // ── Course Selection ───────────────────────────────────────────────────
 
-      async stageCourses(courseKeys: string[]) {
+      async stageCourses(
+        courseKeys: string[],
+        courseInfoByCode: Record<string, Partial<CourseInfo>> = {},
+      ) {
         const { calendarId, stagedCourses } = get();
         if (calendarId === null) return;
         const { getCourseDetailByCode } = await import("./api");
@@ -210,25 +217,50 @@ export const useSchedulerStore = create<SchedulerState>()(
         const newKeys = courseKeys.filter((k) => !alreadyStaged.has(k));
         if (newKeys.length === 0) return;
 
+        const knownCourses = new Map<string, Partial<CourseInfo>>();
+        for (const list of [
+          get().compulsoryCourses,
+          get().optionalCourses,
+          get().searchCourses,
+        ]) {
+          for (const course of list) knownCourses.set(course.courseCode, course);
+        }
+        for (const [code, info] of Object.entries(courseInfoByCode)) {
+          knownCourses.set(code, info);
+        }
+
         const detailMap = await getCourseDetailByCode(calendarId, newKeys);
 
         const additions: StagedCourse[] = [];
         for (const key of newKeys) {
-          const details = detailMap[key];
-          if (!details || details.length === 0) continue;
+          const meta = knownCourses.get(key);
+          const details = detailMap[key] || meta?.courseDetail || [];
+          if (!details || details.length === 0) {
+            additions.push({
+              courseCode: key,
+              courseName: meta?.courseName || key,
+              credit: Number(meta?.credit || 0),
+              courseType: meta?.courseType || "",
+              teacher: [],
+              status: 0,
+              courseDetail: [],
+            });
+            continue;
+          }
 
           const firstDetail = details[0]!;
-          const tea = firstDetail.teachers[0];
+          const firstTeacherDetail = details.find((d) => d.teachers.length > 0);
           additions.push({
             courseCode: key,
-            courseName: firstDetail.campus || key,
-            credit: 0,
-            courseType: "",
-            teacher: tea
-              ? [{ teacherCode: tea.teacherCode, teacherName: tea.teacherName }]
-              : [],
+            courseName: meta?.courseName || key,
+            credit: Number(meta?.credit || 0),
+            courseType: meta?.courseType || "",
+            teacher: firstTeacherDetail?.teachers || firstDetail.teachers || [],
             status: 0,
-            courseDetail: details,
+            courseDetail: details.map((detail) => ({
+              ...detail,
+              status: Number(detail.status || 0),
+            })),
           });
         }
 
@@ -319,7 +351,20 @@ export const useSchedulerStore = create<SchedulerState>()(
         }
 
         // Push new course blocks into timetable
-        const clickedCourse = state.clickedCourse;
+        const stagedCourse = state.stagedCourses.find(
+          (course) =>
+            course.courseCode === getBaseCourseCode(classDetail.code) ||
+            isSameCourse(course.courseCode, classDetail.code),
+        );
+        const clickedCourse = state.clickedCourse.courseCode &&
+          isSameCourse(state.clickedCourse.courseCode, classDetail.code)
+          ? state.clickedCourse
+          : {
+              courseCode: stagedCourse?.courseCode || getBaseCourseCode(classDetail.code),
+              courseName: stagedCourse?.courseName || getBaseCourseCode(classDetail.code),
+              teacherCode: stagedCourse?.teacher[0]?.teacherCode || "",
+              teacherName: stagedCourse?.teacher[0]?.teacherName || "",
+            };
         const newBlocks: CourseOnTable[] = classDetail.arrangementInfo.map(
           (arr) => ({
             showText: buildShowText(
@@ -346,9 +391,11 @@ export const useSchedulerStore = create<SchedulerState>()(
         );
 
         // Update statuses
-        classDetail.status = 1;
         const updatedStaged = state.stagedCourses.map((sc) => {
-          if (sc.courseCode === classDetail.code.slice(0, -2)) {
+          if (
+            sc.courseCode === getBaseCourseCode(classDetail.code) ||
+            isSameCourse(sc.courseCode, classDetail.code)
+          ) {
             return {
               ...sc,
               status: 1,
@@ -462,7 +509,10 @@ export const useSchedulerStore = create<SchedulerState>()(
           await import("./api");
         try {
           const [detailMap, latestTime] = await Promise.all([
-            getLatestCourseInfo(calendarId, majorCodes, otherCodes),
+            getLatestCourseInfo(calendarId, majorCodes, otherCodes, {
+              grade: state.grade,
+              code: state.major,
+            }),
             getLatestUpdateTime(),
           ]);
 

@@ -18,6 +18,8 @@ interface ReviewEntry {
   comment?: string;
   reviewer?: string;
   createdAt?: string;
+  reviewer_name?: string;
+  created_at?: string | number;
 }
 
 interface ReviewDrawerProps {
@@ -35,7 +37,11 @@ export default function ReviewDrawer({ open, onOpenChange }: ReviewDrawerProps) 
     if (!open || !clickedCourse.courseCode) return;
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/course/by-code/${clickedCourse.courseCode}`)
+    const params = new URLSearchParams();
+    if (clickedCourse.teacherName) params.set("teacherName", clickedCourse.teacherName);
+    if (clickedCourse.teacherCode) params.set("teacherCode", clickedCourse.teacherCode);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    fetch(`/api/course/by-code/${encodeURIComponent(clickedCourse.courseCode)}${suffix}`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed");
         return res.json() as Promise<{ reviews?: ReviewEntry[] }>;
@@ -53,7 +59,7 @@ export default function ReviewDrawer({ open, onOpenChange }: ReviewDrawerProps) 
     return () => {
       cancelled = true;
     };
-  }, [open, clickedCourse.courseCode]);
+  }, [open, clickedCourse.courseCode, clickedCourse.teacherCode, clickedCourse.teacherName]);
 
   function renderStars(rating: number) {
     return (
@@ -100,7 +106,7 @@ export default function ReviewDrawer({ open, onOpenChange }: ReviewDrawerProps) 
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-slate-700">
-                    {review.reviewer || "匿名用户"}
+                    {review.reviewer || review.reviewer_name || "匿名用户"}
                   </span>
                   {review.rating != null && renderStars(review.rating)}
                 </div>
@@ -109,9 +115,9 @@ export default function ReviewDrawer({ open, onOpenChange }: ReviewDrawerProps) 
                     {review.comment}
                   </p>
                 )}
-                {review.createdAt && (
+                {(review.createdAt || review.created_at) && (
                   <p className="mt-1 text-[10px] text-slate-400">
-                    {new Date(review.createdAt).toLocaleDateString("zh-CN")}
+                    {new Date(review.createdAt || review.created_at || "").toLocaleDateString("zh-CN")}
                   </p>
                 )}
               </div>

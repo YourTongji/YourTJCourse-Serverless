@@ -34,11 +34,9 @@ export default function ExportMenu() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger>
-        <Button variant="outline" size="sm">
-          <DownloadIcon className="size-3.5" />
-          <span className="hidden sm:inline">导出</span>
-        </Button>
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+        <DownloadIcon className="size-3.5" />
+        <span className="hidden sm:inline">导出</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={handleExportCSV}>

@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useSchedulerStore } from "~/lib/schedule/store";
 import { getOptionalCourseTypes, getOptionalCoursesByType } from "~/lib/schedule/api";
 import { Checkbox } from "~/components/ui/checkbox";
-import { Badge } from "~/components/ui/badge";
 import { Skeleton } from "~/components/ui/skeleton";
 import type { CourseInfo } from "~/lib/schedule/types";
 
@@ -58,10 +57,16 @@ export default function OptionalCourseTab({
   // Filter courses for the active type
   const activeCourses = (() => {
     if (activeType === null) return [];
-    // CourseInfo doesn't have a direct type label — we use the label name to match
+    const activeTypeMeta = optionalTypes.find(
+      (type) => type.courseLabelId === activeType,
+    );
     return optionalCourses.filter(
       (c) =>
-        !stagedCodes.has(c.courseCode),
+        !stagedCodes.has(c.courseCode) &&
+        (c.courseLabelId === activeType ||
+          c.courseLabelIds?.includes(activeType) ||
+          c.courseType === activeTypeMeta?.courseLabelName ||
+          c.courseLabelName === activeTypeMeta?.courseLabelName),
     );
   })();
 

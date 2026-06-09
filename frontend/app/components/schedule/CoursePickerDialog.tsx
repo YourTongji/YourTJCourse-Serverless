@@ -14,6 +14,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "~/components/ui/tabs";
 import CompulsoryCourseTab from "./CompulsoryCourseTab";
 import OptionalCourseTab from "./OptionalCourseTab";
 import AdvancedSearchTab from "./AdvancedSearchTab";
+import type { CourseInfo } from "~/lib/schedule/types";
 
 interface CoursePickerDialogProps {
   open: boolean;
@@ -25,6 +26,9 @@ export default function CoursePickerDialog({
   onOpenChange,
 }: CoursePickerDialogProps) {
   const stageCourses = useSchedulerStore((s) => s.stageCourses);
+  const compulsoryCourses = useSchedulerStore((s) => s.compulsoryCourses);
+  const optionalCourses = useSchedulerStore((s) => s.optionalCourses);
+  const searchCourses = useSchedulerStore((s) => s.searchCourses);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,7 +47,17 @@ export default function CoursePickerDialog({
         // Remove prefix like "查_" from search tab
         return k.startsWith("查_") ? k.slice(2) : k;
       });
-      await stageCourses(codes);
+      const courseInfoByCode: Record<string, Partial<CourseInfo>> = {};
+      for (const course of [
+        ...compulsoryCourses,
+        ...optionalCourses,
+        ...searchCourses,
+      ]) {
+        if (codes.includes(course.courseCode)) {
+          courseInfoByCode[course.courseCode] = course;
+        }
+      }
+      await stageCourses(codes, courseInfoByCode);
       setSelectedKeys([]);
       onOpenChange(false);
     } catch {

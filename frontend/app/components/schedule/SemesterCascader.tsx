@@ -22,7 +22,10 @@ export default function SemesterCascader() {
   const [loadingCalendars, setLoadingCalendars] = useState(false);
 
   useEffect(() => {
-    if (calendars.length > 0) return;
+    if (calendars.length > 0) {
+      setLoadingCalendars(false);
+      return;
+    }
     let cancelled = false;
     setLoadingCalendars(true);
     getAllCalendars()

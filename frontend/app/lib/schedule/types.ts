@@ -59,6 +59,12 @@ export interface CourseInfo {
   courseDetail: ClassDetail[];
   grade?: number;
   faculty?: string;
+  courseLabelId?: number;
+  courseLabelIds?: number[];
+  courseLabelName?: string;
+  courseNature?: string[];
+  campus?: string[];
+  crossDiscipline?: boolean;
 }
 
 // ─── Cascade Selection State ───────────────────────────────────────────────────

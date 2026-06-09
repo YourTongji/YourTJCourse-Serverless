@@ -8,9 +8,20 @@ function hasIntersection(arr1: number[], arr2: number[]): boolean {
 
 // ─── Course Identity ───────────────────────────────────────────────────────────
 
-/** Two courses are the same when their base codes match (ignore section suffix ".XX"). */
+/** Strip a teaching-class suffix such as `.01` or the trailing two class digits. */
+export function getBaseCourseCode(code: string): string {
+  const normalized = String(code || "").trim();
+  if (!normalized) return "";
+  const dotted = normalized.match(/^(.+)\.\d{1,2}$/);
+  if (dotted?.[1]) return dotted[1];
+  return normalized.length > 6 ? normalized.slice(0, -2) : normalized;
+}
+
+/** Two courses are the same when their base codes match. */
 export function isSameCourse(code1: string, code2: string): boolean {
-  return code1?.slice(0, -2) === code2?.slice(0, -2);
+  if (!code1 || !code2) return false;
+  if (code1 === code2) return true;
+  return getBaseCourseCode(code1) === getBaseCourseCode(code2);
 }
 
 // ─── Occupied Grid Operations ──────────────────────────────────────────────────

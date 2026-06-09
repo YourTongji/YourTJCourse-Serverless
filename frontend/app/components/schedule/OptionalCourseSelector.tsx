@@ -45,7 +45,13 @@ export default function OptionalCourseSelector({
     if (selectedKeys.length === 0) return;
     setSubmitting(true);
     try {
-      await stageCourses(selectedKeys);
+      const courseInfoByCode: Record<string, Partial<CourseInfo>> = {};
+      for (const course of courses) {
+        if (selectedKeys.includes(course.courseCode)) {
+          courseInfoByCode[course.courseCode] = course;
+        }
+      }
+      await stageCourses(selectedKeys, courseInfoByCode);
       onOpenChange(false);
     } catch {
       // noop
