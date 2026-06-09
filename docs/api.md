@@ -84,7 +84,7 @@ GET /api/course/:id/related
 GET /api/course/by-code/:code
 ```
 
-- `/api/course/:id` 返回课程信息、评价、点赞状态和相关基础信息。
+- `/api/course/:id` 返回课程信息、评价、点赞状态和相关基础信息；带 `walletUserHash` 查询参数时，会在属于该钱包的评价上返回 `can_edit: true`，但不会暴露内部钱包字段。
 - `/api/course/:id/related` 返回同教师其他课程、同课程其他教师的简要信息。
 - `/api/course/by-code/:code` 给排课模拟器弹窗使用，支持 `teacherName`、`teacherCode`、`clientId` 查询参数。
 - 当管理员关闭乌龙茶/ICU 数据显示时，`is_icu=1` 的课程和评价会被隐藏。
