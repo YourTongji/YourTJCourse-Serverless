@@ -72,7 +72,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ADMIN_SECRET: ${{ secrets.JCOURSE_ADMIN_SECRET }}
-      BACKEND_URL: ${{ secrets.BACKEND_URL_DEV }}
       CREDIT_API_BASE: ${{ secrets.CREDIT_API_BASE }}
       VITE_CREDIT_API_BASE: ${{ secrets.VITE_CREDIT_API_BASE }}
       CREDIT_JCOURSE_SECRET: ${{ secrets.CREDIT_JCOURSE_SECRET }}
@@ -167,17 +166,143 @@ jobs:
       - name: Refresh review search index (env.dev)
         run: |
           set -euo pipefail
-          if [ -z "${BACKEND_URL:-}" ]; then
-            echo "Missing secrets.BACKEND_URL_DEV, skip review search index refresh"
-            exit 0
-          fi
-          BACKEND_URL="${BACKEND_URL%/}"
-          if [[ "$BACKEND_URL" == */api ]]; then BACKEND_URL="${BACKEND_URL%/api}"; fi
-          curl -fsSL -X POST "$BACKEND_URL/api/admin/pk/refresh-review-index" \
-            -H "Content-Type: application/json" \
-            -H "x-admin-secret: $ADMIN_SECRET" \
-            --data '{}' \
-            | tee dev-review-index-refresh.json
+          npx wrangler d1 execute jcourse-db --remote --env dev --file="./migrations/001_pk_schema.sql"
+          npx wrangler d1 execute jcourse-db --remote --env dev --file="./migrations/010_materialize_courses_from_pk.sql"
+          cat > .tmp-refresh-review-index.sql <<'SQL'
+          CREATE TABLE IF NOT EXISTS course_semesters (
+            course_id INTEGER PRIMARY KEY,
+            semester_names TEXT DEFAULT ''
+          );
+          CREATE INDEX IF NOT EXISTS idx_course_semesters_course_id ON course_semesters(course_id);
+          CREATE VIRTUAL TABLE IF NOT EXISTS course_search USING fts5(course_id UNINDEXED, search_doc, tokenize='trigram');
+
+          DELETE FROM course_semesters;
+          WITH
+            course_codes AS (
+              SELECT id AS course_id, TRIM(code) AS code
+              FROM courses
+              WHERE TRIM(COALESCE(code, '')) != ''
+              UNION
+              SELECT course_id, TRIM(alias) AS code
+              FROM course_aliases
+              WHERE system = 'onesystem' AND TRIM(COALESCE(alias, '')) != ''
+            ),
+            semester_rows AS (
+              SELECT cc.course_id, ca.calendarIdI18n AS name, ca.calendarId
+              FROM course_codes cc
+              JOIN coursedetail cd ON cd.courseCode = cc.code
+              JOIN calendar ca ON ca.calendarId = cd.calendarId
+              UNION ALL
+              SELECT cc.course_id, ca.calendarIdI18n AS name, ca.calendarId
+              FROM course_codes cc
+              JOIN coursedetail cd ON cd.code = cc.code
+              JOIN calendar ca ON ca.calendarId = cd.calendarId
+              UNION ALL
+              SELECT cc.course_id, ca.calendarIdI18n AS name, ca.calendarId
+              FROM course_codes cc
+              JOIN coursedetail cd ON cd.newCourseCode = cc.code
+              JOIN calendar ca ON ca.calendarId = cd.calendarId
+              UNION ALL
+              SELECT cc.course_id, ca.calendarIdI18n AS name, ca.calendarId
+              FROM course_codes cc
+              JOIN coursedetail cd ON cd.newCode = cc.code
+              JOIN calendar ca ON ca.calendarId = cd.calendarId
+            ),
+            semester_ranked AS (
+              SELECT course_id, TRIM(name) AS name, MAX(calendarId) AS calendarId
+              FROM semester_rows
+              WHERE TRIM(COALESCE(name, '')) != ''
+              GROUP BY course_id, TRIM(name)
+            )
+          INSERT INTO course_semesters (course_id, semester_names)
+          SELECT
+            c.id,
+            COALESCE((
+              SELECT GROUP_CONCAT(name, '||')
+              FROM (
+                SELECT sr.name
+                FROM semester_ranked sr
+                WHERE sr.course_id = c.id
+                ORDER BY sr.calendarId DESC, sr.name
+              )
+            ), '') AS semester_names
+          FROM courses c;
+
+          DELETE FROM course_search;
+          WITH
+            alias_keywords AS (
+              SELECT course_id, GROUP_CONCAT(DISTINCT TRIM(alias)) AS aliases
+              FROM course_aliases
+              WHERE system = 'onesystem' AND TRIM(COALESCE(alias, '')) != ''
+              GROUP BY course_id
+            ),
+            course_codes AS (
+              SELECT id AS course_id, TRIM(code) AS code
+              FROM courses
+              WHERE TRIM(COALESCE(code, '')) != ''
+              UNION
+              SELECT course_id, TRIM(alias) AS code
+              FROM course_aliases
+              WHERE system = 'onesystem' AND TRIM(COALESCE(alias, '')) != ''
+            ),
+            pk_rows AS (
+              SELECT cc.course_id, cd.*
+              FROM course_codes cc
+              JOIN coursedetail cd ON cd.courseCode = cc.code
+              UNION ALL
+              SELECT cc.course_id, cd.*
+              FROM course_codes cc
+              JOIN coursedetail cd ON cd.code = cc.code
+              UNION ALL
+              SELECT cc.course_id, cd.*
+              FROM course_codes cc
+              JOIN coursedetail cd ON cd.newCourseCode = cc.code
+              UNION ALL
+              SELECT cc.course_id, cd.*
+              FROM course_codes cc
+              JOIN coursedetail cd ON cd.newCode = cc.code
+            ),
+            pk_keywords AS (
+              SELECT
+                pr.course_id,
+                TRIM(
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.courseCode)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.code)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.newCourseCode)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.newCode)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.courseName)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.name)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.faculty)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.campus)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherCode)), '') || ' ' ||
+                  COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherName)), '')
+                ) AS keywords
+              FROM pk_rows pr
+              LEFT JOIN teacher t ON t.teachingClassId = pr.id
+              GROUP BY pr.course_id
+            )
+          INSERT INTO course_search (course_id, search_doc)
+          SELECT
+            c.id,
+            TRIM(
+              c.code || ' ' ||
+              c.name || ' ' ||
+              COALESCE(c.department, '') || ' ' ||
+              COALESCE(t.name, '') || ' ' ||
+              COALESCE(t.tid, '') || ' ' ||
+              COALESCE(c.search_keywords, '') || ' ' ||
+              COALESCE(ak.aliases, '') || ' ' ||
+              COALESCE(pk.keywords, '')
+            ) AS search_doc
+          FROM courses c
+          LEFT JOIN teachers t ON t.id = c.teacher_id
+          LEFT JOIN alias_keywords ak ON ak.course_id = c.id
+          LEFT JOIN pk_keywords pk ON pk.course_id = c.id;
+
+          INSERT OR REPLACE INTO settings (key, value)
+          VALUES ('aux_schema_version', '20260609-pk-materialize-v1');
+          SQL
+          npx wrangler d1 execute jcourse-db --remote --env dev --file=".tmp-refresh-review-index.sql"
 
   deploy-frontend-dev:
     runs-on: ubuntu-latest
