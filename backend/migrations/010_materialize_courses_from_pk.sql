@@ -15,7 +15,9 @@ WITH
   course_teacher AS (
     SELECT
       cd.courseCode AS courseCode,
-      MIN(TRIM(t.teacherName)) AS teacherName
+      MIN(TRIM(t.teacherName)) AS teacherName,
+      GROUP_CONCAT(DISTINCT TRIM(t.teacherName)) AS teacherNames,
+      GROUP_CONCAT(DISTINCT TRIM(t.teacherCode)) AS teacherCodes
     FROM coursedetail cd
     LEFT JOIN teacher t ON t.teachingClassId = cd.id
     WHERE TRIM(COALESCE(cd.courseCode, '')) != ''
@@ -26,7 +28,10 @@ WITH
       cd.courseCode AS courseCode,
       MAX(COALESCE(NULLIF(TRIM(cd.courseName), ''), NULLIF(TRIM(cd.name), ''), cd.courseCode)) AS courseName,
       MAX(COALESCE(cd.credit, 0)) AS credit,
-      MAX(COALESCE(f.facultyI18n, cd.faculty, '')) AS department
+      MAX(COALESCE(f.facultyI18n, cd.faculty, '')) AS department,
+      GROUP_CONCAT(DISTINCT TRIM(cd.code)) AS teachingClassCodes,
+      GROUP_CONCAT(DISTINCT TRIM(cd.newCourseCode)) AS newCourseCodes,
+      GROUP_CONCAT(DISTINCT TRIM(cd.newCode)) AS newCodes
     FROM coursedetail cd
     LEFT JOIN faculty f ON f.faculty = cd.faculty
     WHERE TRIM(COALESCE(cd.courseCode, '')) != ''
@@ -52,7 +57,16 @@ SELECT
   tt.id AS teacher_id,
   0 AS review_count,
   0 AS review_avg,
-  TRIM(cb.courseCode || ' ' || cb.courseName || ' ' || COALESCE(ct.teacherName, '')) AS search_keywords,
+  TRIM(
+    cb.courseCode || ' ' ||
+    cb.courseName || ' ' ||
+    COALESCE(ct.teacherName, '') || ' ' ||
+    COALESCE(ct.teacherNames, '') || ' ' ||
+    COALESCE(ct.teacherCodes, '') || ' ' ||
+    COALESCE(cb.teachingClassCodes, '') || ' ' ||
+    COALESCE(cb.newCourseCodes, '') || ' ' ||
+    COALESCE(cb.newCodes, '')
+  ) AS search_keywords,
   0 AS is_legacy,
   0 AS is_icu
 FROM course_base cb
@@ -61,6 +75,36 @@ LEFT JOIN teachers tt ON tt.name = ct.teacherName
 WHERE NOT EXISTS (
   SELECT 1 FROM courses c WHERE c.code = cb.courseCode AND c.is_legacy = 0
 );
+
+-- Refresh existing onesystem course keywords so fallback search sees new classes/teachers too.
+UPDATE courses
+SET search_keywords = (
+  SELECT TRIM(
+    courses.code || ' ' ||
+    courses.name || ' ' ||
+    COALESCE(courses.department, '') || ' ' ||
+    COALESCE(GROUP_CONCAT(DISTINCT TRIM(cd.code)), '') || ' ' ||
+    COALESCE(GROUP_CONCAT(DISTINCT TRIM(cd.newCourseCode)), '') || ' ' ||
+    COALESCE(GROUP_CONCAT(DISTINCT TRIM(cd.newCode)), '') || ' ' ||
+    COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherCode)), '') || ' ' ||
+    COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherName)), '')
+  )
+  FROM coursedetail cd
+  LEFT JOIN teacher t ON t.teachingClassId = cd.id
+  WHERE cd.courseCode = courses.code
+     OR cd.newCourseCode = courses.code
+     OR cd.code = courses.code
+     OR cd.newCode = courses.code
+)
+WHERE is_legacy = 0
+  AND EXISTS (
+    SELECT 1
+    FROM coursedetail cd
+    WHERE cd.courseCode = courses.code
+       OR cd.newCourseCode = courses.code
+       OR cd.code = courses.code
+       OR cd.newCode = courses.code
+  );
 
 -- Fill old ICU/imported split-course rows like 12200402 from onesystem base code 122004.
 -- Onesystem keeps the credit on the base courseCode, while reviews may use class-suffixed codes.
@@ -97,9 +141,17 @@ FROM (
   FROM coursedetail
   WHERE TRIM(COALESCE(courseCode, '')) != ''
   UNION ALL
+  SELECT code AS alias, courseCode AS courseCode
+  FROM coursedetail
+  WHERE TRIM(COALESCE(code, '')) != '' AND TRIM(COALESCE(courseCode, '')) != ''
+  UNION ALL
   SELECT newCourseCode AS alias, courseCode AS courseCode
   FROM coursedetail
   WHERE TRIM(COALESCE(newCourseCode, '')) != '' AND TRIM(COALESCE(courseCode, '')) != ''
+  UNION ALL
+  SELECT newCode AS alias, courseCode AS courseCode
+  FROM coursedetail
+  WHERE TRIM(COALESCE(newCode, '')) != '' AND TRIM(COALESCE(courseCode, '')) != ''
 ) AS alias
 JOIN courses c ON c.code = alias.courseCode AND c.is_legacy = 0
 WHERE TRIM(COALESCE(alias.alias, '')) != ''
