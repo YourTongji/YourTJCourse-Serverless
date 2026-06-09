@@ -25,7 +25,6 @@ import {
   refreshAuxiliaryCourseData,
   rebuildAllAuxiliaryCourseData,
   isAuxiliaryCourseDataReady,
-  triggerAuxiliaryCourseDataBuild,
   getCourseSemesters,
   getMaintenanceModeSetting,
   getMaintenanceConfigSetting,
@@ -156,9 +155,6 @@ publicRoutes.get('/courses', async (c) => {
 
     const showIcu = await getShowIcuSetting(c.env.DB)
     const courseAuxReady = await isAuxiliaryCourseDataReady(c.env.DB)
-    if (!courseAuxReady) {
-      c.executionCtx.waitUntil(triggerAuxiliaryCourseDataBuild(c.env.DB))
-    }
     const canUseWorkerCache = !includeTotal
 
     if (canUseWorkerCache) {

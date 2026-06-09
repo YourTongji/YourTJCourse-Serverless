@@ -158,6 +158,12 @@ jobs:
       - name: Deploy Worker
         run: npx wrangler deploy
 
+      - name: Refresh review search index
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute jcourse-db --remote --file="./migrations/001_pk_schema.sql"
+          bash ./scripts/refresh-review-index-remote.sh
+
   deploy-frontend:
     runs-on: ubuntu-latest
     needs: changes

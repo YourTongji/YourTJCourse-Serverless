@@ -258,7 +258,6 @@ export async function postCreditJcourseEvent(
 }
 
 let courseAuxReadyCache: { value: boolean; expiresAt: number } | null = null
-let courseAuxBuildPromise: Promise<void> | null = null
 
 async function ensureCourseAliasesTable(db: D1Database) {
   await db.prepare(
@@ -752,37 +751,6 @@ export async function isAuxiliaryCourseDataReady(db: D1Database) {
   const ready = row?.value === AUX_SCHEMA_VERSION
   courseAuxReadyCache = { value: ready, expiresAt: now + 30_000 }
   return ready
-}
-
-export async function ensureAuxiliaryCourseData(db: D1Database) {
-  await ensureCourseAuxiliaryTables(db)
-  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('aux_schema_version').first<{ value: string }>()
-  if (row?.value === AUX_SCHEMA_VERSION) {
-    courseAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
-    return
-  }
-
-  await materializePkCoursesToReviewSite(db)
-  await rebuildAllAuxiliaryCourseData(db)
-  await db
-    .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-    .bind('aux_schema_version', AUX_SCHEMA_VERSION)
-    .run()
-  courseAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
-}
-
-export function triggerAuxiliaryCourseDataBuild(db: D1Database) {
-  if (!courseAuxBuildPromise) {
-    courseAuxBuildPromise = ensureAuxiliaryCourseData(db)
-      .catch((error) => {
-        courseAuxReadyCache = { value: false, expiresAt: Date.now() + 10_000 }
-        console.error('Failed to build course auxiliary data:', error)
-      })
-      .finally(() => {
-        courseAuxBuildPromise = null
-      })
-  }
-  return courseAuxBuildPromise
 }
 
 export async function getCourseSemesters(db: D1Database, courseId: number) {
