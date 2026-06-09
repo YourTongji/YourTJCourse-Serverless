@@ -67,3 +67,9 @@ jobs:
 
       - name: Deploy Worker (env.dev)
         run: npm run deploy -- --env dev
+
+      - name: Refresh review search index (env.dev)
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute jcourse-db --remote --env dev --file="./migrations/001_pk_schema.sql"
+          WRANGLER_ENV=dev bash ./scripts/refresh-review-index-remote.sh

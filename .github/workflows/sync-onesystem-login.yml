@@ -156,27 +156,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/010_materialize_courses_from_pk.sql"
-
-      - name: Refresh review search index via backend
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${BACKEND_URL:-}" ]; then
-            echo "BACKEND_URL not set, skip review search index refresh"
-            exit 0
-          fi
-          if [ -z "${ADMIN_SECRET:-}" ]; then
-            echo "ADMIN_SECRET not set, skip review search index refresh"
-            exit 0
-          fi
-          BACKEND_URL="${BACKEND_URL%/}"
-          if [[ "$BACKEND_URL" == */api ]]; then BACKEND_URL="${BACKEND_URL%/api}"; fi
-          curl -fsSL -X POST "$BACKEND_URL/api/admin/pk/refresh-review-index" \
-            -H "Content-Type: application/json" \
-            -H "x-admin-secret: $ADMIN_SECRET" \
-            --data '{}' \
-            | tee pk-review-index-refresh.json
+          bash ./scripts/refresh-review-index-remote.sh
 
       - name: Post-check via backend API
         shell: bash
