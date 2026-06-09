@@ -72,6 +72,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ADMIN_SECRET: ${{ secrets.JCOURSE_ADMIN_SECRET }}
+      BACKEND_URL: ${{ secrets.BACKEND_URL_DEV }}
       CREDIT_API_BASE: ${{ secrets.CREDIT_API_BASE }}
       VITE_CREDIT_API_BASE: ${{ secrets.VITE_CREDIT_API_BASE }}
       CREDIT_JCOURSE_SECRET: ${{ secrets.CREDIT_JCOURSE_SECRET }}
@@ -162,6 +163,21 @@ jobs:
 
       - name: Deploy Worker (env.dev)
         run: npx wrangler deploy --env dev
+
+      - name: Refresh review search index (env.dev)
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKEND_URL:-}" ]; then
+            echo "Missing secrets.BACKEND_URL_DEV, skip review search index refresh"
+            exit 0
+          fi
+          BACKEND_URL="${BACKEND_URL%/}"
+          if [[ "$BACKEND_URL" == */api ]]; then BACKEND_URL="${BACKEND_URL%/api}"; fi
+          curl -fsSL -X POST "$BACKEND_URL/api/admin/pk/refresh-review-index" \
+            -H "Content-Type: application/json" \
+            -H "x-admin-secret: $ADMIN_SECRET" \
+            --data '{}' \
+            | tee dev-review-index-refresh.json
 
   deploy-frontend-dev:
     runs-on: ubuntu-latest
