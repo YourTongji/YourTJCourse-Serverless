@@ -1,7 +1,8 @@
-export const AUX_SCHEMA_VERSION = '20260605-query-opt-v2'
+export const AUX_SCHEMA_VERSION = '20260609-pk-materialize-v1'
 export const COURSE_LIST_CACHE_SECONDS = 60
 export const COURSE_LIST_CACHE_SWR_SECONDS = 300
 export const D1_SAFE_BATCH_SIZE = 40
+const PK_COURSE_DETAIL_LOOKUP_BATCH_SIZE = 25
 export const SEARCH_ALIAS_MAP: Record<string, string[]> = {
   高数: ['高等数学'],
   线代: ['线性代数'],
@@ -79,7 +80,7 @@ export function buildCourseSearchDocument(course: {
   teacher_name?: string | null
   teacher_tid?: string | null
   search_keywords?: string | null
-}, aliases: string[]) {
+}, aliases: string[], pkKeywords: string[] = []) {
   return normalizeSearchText([
     course.code,
     course.name,
@@ -87,7 +88,8 @@ export function buildCourseSearchDocument(course: {
     course.teacher_name,
     course.teacher_tid,
     course.search_keywords,
-    ...aliases
+    ...aliases,
+    ...pkKeywords
   ].join(' '))
 }
 
@@ -256,7 +258,6 @@ export async function postCreditJcourseEvent(
 }
 
 let courseAuxReadyCache: { value: boolean; expiresAt: number } | null = null
-let courseAuxBuildPromise: Promise<void> | null = null
 
 async function ensureCourseAliasesTable(db: D1Database) {
   await db.prepare(
@@ -269,6 +270,7 @@ async function ensureCourseAliasesTable(db: D1Database) {
 async function ensurePkSearchIndexes(db: D1Database) {
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_courseCode ON coursedetail(courseCode)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_newCourseCode ON coursedetail(newCourseCode)').run() } catch {}
+  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_newCode ON coursedetail(newCode)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_courseName ON coursedetail(courseName)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_campus ON coursedetail(campus)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_faculty ON coursedetail(faculty)').run() } catch {}
@@ -302,6 +304,181 @@ async function ensureCourseAuxiliaryTables(db: D1Database) {
       'CREATE VIRTUAL TABLE IF NOT EXISTS course_search USING fts5(course_id UNINDEXED, search_doc)'
     ).run()
   }
+}
+
+export async function materializePkCoursesToReviewSite(db: D1Database) {
+  await ensureCourseAliasesTable(db)
+  await db
+    .prepare(
+      `INSERT INTO teachers (name)
+       SELECT DISTINCT TRIM(t.teacherName) AS name
+       FROM teacher t
+       WHERE TRIM(COALESCE(t.teacherName, '')) != ''
+         AND NOT EXISTS (
+           SELECT 1 FROM teachers tt WHERE tt.name = TRIM(t.teacherName)
+         )`
+    )
+    .run()
+
+  await db
+    .prepare(
+      `WITH
+         course_teacher AS (
+           SELECT
+             cd.courseCode AS courseCode,
+             MIN(TRIM(t.teacherName)) AS teacherName,
+             GROUP_CONCAT(DISTINCT TRIM(t.teacherName)) AS teacherNames,
+             GROUP_CONCAT(DISTINCT TRIM(t.teacherCode)) AS teacherCodes
+           FROM coursedetail cd
+           LEFT JOIN teacher t ON t.teachingClassId = cd.id
+           WHERE TRIM(COALESCE(cd.courseCode, '')) != ''
+           GROUP BY cd.courseCode
+         ),
+         course_base AS (
+           SELECT
+             cd.courseCode AS courseCode,
+             MAX(COALESCE(NULLIF(TRIM(cd.courseName), ''), NULLIF(TRIM(cd.name), ''), cd.courseCode)) AS courseName,
+             MAX(COALESCE(cd.credit, 0)) AS credit,
+             MAX(COALESCE(f.facultyI18n, cd.faculty, '')) AS department,
+             GROUP_CONCAT(DISTINCT TRIM(cd.code)) AS teachingClassCodes,
+             GROUP_CONCAT(DISTINCT TRIM(cd.newCourseCode)) AS newCourseCodes,
+             GROUP_CONCAT(DISTINCT TRIM(cd.newCode)) AS newCodes
+           FROM coursedetail cd
+           LEFT JOIN faculty f ON f.faculty = cd.faculty
+           WHERE TRIM(COALESCE(cd.courseCode, '')) != ''
+           GROUP BY cd.courseCode
+         )
+       INSERT INTO courses (
+         code,
+         name,
+         credit,
+         department,
+         teacher_id,
+         review_count,
+         review_avg,
+         search_keywords,
+         is_legacy,
+         is_icu
+       )
+       SELECT
+         cb.courseCode AS code,
+         cb.courseName AS name,
+         cb.credit AS credit,
+         cb.department AS department,
+         tt.id AS teacher_id,
+         0 AS review_count,
+         0 AS review_avg,
+         TRIM(
+           cb.courseCode || ' ' ||
+           cb.courseName || ' ' ||
+           COALESCE(ct.teacherName, '') || ' ' ||
+           COALESCE(ct.teacherNames, '') || ' ' ||
+           COALESCE(ct.teacherCodes, '') || ' ' ||
+           COALESCE(cb.teachingClassCodes, '') || ' ' ||
+           COALESCE(cb.newCourseCodes, '') || ' ' ||
+           COALESCE(cb.newCodes, '')
+         ) AS search_keywords,
+         0 AS is_legacy,
+         0 AS is_icu
+       FROM course_base cb
+       LEFT JOIN course_teacher ct ON ct.courseCode = cb.courseCode
+       LEFT JOIN teachers tt ON tt.name = ct.teacherName
+       WHERE NOT EXISTS (
+         SELECT 1 FROM courses c WHERE c.code = cb.courseCode AND c.is_legacy = 0
+       )`
+    )
+    .run()
+
+  await db
+    .prepare(
+      `UPDATE courses
+       SET
+         search_keywords = (
+           SELECT TRIM(
+             courses.code || ' ' ||
+             courses.name || ' ' ||
+             COALESCE(courses.department, '') || ' ' ||
+             COALESCE(GROUP_CONCAT(DISTINCT TRIM(cd.code)), '') || ' ' ||
+             COALESCE(GROUP_CONCAT(DISTINCT TRIM(cd.newCourseCode)), '') || ' ' ||
+             COALESCE(GROUP_CONCAT(DISTINCT TRIM(cd.newCode)), '') || ' ' ||
+             COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherCode)), '') || ' ' ||
+             COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherName)), '')
+           )
+           FROM coursedetail cd
+           LEFT JOIN teacher t ON t.teachingClassId = cd.id
+           WHERE cd.courseCode = courses.code
+              OR cd.newCourseCode = courses.code
+              OR cd.code = courses.code
+              OR cd.newCode = courses.code
+         )
+       WHERE is_legacy = 0
+         AND EXISTS (
+           SELECT 1
+           FROM coursedetail cd
+           WHERE cd.courseCode = courses.code
+              OR cd.newCourseCode = courses.code
+              OR cd.code = courses.code
+              OR cd.newCode = courses.code
+         )`
+    )
+    .run()
+
+  await db
+    .prepare(
+      `UPDATE courses
+       SET
+         credit = (
+           SELECT MAX(CAST(cd.credit AS REAL))
+           FROM coursedetail cd
+           WHERE cd.courseName = courses.name
+             AND CAST(COALESCE(cd.credit, 0) AS REAL) > 0
+             AND TRIM(COALESCE(cd.courseCode, '')) != ''
+             AND LENGTH(courses.code) > LENGTH(cd.courseCode)
+             AND SUBSTR(courses.code, 1, LENGTH(cd.courseCode)) = cd.courseCode
+         )
+       WHERE is_legacy = 0
+         AND CAST(COALESCE(credit, 0) AS REAL) <= 0
+         AND EXISTS (
+           SELECT 1
+           FROM coursedetail cd
+           WHERE cd.courseName = courses.name
+             AND CAST(COALESCE(cd.credit, 0) AS REAL) > 0
+             AND TRIM(COALESCE(cd.courseCode, '')) != ''
+             AND LENGTH(courses.code) > LENGTH(cd.courseCode)
+             AND SUBSTR(courses.code, 1, LENGTH(cd.courseCode)) = cd.courseCode
+         )`
+    )
+    .run()
+
+  await db
+    .prepare(
+      `INSERT INTO course_aliases (system, alias, course_id)
+       SELECT DISTINCT
+         'onesystem' AS system,
+         TRIM(alias.alias) AS alias,
+         c.id AS course_id
+       FROM (
+         SELECT courseCode AS alias, courseCode AS courseCode
+         FROM coursedetail
+         WHERE TRIM(COALESCE(courseCode, '')) != ''
+         UNION ALL
+         SELECT code AS alias, courseCode AS courseCode
+         FROM coursedetail
+         WHERE TRIM(COALESCE(code, '')) != '' AND TRIM(COALESCE(courseCode, '')) != ''
+         UNION ALL
+         SELECT newCourseCode AS alias, courseCode AS courseCode
+         FROM coursedetail
+         WHERE TRIM(COALESCE(newCourseCode, '')) != '' AND TRIM(COALESCE(courseCode, '')) != ''
+         UNION ALL
+         SELECT newCode AS alias, courseCode AS courseCode
+         FROM coursedetail
+         WHERE TRIM(COALESCE(newCode, '')) != '' AND TRIM(COALESCE(courseCode, '')) != ''
+       ) AS alias
+       JOIN courses c ON c.code = alias.courseCode AND c.is_legacy = 0
+       WHERE TRIM(COALESCE(alias.alias, '')) != ''
+       ON CONFLICT(system, alias) DO UPDATE SET course_id = excluded.course_id`
+    )
+    .run()
 }
 
 export async function ensureReviewLikesTable(db: D1Database) {
@@ -445,32 +622,60 @@ export async function buildCourseAuxiliaryRecords(db: D1Database, courseIds?: nu
 
   const allCodes = uniqueText(courseRows.flatMap((row) => [row.code, ...(aliasMap.get(Number(row.id)) || [])]))
   const codeSemesterMap = new Map<string, Array<{ name: string; calendarId: number }>>()
+  const codePkKeywordMap = new Map<string, string[]>()
 
   if (allCodes.length > 0) {
-    for (const part of chunkArray(allCodes, D1_SAFE_BATCH_SIZE)) {
+    for (const part of chunkArray(allCodes, PK_COURSE_DETAIL_LOOKUP_BATCH_SIZE)) {
       const placeholders = part.map(() => '?').join(',')
       const rows = await db
         .prepare(
           `SELECT
              cd.courseCode,
+             cd.code,
              cd.newCourseCode,
+             cd.newCode,
+             cd.courseName,
+             cd.name AS teachingClassName,
+             cd.faculty,
+             cd.campus,
              cd.calendarId,
-             ca.calendarIdI18n AS semester_name
+             ca.calendarIdI18n AS semester_name,
+             GROUP_CONCAT(DISTINCT t.teacherCode) AS teacher_codes,
+             GROUP_CONCAT(DISTINCT t.teacherName) AS teacher_names
            FROM coursedetail cd
            JOIN calendar ca ON ca.calendarId = cd.calendarId
+           LEFT JOIN teacher t ON t.teachingClassId = cd.id
            WHERE cd.courseCode IN (${placeholders})
-              OR cd.newCourseCode IN (${placeholders})`
+              OR cd.code IN (${placeholders})
+              OR cd.newCourseCode IN (${placeholders})
+              OR cd.newCode IN (${placeholders})
+           GROUP BY cd.id, cd.courseCode, cd.code, cd.newCourseCode, cd.newCode, cd.courseName, cd.name, cd.faculty, cd.campus, cd.calendarId, ca.calendarIdI18n`
         )
-        .bind(...part, ...part)
+        .bind(...part, ...part, ...part, ...part)
         .all<any>()
 
       for (const row of rows.results || []) {
         const semesterName = String((row as any).semester_name || '').trim()
         const calendarId = Number((row as any).calendarId || 0)
         if (!semesterName || !Number.isFinite(calendarId)) continue
-        for (const code of uniqueText([row.courseCode, row.newCourseCode])) {
+        const rowCodes = uniqueText([row.courseCode, row.code, row.newCourseCode, row.newCode])
+        const pkKeywords = uniqueText([
+          row.courseCode,
+          row.code,
+          row.newCourseCode,
+          row.newCode,
+          row.courseName,
+          row.teachingClassName,
+          row.faculty,
+          row.campus,
+          ...String(row.teacher_codes || '').split(','),
+          ...String(row.teacher_names || '').split(',')
+        ])
+        for (const code of rowCodes) {
           if (!codeSemesterMap.has(code)) codeSemesterMap.set(code, [])
           codeSemesterMap.get(code)!.push({ name: semesterName, calendarId })
+          if (!codePkKeywordMap.has(code)) codePkKeywordMap.set(code, [])
+          codePkKeywordMap.get(code)!.push(...pkKeywords)
         }
       }
     }
@@ -481,10 +686,11 @@ export async function buildCourseAuxiliaryRecords(db: D1Database, courseIds?: nu
     const aliases = uniqueText(aliasMap.get(courseId) || [])
     const codes = uniqueText([row.code, ...aliases])
     const semesterEntries = codes.flatMap((code) => codeSemesterMap.get(code) || [])
+    const pkKeywords = uniqueText(codes.flatMap((code) => codePkKeywordMap.get(code) || []))
     return {
       courseId,
       semesterNames: combineSemesterNames(semesterEntries),
-      searchDoc: buildCourseSearchDocument(row, aliases)
+      searchDoc: buildCourseSearchDocument(row, aliases, pkKeywords)
     }
   })
 }
@@ -545,36 +751,6 @@ export async function isAuxiliaryCourseDataReady(db: D1Database) {
   const ready = row?.value === AUX_SCHEMA_VERSION
   courseAuxReadyCache = { value: ready, expiresAt: now + 30_000 }
   return ready
-}
-
-export async function ensureAuxiliaryCourseData(db: D1Database) {
-  await ensureCourseAuxiliaryTables(db)
-  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('aux_schema_version').first<{ value: string }>()
-  if (row?.value === AUX_SCHEMA_VERSION) {
-    courseAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
-    return
-  }
-
-  await rebuildAllAuxiliaryCourseData(db)
-  await db
-    .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-    .bind('aux_schema_version', AUX_SCHEMA_VERSION)
-    .run()
-  courseAuxReadyCache = { value: true, expiresAt: Date.now() + 30_000 }
-}
-
-export function triggerAuxiliaryCourseDataBuild(db: D1Database) {
-  if (!courseAuxBuildPromise) {
-    courseAuxBuildPromise = ensureAuxiliaryCourseData(db)
-      .catch((error) => {
-        courseAuxReadyCache = { value: false, expiresAt: Date.now() + 10_000 }
-        console.error('Failed to build course auxiliary data:', error)
-      })
-      .finally(() => {
-        courseAuxBuildPromise = null
-      })
-  }
-  return courseAuxBuildPromise
 }
 
 export async function getCourseSemesters(db: D1Database, courseId: number) {

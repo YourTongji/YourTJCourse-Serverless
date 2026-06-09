@@ -118,6 +118,7 @@ CREATE INDEX IF NOT EXISTS idx_coursedetail_calendar ON coursedetail(calendarId)
 CREATE INDEX IF NOT EXISTS idx_coursedetail_courseCode ON coursedetail(courseCode);
 CREATE INDEX IF NOT EXISTS idx_coursedetail_code ON coursedetail(code);
 CREATE INDEX IF NOT EXISTS idx_coursedetail_newCourseCode ON coursedetail(newCourseCode);
+CREATE INDEX IF NOT EXISTS idx_coursedetail_newCode ON coursedetail(newCode);
 
 CREATE TABLE IF NOT EXISTS teacher (
   id INTEGER PRIMARY KEY,
