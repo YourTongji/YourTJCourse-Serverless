@@ -1,6 +1,8 @@
 -- Materialize pk (onesystem) course list into review site's courses/teachers tables
 -- This is idempotent: it only inserts missing teachers/courses and updates alias mapping.
 
+CREATE INDEX IF NOT EXISTS idx_coursedetail_newCode ON coursedetail(newCode);
+
 -- Insert teachers (review site teachers table) by name if missing
 INSERT INTO teachers (name)
 SELECT DISTINCT TRIM(t.teacherName) AS name

@@ -229,6 +229,7 @@ CREATE INDEX idx_coursedetail_calendar ON coursedetail(calendarId);
 CREATE INDEX idx_coursedetail_courseCode ON coursedetail(courseCode);
 CREATE INDEX idx_coursedetail_code ON coursedetail(code);
 CREATE INDEX idx_coursedetail_newCourseCode ON coursedetail(newCourseCode);
+CREATE INDEX idx_coursedetail_newCode ON coursedetail(newCode);
 
 CREATE TABLE teacher (
     id INTEGER PRIMARY KEY,

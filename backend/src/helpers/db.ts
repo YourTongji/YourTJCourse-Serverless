@@ -270,6 +270,7 @@ async function ensureCourseAliasesTable(db: D1Database) {
 async function ensurePkSearchIndexes(db: D1Database) {
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_courseCode ON coursedetail(courseCode)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_newCourseCode ON coursedetail(newCourseCode)').run() } catch {}
+  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_newCode ON coursedetail(newCode)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_courseName ON coursedetail(courseName)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_campus ON coursedetail(campus)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_coursedetail_faculty ON coursedetail(faculty)').run() } catch {}
