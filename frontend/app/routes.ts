@@ -5,7 +5,7 @@ import {
   route,
 } from "@react-router/dev/routes";
 
-export const routes: RouteConfig = [
+export default [
   layout("components/Layout.tsx", [
     index("routes/_index.tsx"),
     route("courses", "routes/courses.tsx"),
@@ -17,4 +17,4 @@ export const routes: RouteConfig = [
     route("schedule", "routes/schedule.tsx"),
     route("admin", "routes/admin.tsx"),
   ]),
-];
+] satisfies RouteConfig;
