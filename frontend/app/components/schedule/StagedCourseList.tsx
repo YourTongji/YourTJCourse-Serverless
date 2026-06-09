@@ -2,9 +2,12 @@
 
 import { useSchedulerStore } from "~/lib/schedule/store";
 import { useIsMobile } from "~/lib/schedule/responsive";
+import { useDraggable } from "@dnd-kit/core";
+import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
-import { Trash2Icon, SaveIcon, PlusIcon } from "lucide-react";
+import { Trash2Icon, SaveIcon, PlusIcon, GripVerticalIcon } from "lucide-react";
+import type { StagedCourse } from "~/lib/schedule/types";
 
 const STATUS_LABELS: Record<number, string> = {
   0: "未选择",
@@ -17,6 +20,100 @@ const STATUS_VARIANTS: Record<number, "secondary" | "default" | "outline"> = {
   1: "secondary",
   2: "default",
 };
+
+// ─── Draggable Row (desktop only) ───────────────────────────────────────
+
+function DraggableRow({
+  course,
+  onRemove,
+}: {
+  course: StagedCourse;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({ id: course.courseCode });
+
+  const setClickedCourse = useSchedulerStore((s) => s.setClickedCourse);
+
+  const style: React.CSSProperties = transform
+    ? {
+        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+        position: "relative",
+        zIndex: isDragging ? 50 : 0,
+        opacity: isDragging ? 0.3 : 1,
+        boxShadow: isDragging
+          ? "0 12px 32px rgba(15,23,42,0.18)"
+          : undefined,
+      }
+    : {
+        position: "relative",
+        zIndex: isDragging ? 50 : 0,
+      };
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      className={cn(
+        "border-t border-slate-100 transition-colors",
+        isDragging ? "bg-indigo-50/80" : "hover:bg-slate-50",
+      )}
+    >
+      <td className="p-1 w-8">
+        <button
+          type="button"
+          className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 touch-none"
+          aria-label="拖动课程"
+          {...listeners}
+        >
+          <GripVerticalIcon className="size-3.5" />
+        </button>
+      </td>
+      <td className="p-2 font-mono text-slate-600">{course.courseCode}</td>
+      <td className="p-2">
+        <button
+          type="button"
+          className="text-slate-800 hover:text-indigo-600 text-left max-w-[180px] truncate block"
+          onClick={() =>
+            setClickedCourse({
+              courseCode: course.courseCode,
+              courseName: course.courseName,
+              teacherCode: course.teacher[0]?.teacherCode ?? "",
+              teacherName: course.teacher[0]?.teacherName ?? "",
+            })
+          }
+        >
+          {course.courseName}
+        </button>
+      </td>
+      <td className="p-2 text-right text-slate-600">
+        {(course.credit as number).toFixed(1)}
+      </td>
+      <td className="p-2 text-slate-600 max-w-[100px] truncate">
+        {course.teacher.map((t) => t.teacherName).join("、") || "-"}
+      </td>
+      <td className="p-2">
+        <Badge
+          variant={STATUS_VARIANTS[course.status] ?? "outline"}
+          className="text-[10px]"
+        >
+          {STATUS_LABELS[course.status]}
+        </Badge>
+      </td>
+      <td className="p-2">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onRemove}
+          className="text-red-400 hover:text-red-600"
+        >
+          <Trash2Icon className="size-3" />
+        </Button>
+      </td>
+    </tr>
+  );
+}
 
 interface StagedCourseListProps {
   onOpenPicker?: () => void;
@@ -122,6 +219,7 @@ export default function StagedCourseList({ onOpenPicker }: StagedCourseListProps
           <table className="w-full text-xs">
             <thead className="bg-slate-50 sticky top-0">
               <tr>
+                <th className="p-1 w-8" />
                 <th className="text-left p-2 font-medium text-slate-500">
                   课号
                 </th>
@@ -142,60 +240,17 @@ export default function StagedCourseList({ onOpenPicker }: StagedCourseListProps
             </thead>
             <tbody>
               {stagedCourses.map((course) => (
-                <tr
+                <DraggableRow
                   key={course.courseCode}
-                  className="border-t border-slate-100 hover:bg-slate-50 transition-colors"
-                >
-                  <td className="p-2 font-mono text-slate-600">
-                    {course.courseCode}
-                  </td>
-                  <td className="p-2">
-                    <button
-                      type="button"
-                      className="text-slate-800 hover:text-indigo-600 text-left max-w-[200px] truncate block"
-                      onClick={() =>
-                        setClickedCourse({
-                          courseCode: course.courseCode,
-                          courseName: course.courseName,
-                          teacherCode: course.teacher[0]?.teacherCode ?? "",
-                          teacherName: course.teacher[0]?.teacherName ?? "",
-                        })
-                      }
-                    >
-                      {course.courseName}
-                    </button>
-                  </td>
-                  <td className="p-2 text-right text-slate-600">
-                    {(course.credit as number).toFixed(1)}
-                  </td>
-                  <td className="p-2 text-slate-600 max-w-[100px] truncate">
-                    {course.teacher.map((t) => t.teacherName).join("、") || "-"}
-                  </td>
-                  <td className="p-2">
-                    <Badge
-                      variant={STATUS_VARIANTS[course.status] ?? "outline"}
-                      className="text-[10px]"
-                    >
-                      {STATUS_LABELS[course.status]}
-                    </Badge>
-                  </td>
-                  <td className="p-2">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => removeCourse(course.courseCode)}
-                      className="text-red-400 hover:text-red-600"
-                    >
-                      <Trash2Icon className="size-3" />
-                    </Button>
-                  </td>
-                </tr>
+                  course={course}
+                  onRemove={() => removeCourse(course.courseCode)}
+                />
               ))}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-slate-200 bg-slate-50">
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="p-2 text-right text-xs font-semibold text-slate-700"
                 >
                   总学分：{totalCredits.toFixed(1)}（{stagedCourses.length}门课）

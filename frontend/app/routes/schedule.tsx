@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { CourseInfo } from "~/lib/schedule/types";
+import { useSchedulerStore } from "~/lib/schedule/store";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import ScheduleHeader from "~/components/schedule/ScheduleHeader";
 import TimetableGrid from "~/components/schedule/TimetableGrid";
 import StagedCourseList from "~/components/schedule/StagedCourseList";
@@ -16,6 +18,26 @@ export default function Schedule() {
   const [timeCellOpen, setTimeCellOpen] = useState(false);
   const [timeCellCourses, setTimeCellCourses] = useState<CourseInfo[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
+
+  // ── Persistence restoration: when cascade values are restored from
+  //     localStorage by Zustand persist middleware, trigger compulsory
+  //     course load if the list is still empty.
+  const calendarId = useSchedulerStore((s) => s.calendarId);
+  const grade = useSchedulerStore((s) => s.grade);
+  const major = useSchedulerStore((s) => s.major);
+  const compulsoryCourses = useSchedulerStore((s) => s.compulsoryCourses);
+  const loadCompulsoryCourses = useSchedulerStore((s) => s.loadCompulsoryCourses);
+
+  useEffect(() => {
+    if (
+      calendarId !== null &&
+      grade !== null &&
+      major !== null &&
+      compulsoryCourses.length === 0
+    ) {
+      loadCompulsoryCourses();
+    }
+  }, [calendarId, grade, major, compulsoryCourses.length, loadCompulsoryCourses]);
 
   const handleCellCoursesFound = useCallback((courses: CourseInfo[]) => {
     setTimeCellCourses(courses);
@@ -38,12 +60,25 @@ export default function Schedule() {
         </div>
       </div>
 
-      {/* Mobile layout */}
+      {/* Mobile layout with tabs */}
       <div className="md:hidden p-2 space-y-3">
-        <TimetableGrid onCellCoursesFound={handleCellCoursesFound} />
-        <CreditSummary />
-        <StagedCourseList onOpenPicker={() => setPickerOpen(true)} />
-        <ClassDetailTable onOpenReview={() => setReviewOpen(true)} />
+        <Tabs defaultValue="timetable">
+          <TabsList className="w-full">
+            <TabsTrigger value="timetable">课表</TabsTrigger>
+            <TabsTrigger value="courses">选课</TabsTrigger>
+            <TabsTrigger value="details">详情</TabsTrigger>
+          </TabsList>
+          <TabsContent value="timetable">
+            <TimetableGrid onCellCoursesFound={handleCellCoursesFound} />
+            <CreditSummary />
+          </TabsContent>
+          <TabsContent value="courses">
+            <StagedCourseList onOpenPicker={() => setPickerOpen(true)} />
+          </TabsContent>
+          <TabsContent value="details">
+            <ClassDetailTable onOpenReview={() => setReviewOpen(true)} />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Modals */}
