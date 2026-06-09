@@ -6,6 +6,7 @@
     "dev": "react-router dev",
     "build": "react-router build",
     "deploy": "wrangler deploy",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -39,6 +40,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250501.0",
+    "@playwright/test": "^1.60.0",
     "@react-router/cloudflare": "^7.6.0",
     "@react-router/dev": "^7.6.0",
     "@tailwindcss/typography": "^0.5.16",
