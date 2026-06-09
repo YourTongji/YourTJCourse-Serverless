@@ -5,8 +5,6 @@ import {
   Search,
   Filter,
   X,
-  LayoutGrid,
-  Eye,
 } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
@@ -31,12 +29,6 @@ export const meta: MetaFunction = () => [
   { title: "课程列表 — YOURTJ选课社区" },
 ];
 
-const PLACEHOLDER_CYCLE = [
-  "搜索课程名、代码或教师...",
-  "试试高等数学、线性代数...",
-  "从真实评价里找到更适合你的课程...",
-] as const;
-
 function filterDraftCount(draft: FilterDraft): number {
   return (
     draft.departments.length +
@@ -46,47 +38,6 @@ function filterDraftCount(draft: FilterDraft): number {
     (draft.teacherName.trim() ? 1 : 0) +
     (draft.campus.trim() ? 1 : 0)
   );
-}
-
-/* ─── Typing placeholder hook ─── */
-function useTypingPlaceholder() {
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
-  const [displayText, setDisplayText] = useState("");
-  const [isTyping, setIsTyping] = useState(true);
-  const charIndexRef = useRef(0);
-
-  useEffect(() => {
-    const currentPhrase = PLACEHOLDER_CYCLE[placeholderIndex];
-
-    if (isTyping) {
-      if (charIndexRef.current < currentPhrase.length) {
-        const timer = setTimeout(() => {
-          charIndexRef.current++;
-          setDisplayText(currentPhrase.slice(0, charIndexRef.current));
-        }, 60);
-        return () => clearTimeout(timer);
-      }
-      const pause = setTimeout(() => setIsTyping(false), 2000);
-      return () => clearTimeout(pause);
-    } else {
-      if (charIndexRef.current > 0) {
-        const timer = setTimeout(() => {
-          charIndexRef.current--;
-          setDisplayText(currentPhrase.slice(0, charIndexRef.current));
-        }, 30);
-        return () => clearTimeout(timer);
-      }
-      const pause = setTimeout(() => {
-        setPlaceholderIndex(
-          (prev) => (prev + 1) % PLACEHOLDER_CYCLE.length,
-        );
-        setIsTyping(true);
-      }, 500);
-      return () => clearTimeout(pause);
-    }
-  }, [placeholderIndex, isTyping, displayText]);
-
-  return displayText;
 }
 
 /* ─── Helpers: build URL params for load-more fetch ─── */
@@ -124,9 +75,6 @@ export default function CoursesPage() {
   const courseCode = searchParams.get("courseCode") || "";
   const teacherName = searchParams.get("teacherName") || "";
   const campus = searchParams.get("campus") || "";
-  const viewMode = (searchParams.get("view") === "marquee"
-    ? "marquee"
-    : "grid") as "grid" | "marquee";
 
   const filters: CourseFilters = {
     departments,
@@ -312,17 +260,6 @@ export default function CoursesPage() {
     [searchParams, setSearchParams, departments],
   );
 
-  // ── View mode toggle ────────────────────────────────────────────────────
-  const toggleViewMode = useCallback(() => {
-    const next = new URLSearchParams(searchParams);
-    if (viewMode === "grid") {
-      next.set("view", "marquee");
-    } else {
-      next.delete("view");
-    }
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, viewMode]);
-
   // ── Load More ───────────────────────────────────────────────────────────
   const handleLoadMore = useCallback(async () => {
     setLoadingMore(true);
@@ -345,9 +282,6 @@ export default function CoursesPage() {
       setLoadingMore(false);
     }
   }, [page, q, filters]);
-
-  // ── Typing placeholder ──────────────────────────────────────────────────
-  const typingPlaceholder = useTypingPlaceholder();
 
   // ── Active filter badges ────────────────────────────────────────────────
   const activeBadges: { key: string; label: string; value?: string }[] = [];
@@ -381,31 +315,37 @@ export default function CoursesPage() {
 
   return (
     <div className="space-y-6">
-      {/* ─── Hero + Search ─── */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-500/10 via-sky-400/5 to-blue-500/10 px-6 py-10 sm:px-10 sm:py-14">
-        <div className="pointer-events-none absolute -right-16 -top-16 size-64 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -left-20 size-80 rounded-full bg-sky-400/10 blur-3xl" />
-
-        <div className="relative">
-          <h1 className="font-brand text-3xl font-black tracking-tight text-slate-800 sm:text-4xl">
-            探索同济大学精彩课程
-          </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            基于真实评价，发现最适合你的课程
-          </p>
+      {/* ─── Search ─── */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-900">
+                课程目录
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                搜索课程、课号或教师，按评价与开课信息筛选
+              </p>
+            </div>
+            {!isLoading && !isError && (
+              <div className="text-sm text-slate-500">
+                {total ? `共 ${total} 门课程` : `${allCourses.length} 门课程`}
+              </div>
+            )}
+          </div>
 
           {/* Search bar */}
-          <div className="mt-6 flex items-center gap-2">
+          <div className="mt-4 flex items-center gap-2">
             <form
               onSubmit={handleSearch}
-              className="flex flex-1 items-center gap-2 rounded-2xl border border-white/60 bg-white/70 p-2 shadow-sm backdrop-blur-xl"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5"
             >
               <div className="relative flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={searchValue}
                   onChange={(e) => setSearchValue(e.target.value)}
-                  placeholder={typingPlaceholder}
+                  placeholder="搜索课程名、课号或教师"
                   className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
                 />
               </div>
@@ -443,24 +383,6 @@ export default function CoursesPage() {
               </SheetContent>
             </Sheet>
 
-            {/* View mode toggle */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleViewMode}
-              title={
-                viewMode === "grid" ? "切换到跑马灯视图" : "切换到网格视图"
-              }
-            >
-              {viewMode === "grid" ? (
-                <Eye className="size-3.5" />
-              ) : (
-                <LayoutGrid className="size-3.5" />
-              )}
-              <span className="hidden sm:inline">
-                {viewMode === "grid" ? "跑马灯" : "网格"}
-              </span>
-            </Button>
           </div>
 
           {/* Active filter badges */}
@@ -485,7 +407,6 @@ export default function CoursesPage() {
                 <button
                   onClick={() => {
                     const next = new URLSearchParams();
-                    next.set("view", viewMode);
                     setSearchParams(next, { replace: true });
                     setSearchValue("");
                   }}
@@ -499,26 +420,14 @@ export default function CoursesPage() {
         </div>
       </section>
 
-      {/* ─── Results info ─── */}
-      {!isLoading && !isError && allCourses.length > 0 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            {total ? `共 ${total} 门课程` : `${allCourses.length} 门课程`}
-          </span>
-          <span className="text-xs text-muted-foreground/60">
-            点击卡片查看详情
-          </span>
-        </div>
-      )}
-
-      {/* ─── Course grid / marquee ─── */}
+      {/* ─── Course grid ─── */}
       <CourseGridView
         courses={allCourses}
-        isLoading={isLoading || loadingMore}
+        isLoading={isLoading}
         isError={isError}
         error={error as Error | null}
         hasMore={hasMore}
-        viewMode={viewMode}
+        loadingMore={loadingMore}
         onRetry={() => refetch()}
         onLoadMore={handleLoadMore}
         hasFilters={hasFilters}

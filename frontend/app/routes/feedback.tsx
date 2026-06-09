@@ -39,17 +39,75 @@ export default function Feedback() {
     const initWaline = () => {
       if (cancelled) return;
 
-      // Load CSS
-      const cssLink = document.createElement("link");
-      cssLink.rel = "stylesheet";
-      cssLink.href = "https://unpkg.com/@waline/client@v3/dist/waline.css";
-      document.head.appendChild(cssLink);
+      if (window.Waline && walineRef.current) {
+        window.Waline.init({
+          el: walineRef.current,
+          serverURL: walineServerUrl,
+          lang: "zh-CN",
+          locale: {
+            placeholder: "欢迎留言反馈，说说你的想法吧...",
+            sofa: "来发评论吧~",
+            submit: "提交",
+            comment: "评论",
+            refresh: "刷新",
+            more: "加载更多...",
+            preview: "预览",
+            emoji: "表情",
+            uploadImage: "上传图片",
+            seconds: "秒前",
+            minutes: "分钟前",
+            hours: "小时前",
+            days: "天前",
+            now: "刚刚",
+            uploading: "正在上传",
+            login: "登录",
+            logout: "退出",
+            admin: "管理",
+            sticky: "置顶",
+            word: "字",
+            wordHint:
+              "评论字数应在 $0 到 $1 字之间！\\n当前字数：$2",
+            anonymous: "匿名",
+            approved: "通过",
+            waiting: "待审核",
+            spam: "垃圾",
+            unsticky: "取消置顶",
+            oldest: "按倒序",
+            latest: "按正序",
+            hottest: "按热度",
+            reactionTitle: "你认为这篇文章怎么样？",
+          },
+          emoji: [
+            "https://unpkg.com/@waline/emojis@1.2.0/weibo",
+            "https://unpkg.com/@waline/emojis@1.2.0/bilibili",
+          ],
+          dark: false,
+          meta: ["nick", "mail"],
+          requiredMeta: ["nick"],
+          pageSize: 10,
+          wordLimit: [0, 1000],
+        });
+        setWalineReady(true);
+        return;
+      }
+
+      if (!document.querySelector('link[data-waline-style="true"]')) {
+        const cssLink = document.createElement("link");
+        cssLink.rel = "stylesheet";
+        cssLink.href = "https://unpkg.com/@waline/client@v3/dist/waline.css";
+        cssLink.dataset.walineStyle = "true";
+        document.head.appendChild(cssLink);
+      }
 
       // Load JS via script tag (ESM import from CDN doesn't work with Vite bundler)
-      const script = document.createElement("script");
+      const existingScript = document.querySelector<HTMLScriptElement>(
+        'script[data-waline-script="true"]',
+      );
+      const script = existingScript || document.createElement("script");
       script.src = "https://unpkg.com/@waline/client@v3/dist/waline.js";
       script.async = true;
       script.crossOrigin = "anonymous";
+      script.dataset.walineScript = "true";
       script.onload = () => {
         if (cancelled) return;
         if (window.Waline && walineRef.current) {
@@ -103,7 +161,7 @@ export default function Feedback() {
           setWalineReady(true);
         }
       };
-      document.head.appendChild(script);
+      if (!existingScript) document.head.appendChild(script);
     };
 
     observer = new IntersectionObserver(
@@ -162,14 +220,14 @@ export default function Feedback() {
         <div className="relative">
           {!walineReady && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500 pointer-events-none">
-              正在加载评论区...
+              {walineServerUrl ? "正在加载评论区..." : "反馈服务暂未配置，请通过 support@yourtj.de 联系我们"}
             </div>
           )}
           <div
             ref={walineRef}
             id="waline-feedback"
             className="h-[70vh] min-h-[720px] overflow-auto"
-            style={{ visibility: walineReady ? "visible" : "hidden" }}
+            style={{ visibility: walineReady || !walineServerUrl ? "visible" : "hidden" }}
           />
         </div>
       </Card>

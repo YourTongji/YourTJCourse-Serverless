@@ -120,7 +120,7 @@ export default function AnnouncementBell() {
                     ? "错误"
                     : "成功"}
                 </span>
-                <div className="mt-1">{pendingModal.content}</div>
+                <span className="mt-1 block">{pendingModal.content}</span>
               </DialogDescription>
             )}
           </DialogHeader>

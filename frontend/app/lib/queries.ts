@@ -427,10 +427,12 @@ export function useDepartments() {
     () => ({
       queryKey: ["departments"] as const,
       queryFn: async (): Promise<Department[]> => {
-        const { data } = await apiFetch<{ data: Department[] }>(
-          "/api/departments",
-        );
-        return data;
+        const payload = await apiFetch<{
+          data?: Department[];
+          departments?: string[];
+        }>("/api/departments");
+        if (Array.isArray(payload.data)) return payload.data;
+        return (payload.departments ?? []).map((name) => ({ id: name, name }));
       },
       staleTime: 30 * 60_000,
       gcTime: 60 * 60_000,

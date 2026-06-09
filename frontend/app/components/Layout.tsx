@@ -1,4 +1,4 @@
-import { Link, Outlet } from "react-router";
+import { Link, NavLink, Outlet } from "react-router";
 import { Menu } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
@@ -27,14 +27,14 @@ const NAV_ITEMS = [
 
 export default function Layout() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-cyan-50">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* ─── Navbar ─── */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-white/60">
+      <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
           {/* Brand */}
           <Link
             to="/"
-            className="font-brand text-lg font-bold text-slate-800 transition-colors hover:text-cyan-600 shrink-0"
+            className="shrink-0 font-brand text-lg font-bold text-slate-900 transition-colors hover:text-teal-700"
           >
             YOURTJ选课社区
           </Link>
@@ -45,12 +45,18 @@ export default function Layout() {
               <NavigationMenuList>
                 {NAV_ITEMS.map((item) => (
                   <NavigationMenuItem key={item.to}>
-                    <Link
+                    <NavLink
                       to={item.to}
-                      className="inline-flex h-9 w-max items-center justify-center rounded-lg px-3 py-1.5 text-sm font-medium transition-all hover:bg-muted hover:text-cyan-600"
+                      className={({ isActive }) =>
+                        `inline-flex h-9 w-max items-center justify-center rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
+                          isActive
+                            ? "bg-slate-100 text-teal-700"
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                        }`
+                      }
                     >
                       {item.label}
-                    </Link>
+                    </NavLink>
                   </NavigationMenuItem>
                 ))}
               </NavigationMenuList>
@@ -83,13 +89,19 @@ export default function Layout() {
                 </SheetHeader>
                 <div className="flex flex-col gap-1 p-4">
                   {NAV_ITEMS.map((item) => (
-                    <Link
+                    <NavLink
                       key={item.to}
                       to={item.to}
-                      className="flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-muted"
+                      className={({ isActive }) =>
+                        `flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                          isActive
+                            ? "bg-slate-100 text-teal-700"
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                        }`
+                      }
                     >
                       {item.label}
-                    </Link>
+                    </NavLink>
                   ))}
                 </div>
               </SheetContent>
@@ -108,7 +120,7 @@ export default function Layout() {
       </main>
 
       {/* ─── Footer ─── */}
-      <footer className="text-xs text-slate-400 text-center py-8">
+      <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-400">
         YOURTJ选课社区 · 不记名、自由、简洁、高效的选课社区
       </footer>
     </div>

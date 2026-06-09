@@ -45,25 +45,25 @@ export default function Schedule() {
   }, []);
 
   return (
-    <div className="min-h-screen pb-8">
+    <div className="space-y-4">
       <ScheduleHeader />
 
       {/* Desktop layout */}
-      <div className="hidden md:flex gap-4 p-4">
-        <div className="w-2/5 flex flex-col gap-4">
+      <div className="hidden gap-4 md:grid md:grid-cols-[minmax(360px,0.85fr)_minmax(520px,1.15fr)]">
+        <div className="flex min-w-0 flex-col gap-4">
           <StagedCourseList onOpenPicker={() => setPickerOpen(true)} />
           <ClassDetailTable onOpenReview={() => setReviewOpen(true)} />
         </div>
-        <div className="w-3/5">
+        <div className="min-w-0">
           <TimetableGrid onCellCoursesFound={handleCellCoursesFound} />
           <CreditSummary />
         </div>
       </div>
 
       {/* Mobile layout with tabs */}
-      <div className="md:hidden p-2 space-y-3">
-        <Tabs defaultValue="timetable">
-          <TabsList className="w-full">
+      <div className="space-y-3 md:hidden">
+        <Tabs defaultValue="timetable" className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="timetable">课表</TabsTrigger>
             <TabsTrigger value="courses">选课</TabsTrigger>
             <TabsTrigger value="details">详情</TabsTrigger>

@@ -13,13 +13,18 @@ export default function ScheduleHeader() {
   const syncLatest = useSchedulerStore((s) => s.syncLatest);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white/70 shadow-sm p-3 md:p-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <h1 className="text-lg font-bold text-slate-800 shrink-0">
-          排课模拟
-        </h1>
-        <SemesterCascader />
-        <div className="flex items-center gap-2 shrink-0 ml-auto">
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold text-slate-900">排课模拟</h1>
+          <p className="mt-1 text-xs text-slate-500">
+            选择学期与专业后添加课程，点击空课格查找同时间可选课
+          </p>
+        </div>
+        <div className="min-w-0 flex-1 lg:max-w-2xl">
+          <SemesterCascader />
+        </div>
+        <div className="flex shrink-0 items-center gap-2 lg:ml-auto">
           {/* Sync status */}
           {isDataOutdated && (
             <Button
@@ -40,7 +45,7 @@ export default function ScheduleHeader() {
           )}
           {!isDataOutdated && (
             <span
-              className="inline-flex items-center gap-1 text-xs text-slate-400 cursor-pointer"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
               onClick={checkSync}
             >
               <CheckCircleIcon className="size-3 text-green-500" />
