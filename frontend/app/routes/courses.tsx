@@ -1,19 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSearchParams, Link, type MetaFunction } from "react-router";
+import { useSearchParams, type MetaFunction } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search,
-  ChevronRight,
   Filter,
-  RefreshCw,
   X,
-  Star,
+  LayoutGrid,
+  Eye,
 } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Badge } from "~/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import {
   Sheet,
   SheetContent,
@@ -21,11 +19,13 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "~/components/ui/sheet";
-import { Separator } from "~/components/ui/separator";
-import { Checkbox } from "~/components/ui/checkbox";
-import { useCourseListQuery } from "~/lib/queries";
-import type { CourseFilters } from "~/lib/queries";
-import { cn } from "~/lib/utils";
+import { useCourseListQuery, useDepartments } from "~/lib/queries";
+import type { CourseFilters, Course, Department } from "~/lib/queries";
+import CourseFilterSheet, {
+  type FilterDraft,
+} from "~/components/CourseFilterSheet";
+import CourseGridView from "~/components/CourseGridView";
+
 
 export const meta: MetaFunction = () => [
   { title: "课程列表 — YOURTJ选课社区" },
@@ -37,90 +37,14 @@ const PLACEHOLDER_CYCLE = [
   "从真实评价里找到更适合你的课程...",
 ] as const;
 
-const DEPARTMENTS = [
-  "数学科学学院",
-  "物理科学与工程学院",
-  "化学科学与工程学院",
-  "医学院",
-  "土木工程学院",
-  "建筑与城市规划学院",
-  "电子与信息工程学院",
-  "机械与能源工程学院",
-  "经济与管理学院",
-  "交通运输工程学院",
-  "材料科学与工程学院",
-  "环境科学与工程学院",
-  "外国语学院",
-  "人文学院",
-  "法学院",
-  "艺术与传媒学院",
-  "设计创意学院",
-  "软件学院",
-  "测绘与地理信息学院",
-  "中德工程学院",
-];
-
-/* ─── Skeleton card ─── */
-function SkeletonCard() {
+function filterDraftCount(draft: FilterDraft): number {
   return (
-    <Card className="animate-pulse">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <div className="h-5 w-20 rounded-full bg-muted" />
-          <div className="h-5 w-14 rounded-full bg-muted" />
-        </div>
-        <div className="mt-2 h-5 w-3/4 rounded bg-muted" />
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          <div className="h-4 w-1/2 rounded bg-muted" />
-          <div className="h-4 w-1/3 rounded bg-muted" />
-          <div className="mt-4 h-4 w-2/5 rounded bg-muted" />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-/* ─── Empty state ─── */
-function EmptyState({ hasFilters }: { hasFilters: boolean }) {
-  return (
-    <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
-      <p className="text-lg text-muted-foreground">
-        没有找到相关课程，换个关键词试试吧
-      </p>
-      {hasFilters && (
-        <p className="mt-1 text-sm text-muted-foreground/60">
-          试试调整筛选条件或清除搜索词
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* ─── Error state ─── */
-function ErrorState({
-  error,
-  onRetry,
-}: {
-  error: Error;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
-      <p className="text-lg text-destructive">加载失败</p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {error.message || "请检查网络连接后重试"}
-      </p>
-      <Button
-        variant="outline"
-        className="mt-4"
-        onClick={onRetry}
-      >
-        <RefreshCw className="mr-1.5 size-3.5" />
-        重试
-      </Button>
-    </div>
+    draft.departments.length +
+    (draft.onlyWithReviews ? 1 : 0) +
+    (draft.courseName.trim() ? 1 : 0) +
+    (draft.courseCode.trim() ? 1 : 0) +
+    (draft.teacherName.trim() ? 1 : 0) +
+    (draft.campus.trim() ? 1 : 0)
   );
 }
 
@@ -142,7 +66,6 @@ function useTypingPlaceholder() {
         }, 60);
         return () => clearTimeout(timer);
       }
-      // pause after typing, then start deleting
       const pause = setTimeout(() => setIsTyping(false), 2000);
       return () => clearTimeout(pause);
     } else {
@@ -153,7 +76,6 @@ function useTypingPlaceholder() {
         }, 30);
         return () => clearTimeout(timer);
       }
-      // move to next phrase
       const pause = setTimeout(() => {
         setPlaceholderIndex(
           (prev) => (prev + 1) % PLACEHOLDER_CYCLE.length,
@@ -167,19 +89,53 @@ function useTypingPlaceholder() {
   return displayText;
 }
 
+/* ─── Helpers: build URL params for load-more fetch ─── */
+function buildLoadMoreUrl(
+  q: string,
+  filters: CourseFilters,
+  page: number,
+): string {
+  const qp = new URLSearchParams();
+  qp.set("page", String(page));
+  qp.set("limit", "20");
+  if (q.trim()) qp.set("q", q.trim());
+  if (filters.departments?.length)
+    qp.set("departments", filters.departments.join(","));
+  if (filters.onlyWithReviews) qp.set("onlyWithReviews", "true");
+  if (filters.courseName) qp.set("courseName", filters.courseName);
+  if (filters.courseCode) qp.set("courseCode", filters.courseCode);
+  if (filters.teacherName) qp.set("teacherName", filters.teacherName);
+  if (filters.campus) qp.set("campus", filters.campus);
+  return `/api/courses?${qp}`;
+}
+
 /* ─── Main page ─── */
 export default function CoursesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Read filters from URL
+  // ── Read state from URL ────────────────────────────────────────────────
   const q = searchParams.get("q") || "";
   const departmentsRaw = searchParams.get("departments") || "";
-  const departments = departmentsRaw ? departmentsRaw.split(",").filter(Boolean) : [];
+  const departments = departmentsRaw
+    ? departmentsRaw.split(",").filter(Boolean)
+    : [];
   const onlyWithReviews = searchParams.get("onlyWithReviews") === "true";
   const courseName = searchParams.get("courseName") || "";
   const courseCode = searchParams.get("courseCode") || "";
   const teacherName = searchParams.get("teacherName") || "";
   const campus = searchParams.get("campus") || "";
+  const viewMode = (searchParams.get("view") === "marquee"
+    ? "marquee"
+    : "grid") as "grid" | "marquee";
+
+  const filters: CourseFilters = {
+    departments,
+    onlyWithReviews: onlyWithReviews || undefined,
+    courseName: courseName || undefined,
+    courseCode: courseCode || undefined,
+    teacherName: teacherName || undefined,
+    campus: campus || undefined,
+  };
 
   const hasFilters = !!(
     q ||
@@ -191,138 +147,242 @@ export default function CoursesPage() {
     campus
   );
 
-  const filters: CourseFilters = {
-    departments,
-    onlyWithReviews: onlyWithReviews || undefined,
-    courseName: courseName || undefined,
-    courseCode: courseCode || undefined,
-    teacherName: teacherName || undefined,
-    campus: campus || undefined,
-  };
+  // ── Department list ─────────────────────────────────────────────────────
+  const { data: departmentsData } = useQuery(useDepartments());
+  const departmentNames: string[] = (departmentsData ?? []).map(
+    (d: Department) => d.name,
+  );
 
+  // ── Course query (page 1) ───────────────────────────────────────────────
   const queryOptions = useCourseListQuery(q, filters);
   const {
-    data,
+    data: page1Data,
     isLoading,
     isError,
     error,
     refetch,
   } = useQuery(queryOptions);
 
-  const courses = data?.data ?? [];
-  const total = data?.total;
+  // ── Pagination state ────────────────────────────────────────────────────
+  const [page, setPage] = useState(1);
+  const [allCourses, setAllCourses] = useState<Course[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  // Local state for search input
+  // Filter identity for reset detection
+  const filterIdentity = JSON.stringify({ q, ...filters });
+  const prevFilterRef = useRef(filterIdentity);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    if (prevFilterRef.current !== filterIdentity) {
+      prevFilterRef.current = filterIdentity;
+      setPage(1);
+      setAllCourses([]);
+      setHasMore(false);
+    }
+  }, [filterIdentity]);
+
+  // Accumulate page 1 results
+  useEffect(() => {
+    if (page1Data) {
+      setAllCourses(page1Data.data);
+      setHasMore(page1Data.hasMore);
+    }
+  }, [page1Data]);
+
+  const total = page1Data?.total;
+
+  // ── Local search input ──────────────────────────────────────────────────
   const [searchValue, setSearchValue] = useState(q);
 
-  // Local state for filter sheet
-  const [localDepartments, setLocalDepartments] = useState<string[]>(departments);
-  const [localOnlyWithReviews, setLocalOnlyWithReviews] = useState(onlyWithReviews);
-  const [localCourseName, setLocalCourseName] = useState(courseName);
-  const [localCourseCode, setLocalCourseCode] = useState(courseCode);
-  const [localTeacherName, setLocalTeacherName] = useState(teacherName);
-  const [localCampus, setLocalCampus] = useState(campus);
-
-  // Sync local filter state when sheet opens
+  // ── Filter sheet state ──────────────────────────────────────────────────
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [filterDraft, setFilterDraft] = useState<FilterDraft>({
+    departments,
+    onlyWithReviews,
+    courseName,
+    courseCode,
+    teacherName,
+    campus,
+  });
+
+  const activeFilterCount = filterDraftCount(filterDraft);
 
   const handleSheetOpenChange = (open: boolean) => {
     setSheetOpen(open);
     if (open) {
-      setLocalDepartments(departments);
-      setLocalOnlyWithReviews(onlyWithReviews);
-      setLocalCourseName(courseName);
-      setLocalCourseCode(courseCode);
-      setLocalTeacherName(teacherName);
-      setLocalCampus(campus);
+      setFilterDraft({
+        departments,
+        onlyWithReviews,
+        courseName,
+        courseCode,
+        teacherName,
+        campus,
+      });
     }
   };
 
+  // ── Apply / Reset filters ───────────────────────────────────────────────
   const applyFilters = useCallback(() => {
     const next = new URLSearchParams(searchParams);
-    // Preserve q
-    // Update filter params
-    if (localDepartments.length > 0) {
-      next.set("departments", localDepartments.join(","));
+    if (q) next.set("q", q);
+    else next.delete("q");
+
+    if (filterDraft.departments.length > 0) {
+      next.set("departments", filterDraft.departments.join(","));
     } else {
       next.delete("departments");
     }
-    if (localOnlyWithReviews) {
+    if (filterDraft.onlyWithReviews) {
       next.set("onlyWithReviews", "true");
     } else {
       next.delete("onlyWithReviews");
     }
-    if (localCourseName) {
-      next.set("courseName", localCourseName);
+    if (filterDraft.courseName) {
+      next.set("courseName", filterDraft.courseName);
     } else {
       next.delete("courseName");
     }
-    if (localCourseCode) {
-      next.set("courseCode", localCourseCode);
+    if (filterDraft.courseCode) {
+      next.set("courseCode", filterDraft.courseCode);
     } else {
       next.delete("courseCode");
     }
-    if (localTeacherName) {
-      next.set("teacherName", localTeacherName);
+    if (filterDraft.teacherName) {
+      next.set("teacherName", filterDraft.teacherName);
     } else {
       next.delete("teacherName");
     }
-    if (localCampus) {
-      next.set("campus", localCampus);
+    if (filterDraft.campus) {
+      next.set("campus", filterDraft.campus);
     } else {
       next.delete("campus");
     }
+
     setSearchParams(next, { replace: true });
     setSheetOpen(false);
-  }, [
-    searchParams,
-    setSearchParams,
-    localDepartments,
-    localOnlyWithReviews,
-    localCourseName,
-    localCourseCode,
-    localTeacherName,
-    localCampus,
-  ]);
+  }, [searchParams, setSearchParams, q, filterDraft]);
 
   const resetFilters = useCallback(() => {
-    setLocalDepartments([]);
-    setLocalOnlyWithReviews(false);
-    setLocalCourseName("");
-    setLocalCourseCode("");
-    setLocalTeacherName("");
-    setLocalCampus("");
+    setFilterDraft({
+      departments: [],
+      onlyWithReviews: false,
+      courseName: "",
+      courseCode: "",
+      teacherName: "",
+      campus: "",
+    });
   }, []);
 
+  // ── Search ──────────────────────────────────────────────────────────────
   const handleSearch = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       const next = new URLSearchParams(searchParams);
-      if (searchValue) {
-        next.set("q", searchValue);
+      if (searchValue.trim()) {
+        next.set("q", searchValue.trim());
       } else {
         next.delete("q");
       }
       setSearchParams(next, { replace: true });
     },
-    [searchParams, searchParams, searchValue],
+    [searchParams, setSearchParams, searchValue],
   );
 
-  const toggleDepartment = (dept: string) => {
-    setLocalDepartments((prev) =>
-      prev.includes(dept)
-        ? prev.filter((d) => d !== dept)
-        : [...prev, dept],
-    );
-  };
+  // ── Remove individual filter badge ──────────────────────────────────────
+  const removeFilter = useCallback(
+    (key: string, value?: string) => {
+      const next = new URLSearchParams(searchParams);
+      if (key === "q") {
+        next.delete("q");
+        setSearchValue("");
+      } else if (key === "departments" && value) {
+        const updated = departments.filter((d) => d !== value);
+        if (updated.length > 0) {
+          next.set("departments", updated.join(","));
+        } else {
+          next.delete("departments");
+        }
+      } else {
+        next.delete(key);
+      }
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams, departments],
+  );
 
+  // ── View mode toggle ────────────────────────────────────────────────────
+  const toggleViewMode = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    if (viewMode === "grid") {
+      next.set("view", "marquee");
+    } else {
+      next.delete("view");
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, viewMode]);
+
+  // ── Load More ───────────────────────────────────────────────────────────
+  const handleLoadMore = useCallback(async () => {
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    try {
+      const url = buildLoadMoreUrl(q, filters, nextPage);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Load more failed");
+      const json = (await res.json()) as {
+        data?: Course[];
+        hasMore?: boolean;
+      };
+      const newCourses: Course[] = Array.isArray(json.data) ? json.data : [];
+      setAllCourses((prev) => [...prev, ...newCourses]);
+      setPage(nextPage);
+      setHasMore(json.hasMore ?? false);
+    } catch (e) {
+      console.error("Load more error:", e);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [page, q, filters]);
+
+  // ── Typing placeholder ──────────────────────────────────────────────────
   const typingPlaceholder = useTypingPlaceholder();
+
+  // ── Active filter badges ────────────────────────────────────────────────
+  const activeBadges: { key: string; label: string; value?: string }[] = [];
+  if (q) {
+    activeBadges.push({ key: "q", label: `搜索: ${q}` });
+  }
+  for (const dep of departments) {
+    activeBadges.push({ key: "departments", label: dep, value: dep });
+  }
+  if (onlyWithReviews) {
+    activeBadges.push({
+      key: "onlyWithReviews",
+      label: "仅显示有评价",
+    });
+  }
+  if (courseName) {
+    activeBadges.push({ key: "courseName", label: `课程名: ${courseName}` });
+  }
+  if (courseCode) {
+    activeBadges.push({ key: "courseCode", label: `代码: ${courseCode}` });
+  }
+  if (teacherName) {
+    activeBadges.push({
+      key: "teacherName",
+      label: `教师: ${teacherName}`,
+    });
+  }
+  if (campus) {
+    activeBadges.push({ key: "campus", label: `校区: ${campus}` });
+  }
 
   return (
     <div className="space-y-6">
       {/* ─── Hero + Search ─── */}
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-500/10 via-sky-400/5 to-blue-500/10 px-6 py-10 sm:px-10 sm:py-14">
-        {/* Background decorative blobs */}
         <div className="pointer-events-none absolute -right-16 -top-16 size-64 rounded-full bg-cyan-400/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 -left-20 size-80 rounded-full bg-sky-400/10 blur-3xl" />
 
@@ -335,206 +395,104 @@ export default function CoursesPage() {
           </p>
 
           {/* Search bar */}
-          <form
-            onSubmit={handleSearch}
-            className="mt-6 flex items-center gap-2 rounded-2xl border border-white/60 bg-white/70 p-2 shadow-sm backdrop-blur-xl"
-          >
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
-                placeholder={typingPlaceholder}
-                className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
-              />
-            </div>
-            <Button type="submit" size="sm">
-              搜索
-            </Button>
+          <div className="mt-6 flex items-center gap-2">
+            <form
+              onSubmit={handleSearch}
+              className="flex flex-1 items-center gap-2 rounded-2xl border border-white/60 bg-white/70 p-2 shadow-sm backdrop-blur-xl"
+            >
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchValue}
+                  onChange={(e) => setSearchValue(e.target.value)}
+                  placeholder={typingPlaceholder}
+                  className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
+                />
+              </div>
+              <Button type="submit" size="sm">
+                搜索
+              </Button>
+            </form>
+
+            {/* Filter button */}
             <Sheet open={sheetOpen} onOpenChange={handleSheetOpenChange}>
               <SheetTrigger render={<Button variant="outline" size="sm" />}>
                 <Filter className="size-3.5" />
                 <span className="hidden sm:inline">筛选</span>
+                {activeFilterCount > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-1 size-5 rounded-full p-0 text-[10px]"
+                  >
+                    {activeFilterCount}
+                  </Badge>
+                )}
               </SheetTrigger>
               <SheetContent side="left" className="w-80 sm:max-w-sm">
                 <SheetHeader>
                   <SheetTitle>筛选课程</SheetTitle>
                 </SheetHeader>
-                <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-4">
-                  {/* Department filter */}
-                  <div>
-                    <h4 className="mb-2 text-sm font-medium text-foreground">
-                      开课学院
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {DEPARTMENTS.map((dept) => (
-                        <label
-                          key={dept}
-                          className={cn(
-                            "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
-                            localDepartments.includes(dept)
-                              ? "border-cyan-300 bg-cyan-50 text-cyan-700"
-                              : "border-border text-muted-foreground hover:bg-muted",
-                          )}
-                        >
-                          <Checkbox
-                            checked={localDepartments.includes(dept)}
-                            onChange={() => toggleDepartment(dept)}
-                            className="sr-only"
-                          />
-                          {dept}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* Only with reviews */}
-                  <label className="flex cursor-pointer items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={localOnlyWithReviews}
-                      onChange={() =>
-                        setLocalOnlyWithReviews((prev) => !prev)
-                      }
-                    />
-                    <span>仅显示有评价的课程</span>
-                  </label>
-
-                  <Separator />
-
-                  {/* Advanced filters */}
-                  <div className="space-y-3">
-                    <h4 className="text-sm font-medium text-foreground">
-                      高级筛选
-                    </h4>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">
-                        课程名
-                      </label>
-                      <Input
-                        value={localCourseName}
-                        onChange={(e) =>
-                          setLocalCourseName(e.target.value)
-                        }
-                        placeholder="输入课程名"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">
-                        授课教师
-                      </label>
-                      <Input
-                        value={localTeacherName}
-                        onChange={(e) =>
-                          setLocalTeacherName(e.target.value)
-                        }
-                        placeholder="输入教师名"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">
-                        课程代码
-                      </label>
-                      <Input
-                        value={localCourseCode}
-                        onChange={(e) =>
-                          setLocalCourseCode(e.target.value)
-                        }
-                        placeholder="如 123456"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">
-                        校区
-                      </label>
-                      <Input
-                        value={localCampus}
-                        onChange={(e) => setLocalCampus(e.target.value)}
-                        placeholder="四平路 / 嘉定 / 沪西"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Filter actions */}
-                <div className="flex items-center justify-between border-t p-4">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={resetFilters}
-                  >
-                    <X className="mr-1 size-3.5" />
-                    重置
-                  </Button>
-                  <Button size="sm" onClick={applyFilters}>
-                    应用筛选
-                  </Button>
-                </div>
+                <CourseFilterSheet
+                  departments={departmentNames}
+                  draft={filterDraft}
+                  onDraftChange={setFilterDraft}
+                  onApply={applyFilters}
+                  onReset={resetFilters}
+                  activeCount={activeFilterCount}
+                />
               </SheetContent>
             </Sheet>
-          </form>
 
-          {/* Active filter tags */}
+            {/* View mode toggle */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleViewMode}
+              title={
+                viewMode === "grid" ? "切换到跑马灯视图" : "切换到网格视图"
+              }
+            >
+              {viewMode === "grid" ? (
+                <Eye className="size-3.5" />
+              ) : (
+                <LayoutGrid className="size-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {viewMode === "grid" ? "跑马灯" : "网格"}
+              </span>
+            </Button>
+          </div>
+
+          {/* Active filter badges */}
           {hasFilters && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              {q && (
+              {activeBadges.map((badge) => (
                 <Badge
+                  key={`${badge.key}-${badge.value ?? ""}`}
                   variant="secondary"
                   className="flex items-center gap-1"
                 >
-                  搜索: {q}
+                  {badge.label}
                   <button
-                    onClick={() => {
-                      const next = new URLSearchParams(searchParams);
-                      next.delete("q");
-                      setSearchParams(next, { replace: true });
-                      setSearchValue("");
-                    }}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              )}
-              {departments.map((d) => (
-                <Badge
-                  key={d}
-                  variant="secondary"
-                  className="flex items-center gap-1"
-                >
-                  {d}
-                  <button
-                    onClick={() => {
-                      const next = new URLSearchParams(searchParams);
-                      const updated = departments.filter((dd) => dd !== d);
-                      if (updated.length > 0) {
-                        next.set("departments", updated.join(","));
-                      } else {
-                        next.delete("departments");
-                      }
-                      setSearchParams(next, { replace: true });
-                    }}
+                    onClick={() => removeFilter(badge.key, badge.value)}
+                    className="ml-0.5"
                   >
                     <X className="size-3" />
                   </button>
                 </Badge>
               ))}
-              {onlyWithReviews && (
-                <Badge
-                  variant="secondary"
-                  className="flex items-center gap-1"
+              {activeBadges.length > 0 && (
+                <button
+                  onClick={() => {
+                    const next = new URLSearchParams();
+                    next.set("view", viewMode);
+                    setSearchParams(next, { replace: true });
+                    setSearchValue("");
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground"
                 >
-                  仅显示有评价
-                  <button
-                    onClick={() => {
-                      const next = new URLSearchParams(searchParams);
-                      next.delete("onlyWithReviews");
-                      setSearchParams(next, { replace: true });
-                    }}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </Badge>
+                  清除全部
+                </button>
               )}
             </div>
           )}
@@ -542,10 +500,10 @@ export default function CoursesPage() {
       </section>
 
       {/* ─── Results info ─── */}
-      {!isLoading && !isError && courses.length > 0 && (
+      {!isLoading && !isError && allCourses.length > 0 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>
-            {total ? `共 ${total} 门课程` : `${courses.length} 门课程`}
+            {total ? `共 ${total} 门课程` : `${allCourses.length} 门课程`}
           </span>
           <span className="text-xs text-muted-foreground/60">
             点击卡片查看详情
@@ -553,172 +511,19 @@ export default function CoursesPage() {
         </div>
       )}
 
-      {/* ─── Course marquee 3-row carousel ─── */}
-      <style>{`
-        @keyframes cardEnter {
-          from { opacity: 0; transform: translateY(16px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        .course-card-wrapper {
-          animation: cardEnter 0.35s ease-out both;
-        }
-        @keyframes marqueeRow {
-          from { transform: translateX(0); }
-          to   { transform: translateX(-50%); }
-        }
-        .marquee-row {
-          display: flex;
-          gap: 1rem;
-          width: fit-content;
-          animation: marqueeRow var(--speed, 60s) linear infinite;
-        }
-        .marquee-row:hover {
-          animation-play-state: paused;
-        }
-        .marquee-set {
-          display: flex;
-          gap: 1rem;
-        }
-        .marquee-card {
-          width: 16rem;
-          flex-shrink: 0;
-        }
-        .marquee-card > .group {
-          height: 100%;
-        }
-        .marquee-card .card-inner {
-          display: flex;
-          flex-direction: column;
-          height: 100%;
-        }
-        .marquee-card .card-grow {
-          flex: 1;
-        }
-      `}</style>
-
-      {isLoading ? (
-        <div className="space-y-4">
-          {[0, 1, 2].map((row) => (
-            <div key={row} className="flex gap-4 overflow-hidden">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="w-64 shrink-0"><SkeletonCard /></div>
-              ))}
-            </div>
-          ))}
-        </div>
-      ) : isError ? (
-        <ErrorState error={error as Error} onRetry={() => refetch()} />
-      ) : courses.length === 0 ? (
-        <EmptyState hasFilters={hasFilters} />
-      ) : (
-        <div className="space-y-4">
-          {/* Split courses into 3 rows */}
-          {[0, 1, 2].map((rowIndex) => {
-            const slice = courses.filter((_, i) => i % 3 === rowIndex);
-            const rowSpeed = `${[70, 55, 85][rowIndex]}s`;
-            return (
-              <div key={rowIndex} className="overflow-x-hidden rounded-xl py-2">
-                <div className="marquee-row" style={{ "--speed": rowSpeed } as React.CSSProperties}>
-                  {/* First set */}
-                  <div className="marquee-set">
-                    {slice.map((course, i) => (
-                      <div
-                        key={`${course.id}-set1`}
-                        className="marquee-card course-card-wrapper"
-                        style={{ animationDelay: `${i * 60}ms` }}
-                      >
-                        <Link to={`/course/${course.id}`} className="group block h-full">
-                          <Card className="card-inner transition-all duration-200 hover:scale-[1.03] hover:shadow-md">
-                            <CardHeader>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="font-mono text-[10px]">
-                                  {course.code}
-                                </Badge>
-                                <Badge className="flex items-center gap-1 bg-amber-50 text-amber-700 border-amber-200">
-                                  <Star className="size-3 fill-amber-400 text-amber-400" />
-                                  {course.rating ? course.rating.toFixed(1) : "N/A"}
-                                </Badge>
-                              </div>
-                              <CardTitle className="mt-2 line-clamp-1 group-hover:text-cyan-600 transition-colors">
-                                {course.name}
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="card-grow">
-                              <div className="space-y-1 text-sm text-muted-foreground">
-                                {course.teacher_name && <p className="truncate">{course.teacher_name}</p>}
-                                {course.semesters && course.semesters.length > 0 && (
-                                  <p className="truncate text-xs text-muted-foreground/70">
-                                    {course.semesters.join("、")}
-                                  </p>
-                                )}
-                              </div>
-                              <Separator className="my-2" />
-                              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                <span>{course.review_count ?? 0} 条评价</span>
-                                <span className="inline-flex items-center gap-0.5 text-cyan-600 transition-colors group-hover:text-cyan-500">
-                                  详情 <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-                                </span>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </Link>
-                      </div>
-                    ))}
-                  </div>
-                  {/* Second set (identical copy for seamless loop) */}
-                  <div className="marquee-set">
-                    {slice.map((course, i) => (
-                      <div
-                        key={`${course.id}-set2`}
-                        className="marquee-card"
-                      >
-                        <Link to={`/course/${course.id}`} className="group block h-full">
-                          <Card className="card-inner transition-all duration-200 hover:scale-[1.03] hover:shadow-md">
-                            <CardHeader>
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="font-mono text-[10px]">
-                                  {course.code}
-                                </Badge>
-                                <Badge className="flex items-center gap-1 bg-amber-50 text-amber-700 border-amber-200">
-                                  <Star className="size-3 fill-amber-400 text-amber-400" />
-                                  {course.rating ? course.rating.toFixed(1) : "N/A"}
-                                </Badge>
-                              </div>
-                              <CardTitle className="mt-2 line-clamp-1 group-hover:text-cyan-600 transition-colors">
-                                {course.name}
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="card-grow">
-                              <div className="space-y-1 text-sm text-muted-foreground">
-                                {course.teacher_name && <p className="truncate">{course.teacher_name}</p>}
-                                {course.semesters && course.semesters.length > 0 && (
-                                  <p className="truncate text-xs text-muted-foreground/70">
-                                    {course.semesters.join("、")}
-                                  </p>
-                                )}
-                              </div>
-                              <Separator className="my-2" />
-                              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                <span>{course.review_count ?? 0} 条评价</span>
-                                <span className="inline-flex items-center gap-0.5 text-cyan-600 transition-colors group-hover:text-cyan-500">
-                                  详情 <ChevronRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-                                </span>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </Link>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {/* end course marquee */}
-
-
+      {/* ─── Course grid / marquee ─── */}
+      <CourseGridView
+        courses={allCourses}
+        isLoading={isLoading || loadingMore}
+        isError={isError}
+        error={error as Error | null}
+        hasMore={hasMore}
+        viewMode={viewMode}
+        onRetry={() => refetch()}
+        onLoadMore={handleLoadMore}
+        hasFilters={hasFilters}
+        total={total}
+      />
     </div>
   );
 }
