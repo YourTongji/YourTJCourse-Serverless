@@ -1,4 +1,5 @@
 import { Link, Outlet } from "react-router";
+import { Menu } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -13,8 +14,9 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "~/components/ui/sheet";
-import { Menu } from "lucide-react";
+import AnnouncementBar from "~/components/AnnouncementBar";
 import AnnouncementBell from "~/components/AnnouncementBell";
+import MaintenanceBar from "~/components/MaintenanceBar";
 
 const NAV_ITEMS = [
   { to: "/courses", label: "课程目录" },
@@ -95,6 +97,10 @@ export default function Layout() {
           </div>
         </div>
       </header>
+
+      {/* ─── Maintenance & Announcement ─── */}
+      <MaintenanceBar />
+      <AnnouncementBar />
 
       {/* ─── Main content ─── */}
       <main className="mx-auto max-w-7xl px-4 py-6">

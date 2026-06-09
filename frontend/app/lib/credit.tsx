@@ -70,3 +70,114 @@ export function WalletSheet() {
     </>
   );
 }
+
+// ============ Credit Wallet API ============
+// Talks to the external credit service (core.credit.yourtj.de).
+
+const DEFAULT_CORE_BASE = "https://core.credit.yourtj.de";
+
+function normalizeBase(input: string, fallback: string): string {
+  const raw = String(input || fallback).trim();
+  if (!raw) return String(fallback).trim().replace(/\/+$/, "");
+  return raw.replace(/\/+$/, "").replace(/\/api$/i, "");
+}
+
+function resolveCreditApiBase(): string {
+  const envBase = normalizeBase(
+    String((import.meta as any).env?.VITE_CREDIT_API_BASE || ""),
+    DEFAULT_CORE_BASE,
+  );
+  return envBase;
+}
+
+function resolveCreditIntegrationBase(): string {
+  const explicit = normalizeBase(
+    String((import.meta as any).env?.VITE_CREDIT_CORE_API_BASE || ""),
+    "",
+  );
+  if (explicit) return explicit;
+  const apiBase = resolveCreditApiBase();
+  const looksLikeFrontend =
+    /^https?:\/\/credit\.yourtj\.de$/i.test(apiBase) || apiBase.includes("credit.yourtj.de/");
+  return looksLikeFrontend ? DEFAULT_CORE_BASE : apiBase;
+}
+
+const CREDIT_API_BASE = resolveCreditApiBase();
+const CREDIT_INTEGRATION_BASE = resolveCreditIntegrationBase();
+
+async function readJson(res: Response, hint: string) {
+  const contentType = res.headers.get("content-type") || "";
+  const text = await res.text().catch(() => "");
+  if (!res.ok) throw new Error(text || `${hint} failed`);
+  const trimmed = String(text || "").trim();
+  if (trimmed.startsWith("<")) {
+    throw new Error(
+      `${hint}：积分站返回了 HTML（疑似把前端页面当成接口返回了）。请检查积分站 API Base 配置是否正确。`,
+    );
+  }
+  if (!/application\/json/i.test(contentType)) {
+    throw new Error(
+      `${hint}：积分站返回的不是 JSON（content-type=${contentType || "unknown"}）。` +
+        `请检查 VITE_CREDIT_API_BASE 是否指向 ${DEFAULT_CORE_BASE}`,
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${hint}：解析 JSON 失败，请检查积分站接口是否可用`);
+  }
+}
+
+export interface CreditWalletData {
+  userHash: string;
+  userSecret: string;
+  [key: string]: unknown;
+}
+
+export interface CreditBalanceData {
+  balance: number;
+  [key: string]: unknown;
+}
+
+export interface CreditSummaryData {
+  [key: string]: unknown;
+}
+
+export async function registerCreditWallet(params: {
+  userHash: string;
+  userSecret: string;
+}): Promise<CreditWalletData> {
+  const res = await fetch(`${CREDIT_API_BASE}/api/wallet/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userHash: params.userHash, userSecret: params.userSecret }),
+  });
+  return readJson(res, "register wallet");
+}
+
+export async function fetchCreditBalance(userHash: string): Promise<CreditBalanceData> {
+  const res = await fetch(
+    `${CREDIT_API_BASE}/api/wallet/${encodeURIComponent(userHash)}/balance`,
+  );
+  return readJson(res, "fetch balance");
+}
+
+export async function fetchCreditSummary(
+  userHash: string,
+  date?: string,
+): Promise<CreditSummaryData> {
+  const q = new URLSearchParams({ userHash });
+  if (date) q.set("date", date);
+  const primaryUrl = `${CREDIT_INTEGRATION_BASE}/api/integration/jcourse/summary?${q.toString()}`;
+  try {
+    const res = await fetch(primaryUrl);
+    return readJson(res, "fetch summary");
+  } catch (e: any) {
+    if (CREDIT_INTEGRATION_BASE !== DEFAULT_CORE_BASE) {
+      const fallbackUrl = `${DEFAULT_CORE_BASE}/api/integration/jcourse/summary?${q.toString()}`;
+      const res = await fetch(fallbackUrl);
+      return readJson(res, "fetch summary");
+    }
+    throw e;
+  }
+}

@@ -73,6 +73,37 @@
   }
 }
 
+/* ─── Announcement Bar Carousel ─── */
+@keyframes slide-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-2rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@utility animate-slide-in-next {
+  animation: slide-in-next 520ms ease-out both;
+}
+
+@utility animate-slide-in-prev {
+  animation: slide-in-prev 520ms ease-out both;
+}
+
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
