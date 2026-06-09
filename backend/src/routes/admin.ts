@@ -6,6 +6,7 @@ import { refreshCourseStats } from '../courseStats'
 import {
   ensureDbInitialized,
   AUX_SCHEMA_VERSION,
+  materializePkCoursesToReviewSite,
   rebuildAllAuxiliaryCourseData,
   refreshAuxiliaryCourseData,
   deleteAuxiliaryCourseData,
@@ -58,6 +59,7 @@ admin.post('/pk/sync', async (c) => {
       depth
     })
 
+    await materializePkCoursesToReviewSite(c.env.DB)
     await rebuildAllAuxiliaryCourseData(c.env.DB)
     await c.env.DB
       .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
@@ -67,6 +69,22 @@ admin.post('/pk/sync', async (c) => {
     return c.json({ success: true, ...result })
   } catch (err: any) {
     return c.json({ error: err.message || 'Sync failed' }, 500)
+  }
+})
+
+admin.post('/pk/refresh-review-index', async (c) => {
+  try {
+    await ensureDbInitialized(c.env.DB)
+    await materializePkCoursesToReviewSite(c.env.DB)
+    await rebuildAllAuxiliaryCourseData(c.env.DB)
+    await c.env.DB
+      .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      .bind('aux_schema_version', AUX_SCHEMA_VERSION)
+      .run()
+
+    return c.json({ success: true, auxSchemaVersion: AUX_SCHEMA_VERSION })
+  } catch (err: any) {
+    return c.json({ error: err.message || 'Refresh failed' }, 500)
   }
 })
 

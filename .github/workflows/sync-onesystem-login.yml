@@ -32,6 +32,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       # dev 分支优先使用 BACKEND_URL_DEV 用于同步后自检；不再依赖后端接口完成同步
       BACKEND_URL: ${{ (github.ref_name == 'dev' && secrets.BACKEND_URL_DEV) || secrets.BACKEND_URL || secrets.VITE_API_URL }}
+      ADMIN_SECRET: ${{ secrets.JCOURSE_ADMIN_SECRET }}
       ONESYSTEM_SNO: ${{ secrets.ONESYSTEM_SNO }}
       ONESYSTEM_PASSWORD: ${{ secrets.ONESYSTEM_PASSWORD }}
       ONESYSTEM_IMAP_SERVER: ${{ secrets.ONESYSTEM_IMAP_SERVER }}
@@ -156,6 +157,26 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/010_materialize_courses_from_pk.sql"
+
+      - name: Refresh review search index via backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKEND_URL:-}" ]; then
+            echo "BACKEND_URL not set, skip review search index refresh"
+            exit 0
+          fi
+          if [ -z "${ADMIN_SECRET:-}" ]; then
+            echo "ADMIN_SECRET not set, skip review search index refresh"
+            exit 0
+          fi
+          BACKEND_URL="${BACKEND_URL%/}"
+          if [[ "$BACKEND_URL" == */api ]]; then BACKEND_URL="${BACKEND_URL%/api}"; fi
+          curl -fsSL -X POST "$BACKEND_URL/api/admin/pk/refresh-review-index" \
+            -H "Content-Type: application/json" \
+            -H "x-admin-secret: $ADMIN_SECRET" \
+            --data '{}' \
+            | tee pk-review-index-refresh.json
 
       - name: Post-check via backend API
         shell: bash
