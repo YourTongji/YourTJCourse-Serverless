@@ -104,6 +104,26 @@
   animation: slide-in-prev 520ms ease-out both;
 }
 
+/* ─── AI Summary Shimmer ─── */
+@keyframes summary-dot {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+@keyframes summary-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@utility animate-summary-dot {
+  animation: summary-dot 1.2s ease-in-out infinite;
+}
+
+@utility animate-summary-shimmer {
+  background-size: 200% 100%;
+  animation: summary-shimmer 1.8s ease-in-out infinite;
+}
+
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
