@@ -1,4 +1,4 @@
-export const AUX_SCHEMA_VERSION = '20260605-query-opt-v2'
+export const AUX_SCHEMA_VERSION = '20260610-structured-search-v3'
 export const COURSE_LIST_CACHE_SECONDS = 60
 export const COURSE_LIST_CACHE_SWR_SECONDS = 300
 export const D1_SAFE_BATCH_SIZE = 40
@@ -24,6 +24,10 @@ export function uniqueText(values: Array<string | null | undefined>) {
 
 export function normalizeSearchText(value: string) {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+export function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`)
 }
 
 export function normalizeLooseSearchText(value: string) {
@@ -78,7 +82,6 @@ export function buildCourseSearchDocument(course: {
   department?: string | null
   teacher_name?: string | null
   teacher_tid?: string | null
-  search_keywords?: string | null
 }, aliases: string[]) {
   return normalizeSearchText([
     course.code,
@@ -86,7 +89,6 @@ export function buildCourseSearchDocument(course: {
     course.department,
     course.teacher_name,
     course.teacher_tid,
-    course.search_keywords,
     ...aliases
   ].join(' '))
 }
