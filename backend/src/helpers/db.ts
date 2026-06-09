@@ -2,6 +2,7 @@ export const AUX_SCHEMA_VERSION = '20260609-pk-materialize-v1'
 export const COURSE_LIST_CACHE_SECONDS = 60
 export const COURSE_LIST_CACHE_SWR_SECONDS = 300
 export const D1_SAFE_BATCH_SIZE = 40
+const PK_COURSE_DETAIL_LOOKUP_BATCH_SIZE = 25
 export const SEARCH_ALIAS_MAP: Record<string, string[]> = {
   高数: ['高等数学'],
   线代: ['线性代数'],
@@ -625,7 +626,7 @@ export async function buildCourseAuxiliaryRecords(db: D1Database, courseIds?: nu
   const codePkKeywordMap = new Map<string, string[]>()
 
   if (allCodes.length > 0) {
-    for (const part of chunkArray(allCodes, D1_SAFE_BATCH_SIZE)) {
+    for (const part of chunkArray(allCodes, PK_COURSE_DETAIL_LOOKUP_BATCH_SIZE)) {
       const placeholders = part.map(() => '?').join(',')
       const rows = await db
         .prepare(
