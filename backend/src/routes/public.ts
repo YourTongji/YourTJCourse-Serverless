@@ -7,17 +7,14 @@ import {
   getShowIcuSetting,
   COURSE_LIST_CACHE_SECONDS,
   COURSE_LIST_CACHE_SWR_SECONDS,
-  SEARCH_ALIAS_MAP,
   D1_SAFE_BATCH_SIZE,
   chunkArray,
-  uniqueText,
-  normalizeSearchText,
+  escapeLikePattern,
   normalizeLooseSearchText,
   parseSemesterNames,
   buildCourseSearchMatchQuery,
   buildKeywordSearchVariants,
   buildLooseSqlExpr,
-  buildCourseSearchDocument,
   combineSemesterNames,
   buildCourseAuxiliaryRecords,
   deleteAuxiliaryCourseData,
@@ -49,6 +46,10 @@ import {
 const publicRoutes = new Hono<{ Bindings: Bindings }>()
 
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'other'])
+
+function containsLikePattern(value: string) {
+  return `%${escapeLikePattern(value)}%`
+}
 
 async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
   const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
@@ -196,25 +197,25 @@ publicRoutes.get('/courses', async (c) => {
       }
 
       if (rawVariants.length > 0) {
-        const perVariant = '(c.search_keywords LIKE ? OR c.code LIKE ? OR c.name LIKE ? OR t.name LIKE ?)'
+        const perVariant =
+          "(c.code LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\' OR t.name LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM course_aliases a WHERE a.system = 'onesystem' AND a.course_id = c.id AND a.alias LIKE ? ESCAPE '\\'))"
         keywordClauses.push(rawVariants.map(() => perVariant).join(' OR '))
         for (const variant of rawVariants) {
-          const likeKey = `%${variant}%`
+          const likeKey = containsLikePattern(variant)
           baseParams.push(likeKey, likeKey, likeKey, likeKey)
         }
       }
 
       if (looseVariants.length > 0) {
         const looseExprs = [
-          buildLooseSqlExpr('c.search_keywords'),
           buildLooseSqlExpr('c.code'),
           buildLooseSqlExpr('c.name'),
           buildLooseSqlExpr('t.name')
         ]
-        const perVariant = `(${looseExprs.map((expr) => `${expr} LIKE ?`).join(' OR ')})`
+        const perVariant = `(${looseExprs.map((expr) => `${expr} LIKE ? ESCAPE '\\'`).join(' OR ')} OR EXISTS (SELECT 1 FROM course_aliases a WHERE a.system = 'onesystem' AND a.course_id = c.id AND ${buildLooseSqlExpr('a.alias')} LIKE ? ESCAPE '\\'))`
         keywordClauses.push(looseVariants.map(() => perVariant).join(' OR '))
         for (const variant of looseVariants) {
-          const likeKey = `%${variant}%`
+          const likeKey = containsLikePattern(variant)
           baseParams.push(likeKey, likeKey, likeKey, likeKey)
         }
       }
@@ -226,19 +227,29 @@ publicRoutes.get('/courses', async (c) => {
 
     if (courseCode) {
       baseWhere +=
-        " AND (c.code LIKE ? OR EXISTS (SELECT 1 FROM course_aliases a WHERE a.system = 'onesystem' AND a.course_id = c.id AND a.alias LIKE ?))"
-      const likeCode = `%${courseCode}%`
+        " AND (c.code LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM course_aliases a WHERE a.system = 'onesystem' AND a.course_id = c.id AND a.alias LIKE ? ESCAPE '\\'))"
+      const likeCode = containsLikePattern(courseCode)
       baseParams.push(likeCode, likeCode)
     }
 
-    const needPkFilter = Boolean(courseName || teacherName || teacherCode || campus || faculty)
+    if (teacherName) {
+      baseWhere += " AND t.name LIKE ? ESCAPE '\\'"
+      baseParams.push(containsLikePattern(teacherName))
+    }
+
+    if (teacherCode) {
+      baseWhere += " AND t.tid LIKE ? ESCAPE '\\'"
+      baseParams.push(containsLikePattern(teacherCode))
+    }
+
+    const needPkFilter = Boolean(courseName || campus || faculty)
     if (needPkFilter) {
       const pkWhere: string[] = []
       const pkParams: any[] = []
 
       if (courseName) {
-        pkWhere.push('cd.courseName LIKE ?')
-        pkParams.push(`%${courseName}%`)
+        pkWhere.push("cd.courseName LIKE ? ESCAPE '\\'")
+        pkParams.push(containsLikePattern(courseName))
       }
       if (campus) {
         pkWhere.push('cd.campus = ?')
@@ -247,14 +258,6 @@ publicRoutes.get('/courses', async (c) => {
       if (faculty) {
         pkWhere.push('cd.faculty = ?')
         pkParams.push(faculty)
-      }
-      if (teacherName) {
-        pkWhere.push('EXISTS (SELECT 1 FROM teacher tt WHERE tt.teachingClassId = cd.id AND tt.teacherName LIKE ?)')
-        pkParams.push(`%${teacherName}%`)
-      }
-      if (teacherCode) {
-        pkWhere.push('EXISTS (SELECT 1 FROM teacher tt WHERE tt.teachingClassId = cd.id AND tt.teacherCode LIKE ?)')
-        pkParams.push(`%${teacherCode}%`)
       }
 
       const pkExtraWhere = pkWhere.length > 0 ? ` AND ${pkWhere.join(' AND ')}` : ''
