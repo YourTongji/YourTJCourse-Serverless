@@ -3,7 +3,7 @@
  *
  * When a report is filed, sends an interactive card with "通过" / "驳回" buttons.
  * Buttons use HMAC-signed URLs and open a confirmation page before mutating state.
- * No Feishu app registration required.
+ * Approving a report hides the reported review. No Feishu app registration required.
  */
 import type { Bindings } from './types'
 
@@ -18,6 +18,8 @@ export interface ReportNotificationPayload {
   reviewSnippet: string
   rating: number
   semester: string
+  /** True when a previously processed report was reopened by a repeat report. */
+  reopened?: boolean
 }
 
 // ─── HMAC helpers ───────────────────────────────────────────────
@@ -114,7 +116,7 @@ export async function notifyReportToFeishu(
         },
         header: {
           template: 'wathet' as const,
-          title: { tag: 'plain_text', content: '🚨 YOURTJ 课程评价举报' },
+          title: { tag: 'plain_text', content: payload.reopened ? '🔁 YOURTJ 课程评价举报（重新打开）' : '🚨 YOURTJ 课程评价举报' },
           subtitle: { tag: 'plain_text', content: `${reasonText} · ${payload.courseName}` },
           padding: '12px 12px 12px 12px',
         },
@@ -209,13 +211,13 @@ export async function notifyReportToFeishu(
                 {
                   tag: 'button',
                   type: 'primary',
-                  text: { tag: 'plain_text', content: '✅ 通过 (删除评价)' },
+                  text: { tag: 'plain_text', content: '✅ 通过 (隐藏评价)' },
                   url: resolveUrl,
                 },
                 {
                   tag: 'button',
                   type: 'danger',
-                  text: { tag: 'plain_text', content: '❌ 驳回' },
+                  text: { tag: 'plain_text', content: '❌ 驳回 (保留评价)' },
                   url: rejectUrl,
                 },
               ],

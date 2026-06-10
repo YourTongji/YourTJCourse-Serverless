@@ -1326,26 +1326,35 @@ publicRoutes.post('/review/:id/report', async (c) => {
 
   const reportId = Number(report?.id || 0) || null
   const isNewReport = Boolean(reportId)
-  const effectiveReportId = reportId || Number((await c.env.DB
-    .prepare(
-      `UPDATE review_reports
-       SET reason = ?, status = 'open', updated_at = strftime('%s', 'now')
-       WHERE review_id = ? AND client_id = ?
-       RETURNING id`
-    )
-    .bind(reason, id, clientId)
-    .first<{ id: number }>())?.id || 0) || null
+  let effectiveReportId = reportId
+  let isReopenedReport = false
+  if (!isNewReport) {
+    const existing = await c.env.DB
+      .prepare('SELECT id, status FROM review_reports WHERE review_id = ? AND client_id = ? LIMIT 1')
+      .bind(id, clientId)
+      .first<{ id: number; status: string }>()
+    // Re-reporting a processed report reopens it; admins must hear about it too.
+    isReopenedReport = Boolean(existing && existing.status !== 'open')
+    await c.env.DB
+      .prepare(
+        `UPDATE review_reports
+         SET reason = ?, status = 'open', updated_at = strftime('%s', 'now')
+         WHERE review_id = ? AND client_id = ?`
+      )
+      .bind(reason, id, clientId)
+      .run()
+    effectiveReportId = Number(existing?.id || 0) || null
+  }
 
-  if (isNewReport && effectiveReportId) {
+  if ((isNewReport || isReopenedReport) && effectiveReportId) {
     // Fire-and-forget Feishu notification (don't block response)
-    const sqid = (await c.env.DB.prepare('SELECT id FROM reviews WHERE id = ? LIMIT 1').bind(id).first<{ id: number }>())?.id
     const origin = new URL(c.req.url).origin
     c.executionCtx.waitUntil(
       notifyReportToFeishu(
         {
           reportId: effectiveReportId,
           reviewId: id,
-          reviewSqid: sqid ? String(sqid) : String(id),
+          reviewSqid: encodeReviewId(id),
           courseName: String(reviewRow.course_name || ''),
           courseId: Number(reviewRow.course_id),
           reason,
@@ -1353,6 +1362,7 @@ publicRoutes.post('/review/:id/report', async (c) => {
           reviewSnippet: String(reviewRow.comment || '').trim(),
           rating: Number(reviewRow.rating || 0),
           semester: String(reviewRow.semester || ''),
+          reopened: isReopenedReport,
         },
         c.env,
         origin,
@@ -1559,7 +1569,9 @@ async function renderReportActionConfirm(c: AppContext) {
   const isResolve = action === 'resolved'
   const page = buildReportActionHtml({
     title: isResolve ? '确认通过举报？' : '确认驳回举报？',
-    message: `举报 #${reportId} 将被标记为：${isResolve ? '通过' : '驳回'}。`,
+    message: isResolve
+      ? `举报 #${reportId} 将被标记为通过，被举报的评价将被隐藏。`
+      : `举报 #${reportId} 将被驳回，评价保留显示。`,
     action,
     actionLabel: isResolve ? '确认通过' : '确认驳回',
     reportId,
@@ -1659,7 +1671,20 @@ publicRoutes.post('/admin/report/:reportId/resolve', async (c) => {
     return reportActionResponse(page)
   }
 
-  const label = action === 'resolved' ? '已通过（评价保持显示）' : '已驳回'
+  if (action === 'resolved') {
+    // UGC compliance: approving a report removes the offending review from public view.
+    const review = await c.env.DB
+      .prepare('SELECT course_id FROM reviews WHERE id = ? LIMIT 1')
+      .bind(report.review_id)
+      .first<{ course_id: number }>()
+    await c.env.DB.prepare('UPDATE reviews SET is_hidden = 1 WHERE id = ?').bind(report.review_id).run()
+    if (review) {
+      await refreshCourseStats(c.env.DB, Number(review.course_id))
+      await purgeRelatedCourseDetailCache(c.env.DB, Number(review.course_id))
+    }
+  }
+
+  const label = action === 'resolved' ? '已通过（评价已隐藏）' : '已驳回（评价保留）'
   const color = action === 'resolved' ? '#16a34a' : '#dc2626'
   const page = buildReportActionHtml({
     title: '操作完成',
