@@ -415,6 +415,34 @@ publicRoutes.get('/courses', async (c) => {
 
       const pkExtraWhere = pkWhere.length > 0 ? ` AND ${pkWhere.join(' AND ')}` : ''
 
+      // Teacher filters must also resolve through the main `teachers` table (courses.teacher_id),
+      // which is what the MiniSearch index draws teacherName/teacherCode from. Without this, a
+      // teacher that only exists in the main table (no PK coursedetail section) is found by the
+      // search box but dropped by the filter — the misalignment behind issue #86. The PK-only
+      // fields (courseName/campus/faculty) cannot be satisfied by the main table, so this branch
+      // applies only when the active filters are teacher-only.
+      const mainTeacherWhere: string[] = []
+      const mainTeacherParams: any[] = []
+      const canMatchMainTeachers = !courseName && !campus && !faculty && Boolean(teacherName || teacherCode)
+      if (canMatchMainTeachers) {
+        if (teacherName) {
+          mainTeacherWhere.push("t2.name LIKE ? ESCAPE '\\'")
+          mainTeacherParams.push(containsLikePattern(teacherName))
+        }
+        if (teacherCode) {
+          mainTeacherWhere.push("t2.tid LIKE ? ESCAPE '\\'")
+          mainTeacherParams.push(containsLikePattern(teacherCode))
+        }
+      }
+      const mainTeacherBranch = canMatchMainTeachers
+        ? `
+          UNION
+          SELECT DISTINCT c2.id AS id, TRIM(t2.name) AS matched_teacher_name
+          FROM courses c2
+          JOIN teachers t2 ON t2.id = c2.teacher_id
+          WHERE ${mainTeacherWhere.join(' AND ')}`
+        : ''
+
       ctes.push(`
         pk_match AS (
           SELECT DISTINCT c2.id AS id, TRIM(tt.teacherName) AS matched_teacher_name
@@ -431,13 +459,13 @@ publicRoutes.get('/courses', async (c) => {
             a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
           )
           LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
-          WHERE a.system = 'onesystem'${pkExtraWhere}
+          WHERE a.system = 'onesystem'${pkExtraWhere}${mainTeacherBranch}
         )
       `)
 
       baseWhere += ` AND c.id IN (SELECT id FROM pk_match)`
 
-      cteParams.push(...pkParams, ...pkParams)
+      cteParams.push(...pkParams, ...pkParams, ...mainTeacherParams)
     }
 
     if (departments) {
