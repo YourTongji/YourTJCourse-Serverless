@@ -52,6 +52,25 @@ function containsLikePattern(value: string) {
   return `%${escapeLikePattern(value)}%`
 }
 
+function isLikelyChineseTeacherName(value: string) {
+  return /^[\u4e00-\u9fa5]{2,3}$/.test(value)
+}
+
+function buildStructuredKeywordTerms(keyword: string) {
+  const raw = String(keyword || '').trim()
+  const normalized = raw
+    .replace(/[+＋]/g, ' ')
+    .replace(/\s*的\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!normalized) return []
+  const terms = Array.from(new Set(normalized.split(' ').map((item) => item.trim()).filter((item) => item.length >= 2)))
+  if (terms.length < 2) return []
+  const hasExplicitRelation = /[+＋的]/.test(raw)
+  const hasLikelyChineseName = terms.some(isLikelyChineseTeacherName)
+  return hasExplicitRelation || hasLikelyChineseName ? terms : []
+}
+
 async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
   const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
   const creditById = new Map<number, number>()
@@ -190,6 +209,7 @@ publicRoutes.get('/courses', async (c) => {
       const ftsQuery = courseAuxReady ? buildCourseSearchMatchQuery(keyword) : ''
       const rawVariants = buildKeywordSearchVariants(keyword)
       const looseVariants = Array.from(new Set(rawVariants.map((item) => normalizeLooseSearchText(item)).filter(Boolean)))
+      const structuredKeywordTerms = buildStructuredKeywordTerms(keyword)
       const keywordClauses: string[] = []
 
       if (courseAuxReady && ftsQuery) {
@@ -221,6 +241,38 @@ publicRoutes.get('/courses', async (c) => {
         }
       }
 
+      if (structuredKeywordTerms.length >= 2) {
+        const perTermSql =
+          "(cd.courseName LIKE ? ESCAPE '\\' OR cd.name LIKE ? ESCAPE '\\' OR cd.courseCode LIKE ? ESCAPE '\\' OR cd.code LIKE ? ESCAPE '\\' OR cd.newCourseCode LIKE ? ESCAPE '\\' OR cd.newCode LIKE ? ESCAPE '\\' OR kt.teacherName LIKE ? ESCAPE '\\' OR kt.teacherCode LIKE ? ESCAPE '\\')"
+        const structuredWhere = structuredKeywordTerms.map(() => perTermSql).join(' AND ')
+        const structuredParams = structuredKeywordTerms.flatMap((term) => {
+          const likeTerm = containsLikePattern(term)
+          return [likeTerm, likeTerm, likeTerm, likeTerm, likeTerm, likeTerm, likeTerm, likeTerm]
+        })
+
+        ctes.push(`
+          pk_keyword_match AS (
+            SELECT DISTINCT c2.id AS id, TRIM(kt.teacherName) AS matched_teacher_name
+            FROM courses c2
+            JOIN coursedetail cd ON (
+              cd.courseCode = c2.code OR cd.code = c2.code OR cd.newCourseCode = c2.code OR cd.newCode = c2.code
+            )
+            JOIN teacher kt ON kt.teachingClassId = cd.id
+            WHERE ${structuredWhere}
+            UNION
+            SELECT DISTINCT a.course_id AS id, TRIM(kt.teacherName) AS matched_teacher_name
+            FROM course_aliases a
+            JOIN coursedetail cd ON (
+              a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
+            )
+            JOIN teacher kt ON kt.teachingClassId = cd.id
+            WHERE a.system = 'onesystem' AND ${structuredWhere}
+          )
+        `)
+        cteParams.push(...structuredParams, ...structuredParams)
+        keywordClauses.push('c.id IN (SELECT id FROM pk_keyword_match)')
+      }
+
       if (keywordClauses.length > 0) {
         baseWhere += ` AND (${keywordClauses.join(' OR ')})`
       }
@@ -233,17 +285,7 @@ publicRoutes.get('/courses', async (c) => {
       baseParams.push(likeCode, likeCode)
     }
 
-    if (teacherName) {
-      baseWhere += " AND t.name LIKE ? ESCAPE '\\'"
-      baseParams.push(containsLikePattern(teacherName))
-    }
-
-    if (teacherCode) {
-      baseWhere += " AND t.tid LIKE ? ESCAPE '\\'"
-      baseParams.push(containsLikePattern(teacherCode))
-    }
-
-    const needPkFilter = Boolean(courseName || campus || faculty)
+    const needPkFilter = Boolean(courseName || teacherName || teacherCode || campus || faculty)
     if (needPkFilter) {
       const pkWhere: string[] = []
       const pkParams: any[] = []
@@ -260,19 +302,29 @@ publicRoutes.get('/courses', async (c) => {
         pkWhere.push('cd.faculty = ?')
         pkParams.push(faculty)
       }
+      if (teacherName) {
+        pkWhere.push("EXISTS (SELECT 1 FROM teacher tt WHERE tt.teachingClassId = cd.id AND tt.teacherName LIKE ? ESCAPE '\\')")
+        pkParams.push(containsLikePattern(teacherName))
+      }
+      if (teacherCode) {
+        pkWhere.push("EXISTS (SELECT 1 FROM teacher tt WHERE tt.teachingClassId = cd.id AND tt.teacherCode LIKE ? ESCAPE '\\')")
+        pkParams.push(containsLikePattern(teacherCode))
+      }
 
       const pkExtraWhere = pkWhere.length > 0 ? ` AND ${pkWhere.join(' AND ')}` : ''
 
       ctes.push(`
         pk_match AS (
-          SELECT DISTINCT c2.id AS id
+          SELECT DISTINCT c2.id AS id, TRIM(tt.teacherName) AS matched_teacher_name
           FROM courses c2
           JOIN coursedetail cd ON (cd.courseCode = c2.code OR cd.newCourseCode = c2.code)
+          LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
           WHERE 1=1${pkExtraWhere}
           UNION
-          SELECT DISTINCT a.course_id AS id
+          SELECT DISTINCT a.course_id AS id, TRIM(tt.teacherName) AS matched_teacher_name
           FROM course_aliases a
           JOIN coursedetail cd ON (a.alias = cd.courseCode OR a.alias = cd.newCourseCode)
+          LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
           WHERE a.system = 'onesystem'${pkExtraWhere}
         )
       `)
@@ -293,6 +345,16 @@ publicRoutes.get('/courses', async (c) => {
 
     const groupKey = `c.code, c.name, COALESCE(t.name, '')`
     const having = onlyWithReviews ? 'HAVING SUM(COALESCE(c.review_count, 0)) > 0' : ''
+    const matchedTeacherExprs: string[] = []
+    if (keyword && buildStructuredKeywordTerms(keyword).length >= 2) {
+      matchedTeacherExprs.push("(SELECT GROUP_CONCAT(DISTINCT matched_teacher_name) FROM pk_keyword_match pkm WHERE pkm.id = c.id AND TRIM(COALESCE(matched_teacher_name, '')) != '')")
+    }
+    if (teacherName || teacherCode) {
+      matchedTeacherExprs.push("(SELECT GROUP_CONCAT(DISTINCT matched_teacher_name) FROM pk_match pm WHERE pm.id = c.id AND TRIM(COALESCE(matched_teacher_name, '')) != '')")
+    }
+    const displayTeacherExpr = matchedTeacherExprs.length > 0
+      ? `COALESCE(${matchedTeacherExprs.join(', ')}, t.name, '')`
+      : "COALESCE(t.name, '')"
     const representativeValueExpr = `COALESCE(
       MAX(CASE WHEN c.is_legacy = 0 THEN printf('%010d|%s', c.id, c.code) END),
       MAX(printf('%010d|%s', c.id, c.code))
@@ -311,7 +373,7 @@ publicRoutes.get('/courses', async (c) => {
           END AS rating,
           SUM(COALESCE(c.review_count, 0)) AS review_count,
           CASE WHEN SUM(CASE WHEN c.is_legacy = 0 THEN 1 ELSE 0 END) > 0 THEN 0 ELSE 1 END AS is_legacy,
-          COALESCE(t.name, '') AS teacher_name,
+          ${displayTeacherExpr} AS teacher_name,
           COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.department END), MAX(c.department)) AS department,
           COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.credit END), MAX(c.credit), 0) AS credit
         FROM courses c
@@ -758,19 +820,29 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
           .prepare(
             `SELECT c.id as id
              FROM courses c
-             LEFT JOIN teachers t ON c.teacher_id = t.id
-             WHERE c.name IN (
-               SELECT DISTINCT cd.courseName
+             WHERE (
+               c.code = ?
+               OR EXISTS (
+                 SELECT 1 FROM course_aliases a
+                 WHERE a.system = 'onesystem'
+                   AND a.alias = ?
+                   AND a.course_id = c.id
+               )
+             )
+             AND EXISTS (
+               SELECT 1
                FROM coursedetail cd
                LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
-               WHERE (cd.code = ? OR cd.courseCode = ? OR cd.newCourseCode = ?)
+               WHERE (cd.code = ? OR cd.courseCode = ? OR cd.newCourseCode = ? OR cd.newCode = ?)
                ${pkTeacherFilter.sql}
              )
-             ${courseTeacherFilter.sql}
-             ORDER BY COALESCE(c.review_count, 0) DESC, c.id DESC
+             ORDER BY
+               CASE WHEN c.code = ? THEN 0 ELSE 1 END,
+               COALESCE(c.review_count, 0) DESC,
+               c.id DESC
              LIMIT 1`
           )
-          .bind(code, code, code, ...pkTeacherFilter.args, ...courseTeacherFilter.args)
+          .bind(code, code, code, code, code, code, ...pkTeacherFilter.args, code)
           .first<{ id: number }>()
       : null
 
@@ -850,26 +922,36 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
            FROM courses c
            LEFT JOIN teachers t ON c.teacher_id = t.id
            WHERE c.name = ?
-           ${courseTeacherFilter.sql}
-           ORDER BY COALESCE(c.review_count, 0) DESC, c.id DESC`
+             AND (
+               ${courseTeacherFilter.sql ? courseTeacherFilter.sql.replace(/^ AND /, '') : '0'}
+               OR EXISTS (
+                 SELECT 1
+                 FROM course_aliases a
+                 JOIN coursedetail cd ON (
+                   a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
+                 )
+                 LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
+                 WHERE a.system = 'onesystem'
+                   AND a.course_id = c.id
+                   ${pkTeacherFilter.sql}
+               )
+               OR EXISTS (
+                 SELECT 1
+                 FROM coursedetail cd
+                 LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
+                 WHERE (cd.courseCode = c.code OR cd.code = c.code OR cd.newCourseCode = c.code OR cd.newCode = c.code)
+                   ${pkTeacherFilter.sql}
+               )
+             )
+           ORDER BY
+             CASE WHEN c.id = ? THEN 0 ELSE 1 END,
+             COALESCE(c.review_count, 0) DESC,
+             c.id DESC`
         )
-        .bind((course as any).name, ...courseTeacherFilter.args)
+        .bind((course as any).name, ...courseTeacherFilter.args, ...pkTeacherFilter.args, ...pkTeacherFilter.args, Number(courseId))
         .all<{ id: number }>()
 
       for (const r of sameNameTeacherRows.results || []) matchedIds.add(Number((r as any).id))
-
-      const primaryMatchedId = Number((sameNameTeacherRows.results || [])[0]?.id || 0)
-      if (primaryMatchedId && primaryMatchedId !== Number(courseId)) {
-        const matchedCourse = await c.env.DB.prepare(
-          `SELECT c.*, t.name as teacher_name FROM courses c
-           LEFT JOIN teachers t ON c.teacher_id = t.id
-           WHERE c.id = ?`
-        ).bind(primaryMatchedId).first()
-        if (matchedCourse) {
-          course = matchedCourse
-          courseId = primaryMatchedId
-        }
-      }
 
       if (matchedIds.size === 0) matchedIds.add(Number(courseId))
     } else if ((course as any).teacher_id) {
@@ -928,6 +1010,7 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     const fallbackCredits = await loadPkCreditFallbacks(c.env.DB, [Number((course as any).id)])
     const effectiveCourse = {
       ...(course as any),
+      teacher_name: teacherName || (course as any).teacher_name,
       credit: Number((course as any).credit || 0) > 0
         ? (course as any).credit
         : fallbackCredits.get(Number((course as any).id)) ?? (course as any).credit
