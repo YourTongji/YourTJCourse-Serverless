@@ -7,7 +7,7 @@ import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview } from '../se
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
 import { getOrCreateClientId } from '../utils/clientId'
-import { loadCreditWallet } from '../utils/creditWallet'
+import { computeReviewEditProof, computeReviewEditToken, loadCreditWallet } from '../utils/creditWallet'
 import { formatSemesterLabel } from '../utils/format'
 import AISummaryCard from '../components/AISummaryCard'
 
@@ -22,7 +22,7 @@ interface Review {
   reviewer_avatar?: string
   like_count?: number
   liked?: boolean
-  wallet_user_hash?: string | null
+  can_edit?: boolean
 }
 
 interface CourseData {
@@ -519,7 +519,6 @@ export default function Course() {
   const [loadError, setLoadError] = useState('')
   const [displayCount, setDisplayCount] = useState(20) // 初始显示20条评论
   const clientId = useMemo(() => getOrCreateClientId(), [])
-  const walletHash = loadCreditWallet()?.userHash || ''
   const shouldBypassCourseCache = useMemo(
     () => new URLSearchParams(location.search || '').has('reviewRefresh'),
     [location.search]
@@ -543,6 +542,33 @@ export default function Course() {
       })
       .catch(() => setLoadError('加载失败，请重试'))
   }, [id, clientId, shouldBypassCourseCache])
+
+  useEffect(() => {
+    if (!id || !course?.reviews?.length) return
+    const wallet = loadCreditWallet()
+    if (!wallet?.userSecret) return
+
+    let cancelled = false
+    Promise.all(
+      course.reviews.slice(0, Math.min(displayCount, 80)).map(async (review) => {
+        const token = await computeReviewEditToken(wallet.userSecret, Number(review.id))
+        const proof = await computeReviewEditProof(token)
+        return `${review.id}:${proof}`
+      })
+    )
+      .then((proofs) => {
+        if (cancelled || proofs.length === 0) return
+        return fetchCourse(id, { clientId, cacheBust: true, editReviewProofs: proofs.join(',') })
+      })
+      .then((courseData) => {
+        if (!cancelled && courseData) setCourse(courseData)
+      })
+      .catch(() => void 0)
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, clientId, displayCount, course?.reviews?.map((review) => review.id).join(',')])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1061,7 +1087,7 @@ export default function Course() {
                     <span className="text-[10px] font-black opacity-80">{shareBusyId === review.id ? '生成中…' : '分享评论'}</span>
                   </button>
 
-                  {walletHash && (
+                  {review.can_edit && (
                     <button
                       type="button"
                       onClick={() => startEdit(review)}

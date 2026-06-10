@@ -11,12 +11,14 @@
     "db:seed:pk:local": "wrangler d1 execute jcourse-db --local --file=./sample_pk_data.sql",
     "db:merge:icu": "python3 ./scripts/merge_icu_d1.py",
     "db:verify:icu": "python3 ./scripts/verify_merged_d1.py",
+    "search:index:build": "node ./scripts/build-course-mini-search-index.mjs",
     "pk:sync:local": "node ./scripts/pk-sync-local.mjs",
     "pk:sync:login": "python ./scripts/pk-login-and-sync.py"
   },
   "dependencies": {
     "@libsql/client": "^0.17.0",
     "hono": "^4.0.0",
+    "minisearch": "^7.2.0",
     "sqids": "^0.3.0"
   },
   "devDependencies": {

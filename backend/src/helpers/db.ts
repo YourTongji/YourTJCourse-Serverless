@@ -1,4 +1,4 @@
-export const AUX_SCHEMA_VERSION = '20260609-pk-materialize-v1'
+export const AUX_SCHEMA_VERSION = '20260610-structured-search-v3'
 export const COURSE_LIST_CACHE_SECONDS = 60
 export const COURSE_LIST_CACHE_SWR_SECONDS = 300
 export const D1_SAFE_BATCH_SIZE = 40
@@ -25,6 +25,10 @@ export function uniqueText(values: Array<string | null | undefined>) {
 
 export function normalizeSearchText(value: string) {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+export function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`)
 }
 
 export function normalizeLooseSearchText(value: string) {
@@ -79,7 +83,6 @@ export function buildCourseSearchDocument(course: {
   department?: string | null
   teacher_name?: string | null
   teacher_tid?: string | null
-  search_keywords?: string | null
 }, aliases: string[], pkKeywords: string[] = []) {
   return normalizeSearchText([
     course.code,
@@ -87,7 +90,6 @@ export function buildCourseSearchDocument(course: {
     course.department,
     course.teacher_name,
     course.teacher_tid,
-    course.search_keywords,
     ...aliases,
     ...pkKeywords
   ].join(' '))
@@ -116,6 +118,7 @@ export async function ensureDbInitialized(db: D1Database) {
       await ensurePkSearchIndexes(db)
       await ensureCourseSearchIndexes(db)
       await ensureReviewLikesTable(db)
+      await ensureReviewReportsTable(db)
       await ensureReviewsWalletColumn(db)
       await ensureLegacyAutoDocsPurged(db)
       await ensureCourseAuxiliaryTables(db)
@@ -495,6 +498,44 @@ export async function ensureReviewLikesTable(db: D1Database) {
     .run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_likes_review_id ON review_likes(review_id)').run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_likes_client_id ON review_likes(client_id)').run()
+}
+
+const reviewReportsInitPromises = new WeakMap<D1Database, Promise<void>>()
+
+export async function ensureReviewReportsTable(db: D1Database) {
+  let initPromise = reviewReportsInitPromises.get(db)
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db
+        .prepare(
+          `CREATE TABLE IF NOT EXISTS review_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_id INTEGER NOT NULL,
+            client_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            status TEXT DEFAULT 'open',
+            admin_note TEXT,
+            created_at INTEGER DEFAULT (strftime('%s', 'now')),
+            updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+            resolved_at INTEGER,
+            UNIQUE(review_id, client_id),
+            FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
+          )`
+        )
+        .run()
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_review_id ON review_reports(review_id)').run()
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_status ON review_reports(status)').run()
+      // Migration: add columns if upgrading from v1 table
+      try { await db.prepare('ALTER TABLE review_reports ADD COLUMN admin_note TEXT').run() } catch {}
+      try { await db.prepare('ALTER TABLE review_reports ADD COLUMN resolved_at INTEGER').run() } catch {}
+    })().catch((err) => {
+      reviewReportsInitPromises.delete(db)
+      throw err
+    })
+    reviewReportsInitPromises.set(db, initPromise)
+  }
+
+  await initPromise
 }
 
 export async function ensureReviewsWalletColumn(db: D1Database) {
