@@ -83,6 +83,7 @@ jobs:
       AI_SUMMARY_BASE_URL: ${{ secrets.AI_SUMMARY_BASE_URL }}
       FEISHU_REPORT_WEBHOOK_URL: ${{ secrets.FEISHU_REPORT_WEBHOOK_URL }}
       FEISHU_REPORT_WEBHOOK_SECRET: ${{ secrets.FEISHU_REPORT_WEBHOOK_SECRET }}
+      ADMIN_SECRET: ${{ secrets.JCOURSE_ADMIN_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -169,6 +170,13 @@ jobs:
             echo "feishu webhook secret: set"
           else
             echo "feishu webhook secret: missing"
+          fi
+
+          if [ -n "${ADMIN_SECRET:-}" ]; then
+            echo "$ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET --env ""
+            echo "admin secret: set"
+          else
+            echo "admin secret: missing (JCOURSE_ADMIN_SECRET)"
           fi
 
       - name: Deploy Worker
