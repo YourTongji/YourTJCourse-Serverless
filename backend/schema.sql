@@ -94,8 +94,10 @@ CREATE TABLE review_reports (
     client_id TEXT NOT NULL,
     reason TEXT NOT NULL,
     status TEXT DEFAULT 'open',
+    admin_note TEXT,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+    resolved_at INTEGER,
     UNIQUE(review_id, client_id),
     FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
 );

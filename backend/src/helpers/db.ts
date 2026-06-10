@@ -509,8 +509,10 @@ export async function ensureReviewReportsTable(db: D1Database) {
         client_id TEXT NOT NULL,
         reason TEXT NOT NULL,
         status TEXT DEFAULT 'open',
+        admin_note TEXT,
         created_at INTEGER DEFAULT (strftime('%s', 'now')),
         updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+        resolved_at INTEGER,
         UNIQUE(review_id, client_id),
         FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
       )`
@@ -518,6 +520,9 @@ export async function ensureReviewReportsTable(db: D1Database) {
     .run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_review_id ON review_reports(review_id)').run()
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_status ON review_reports(status)').run()
+  // Migration: add columns if upgrading from v1 table
+  try { await db.prepare('ALTER TABLE review_reports ADD COLUMN admin_note TEXT').run() } catch {}
+  try { await db.prepare('ALTER TABLE review_reports ADD COLUMN resolved_at INTEGER').run() } catch {}
 }
 
 export async function ensureReviewsWalletColumn(db: D1Database) {
