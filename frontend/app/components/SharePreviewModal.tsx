@@ -1,10 +1,14 @@
 import { useState, useRef, useCallback } from "react";
-import { createPortal } from "react-dom";
 import { toPng, toJpeg } from "html-to-image";
 import BoringAvatar from "boring-avatars";
 import { renderToStaticMarkup } from "react-dom/server";
 import { formatSemesterLabel } from "~/lib/format";
 import { renderMarkdownHtml, markdownContentClassName } from "~/components/CollapsibleMarkdown";
+import {
+  Dialog,
+  DialogContent,
+} from "~/components/ui/dialog";
+import { Button } from "~/components/ui/button";
 
 interface Review {
   id: number;
@@ -256,14 +260,11 @@ export default function SharePreviewModal({
     );
   };
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 px-4 py-8 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="yourtj-share-printer max-h-full w-full max-w-[960px] overflow-auto rounded-[32px] bg-white/95 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.32)]"
-        onClick={(e) => e.stopPropagation()}
+  return (
+    <Dialog open={true} onOpenChange={() => onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-full w-full max-w-[960px] overflow-auto rounded-[32px] bg-white/95 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.32)] sm:max-w-[960px] [&>[data-slot=dialog-overlay]]:bg-slate-950/55 [&>[data-slot=dialog-overlay]]:backdrop-blur-sm"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 text-center sm:text-left">
@@ -277,21 +278,18 @@ export default function SharePreviewModal({
             </div>
           </div>
           <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
+            <Button
               onClick={handleSave}
               disabled={busySave}
-              className="inline-flex items-center justify-center rounded-2xl bg-slate-800 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-slate-700 disabled:opacity-60"
             >
               {busySave ? "导出中..." : "保存图片"}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
               onClick={onClose}
-              className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-50"
             >
               关闭
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -307,8 +305,7 @@ export default function SharePreviewModal({
         <div className="pointer-events-none fixed -left-[10000px] top-0 opacity-0">
           {renderPaper(true)}
         </div>
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }

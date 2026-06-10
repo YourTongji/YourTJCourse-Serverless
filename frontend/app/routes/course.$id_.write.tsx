@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MetaFunction } from "react-router";
 export const meta: MetaFunction = () => [
   { title: "写评价 — YOURTJ选课社区" },
@@ -19,8 +19,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Turnstile } from "react-turnstile";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 
-import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Separator } from "~/components/ui/separator";
@@ -78,23 +78,6 @@ const DEFAULT_HINTS: TemplateHints = {
   "## 授课质量与给分：": "描述老师的教学质量和给分情况",
   "## 上课学期：": "填写你上这门课的学期，如 2024春",
 };
-
-/* ─── Semester Options ─── */
-
-const SEMESTERS = [
-  "2025-2026-1",
-  "2025-2026-2",
-  "2024-2025-1",
-  "2024-2025-2",
-  "2023-2024-1",
-  "2023-2024-2",
-  "2022-2023-1",
-  "2022-2023-2",
-  "2021-2022-1",
-  "2021-2022-2",
-  "2020-2021-1",
-  "2020-2021-2",
-];
 
 /* ─── Form Schema ─── */
 
@@ -201,10 +184,6 @@ export default function WriteReview() {
   const [turnstileToken, setTurnstileToken] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
 
-  /* ── Semester picker ── */
-  const [semesterOpen, setSemesterOpen] = useState(false);
-  const semesterRef = useRef<HTMLDivElement>(null);
-
   /* ── Submission state ── */
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -251,26 +230,6 @@ export default function WriteReview() {
     result.push({ value: "其他", label: "其他" });
     return result;
   }, [course?.semesters, semesterValue]);
-
-  const selectedSemesterLabel = useMemo(() => {
-    const current = String(semesterValue || "").trim() || "其他";
-    if (current === "其他") return "其他";
-    const found = semesterOptions.find((item) => item.value === current);
-    return found?.label || formatSemesterLabel(current);
-  }, [semesterValue, semesterOptions]);
-
-  /* ── Semester click-away ── */
-  useEffect(() => {
-    const handleClick = (event: MouseEvent) => {
-      if (!semesterOpen) return;
-      const el = semesterRef.current;
-      if (!el) return;
-      if (event.target instanceof Node && el.contains(event.target)) return;
-      setSemesterOpen(false);
-    };
-    window.addEventListener("mousedown", handleClick, true);
-    return () => window.removeEventListener("mousedown", handleClick, true);
-  }, [semesterOpen]);
 
   /* ── Draft auto-save ── */
   useEffect(() => {
@@ -458,12 +417,6 @@ export default function WriteReview() {
     }
   };
 
-  /* ── Reviewer visible flag ── */
-  const showReviewer =
-    Boolean(reviewer.name) ||
-    Boolean(reviewer.avatar) ||
-    Boolean(reviewer.qqNumber);
-
   /* ── Wallet ── */
   const wallet = loadCreditWallet();
   const walletBound = !!wallet?.userHash;
@@ -520,15 +473,16 @@ export default function WriteReview() {
               : "未绑定积分钱包：绑定后 50 字以上点评可立即获得 +10，收到 1 个点赞 +3（每日结算）。"}
           </div>
           {!walletBound && (
-            <button
+            <Button
               type="button"
+              size="sm"
               onClick={() =>
                 window.dispatchEvent(new Event("open-credit-wallet"))
               }
-              className="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 text-white text-xs font-extrabold hover:bg-slate-700"
+              className="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 text-white text-xs font-extrabold hover:bg-slate-700 h-auto"
             >
               绑定钱包
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -599,92 +553,29 @@ export default function WriteReview() {
           />
 
           {/* Semester */}
-          <div ref={semesterRef} data-tour="tour-semester-section">
+          <div data-tour="tour-semester-section">
             <label className="block mb-3 text-sm font-semibold text-slate-600">
               学期
             </label>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setSemesterOpen((prev) => !prev)}
-                className="w-full flex items-center justify-between gap-3 rounded-2xl border border-white bg-white/60 px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white/75"
-                aria-expanded={semesterOpen}
-                aria-label="选择学期"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="inline-flex shrink-0 items-center rounded-full bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700 ring-1 ring-indigo-100">
-                    {selectedSemesterLabel || "请选择"}
-                  </span>
-                  <span className="truncate text-slate-500 text-xs md:text-sm">
-                    {semesterValue === "其他"
-                      ? "适用于未在列表中的学期"
-                      : semesterValue
-                        ? "将作为评价的学期标签展示"
-                        : "请选择学期"}
-                  </span>
-                </div>
-                <svg
-                  className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${semesterOpen ? "rotate-180" : ""}`}
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.2l3.71-3.97a.75.75 0 111.08 1.04l-4.25 4.55a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-
-              {semesterOpen && (
-                <div className="absolute left-0 right-0 mt-2 overflow-hidden rounded-2xl border border-slate-100 bg-white/90 shadow-[0_18px_48px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl z-30">
-                  <div className="max-h-64 overflow-auto py-2">
-                    {semesterOptions.map((opt) => {
-                      const active = opt.value === semesterValue;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => {
-                            form.setValue("semester", opt.value);
-                            setSemesterOpen(false);
-                          }}
-                          className={`w-full px-4 py-2.5 text-left text-sm transition flex items-center justify-between gap-3 ${
-                            active
-                              ? "bg-indigo-50 text-indigo-700 font-bold"
-                              : "text-slate-700 hover:bg-slate-50"
-                          }`}
-                        >
-                          <span className="flex items-center gap-2 min-w-0">
-                            <span className="truncate">{opt.label}</span>
-                            {opt.value !== "其他" && (
-                              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
-                                系统
-                              </span>
-                            )}
-                          </span>
-                          {active && (
-                            <svg
-                              className="h-4 w-4 shrink-0"
-                              viewBox="0 0 20 20"
-                              fill="currentColor"
-                              aria-hidden="true"
-                            >
-                              <path
-                                fillRule="evenodd"
-                                d="M16.704 5.29a1 1 0 010 1.42l-7.004 7.004a1 1 0 01-1.42 0L3.296 8.728a1 1 0 111.42-1.42l3.274 3.273 6.294-6.293a1 1 0 011.42 0z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+            <Select value={semesterValue || ""} onValueChange={(v) => { if (v) form.setValue("semester", v); }}>
+              <SelectTrigger className="w-full rounded-2xl border border-white bg-white/60 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm backdrop-blur h-auto data-[placeholder]:text-muted-foreground">
+                <SelectValue placeholder="选择学期" />
+              </SelectTrigger>
+              <SelectContent className="rounded-2xl border-slate-100 bg-white/95 shadow-[0_18px_48px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl z-30">
+                {semesterOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="truncate">{opt.label}</span>
+                      {opt.value !== "其他" && (
+                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                          系统
+                        </span>
+                      )}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <FormMessage>{form.formState.errors.semester?.message}</FormMessage>
           </div>
 
@@ -697,10 +588,12 @@ export default function WriteReview() {
                   (支持 Markdown 格式)
                 </span>
               </label>
-              <button
-                onClick={() => setShowTemplateSelector(true)}
-                className="hidden md:flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-cyan-600 bg-cyan-50 hover:bg-cyan-100 rounded-lg transition-colors"
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowTemplateSelector(true)}
+                className="hidden md:flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-cyan-600 bg-cyan-50 hover:bg-cyan-100 rounded-lg h-auto"
               >
                 <svg
                   className="w-4 h-4"
@@ -716,7 +609,7 @@ export default function WriteReview() {
                   />
                 </svg>
                 选择模板
-              </button>
+              </Button>
             </div>
 
             {/* Desktop markdown hints */}

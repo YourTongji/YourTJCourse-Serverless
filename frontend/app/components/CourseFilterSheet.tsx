@@ -79,13 +79,15 @@ export default function CourseFilterSheet({
         <div className="mb-2 flex items-center justify-between">
           <h4 className="text-sm font-medium text-foreground">开课学院</h4>
           {draft.departments.length > 0 && (
-            <button
+            <Button
               type="button"
+              variant="link"
+              size="sm"
               onClick={() => setField("departments", [])}
-              className="text-xs font-medium text-cyan-600 hover:text-cyan-700"
+              className="text-xs font-medium text-cyan-600 hover:text-cyan-700 h-auto p-0"
             >
               清空
-            </button>
+            </Button>
           )}
         </div>
 
@@ -173,10 +175,12 @@ export default function CourseFilterSheet({
 
       {/* Advanced filters */}
       <div>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => setShowAdvanced((v) => !v)}
-          className="flex w-full items-center justify-between text-sm font-medium text-foreground"
+          className="flex w-full items-center justify-between text-sm font-medium text-foreground h-auto p-0"
         >
           <span>高级筛选</span>
           {showAdvanced ? (
@@ -184,7 +188,7 @@ export default function CourseFilterSheet({
           ) : (
             <ChevronDown className="size-4 text-muted-foreground" />
           )}
-        </button>
+        </Button>
 
         {showAdvanced && (
           <div className="mt-3 space-y-3">

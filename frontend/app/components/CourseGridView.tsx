@@ -12,6 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 
+import { Skeleton } from "~/components/ui/skeleton";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
@@ -40,19 +41,19 @@ interface CourseGridViewProps {
 
 function SkeletonCard() {
   return (
-    <Card className="h-[218px] animate-pulse border-slate-200 bg-white">
+    <Card className="h-[218px] border-slate-200 bg-white">
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <div className="h-5 w-24 rounded-full bg-slate-100" />
-          <div className="h-5 w-16 rounded-full bg-slate-100" />
+          <Skeleton className="h-5 w-24 rounded-full" />
+          <Skeleton className="h-5 w-16 rounded-full" />
         </div>
-        <div className="mt-3 h-5 w-4/5 rounded bg-slate-100" />
+        <Skeleton className="mt-3 h-5 w-4/5" />
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
-          <div className="h-4 w-1/2 rounded bg-slate-100" />
-          <div className="h-4 w-2/3 rounded bg-slate-100" />
-          <div className="mt-5 h-8 w-full rounded bg-slate-100" />
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="mt-5 h-8 w-full" />
         </div>
       </CardContent>
     </Card>

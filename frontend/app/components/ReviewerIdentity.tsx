@@ -1,6 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import BoringAvatar from "boring-avatars";
 
+import { Switch } from "~/components/ui/switch";
+import { Input } from "~/components/ui/input";
+import { Button } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
+
 export interface ReviewerIdentityValue {
   name: string;
   avatar: string;
@@ -48,20 +53,23 @@ export default function ReviewerIdentity({
     return buildBeamAvatarDataUri(value.name.trim() || "匿名用户", 96);
   };
 
-  const handleToggle = () => {
-    if (showReviewer) {
-      onChange({ name: "", avatar: "", avatarType: "random", qqNumber: "" });
-    } else {
+  const handleToggle = (pressed: boolean) => {
+    if (pressed) {
       onChange({
         name: value.name || "",
         avatar: buildBeamAvatarDataUri("匿名用户"),
         avatarType: "random",
         qqNumber: "",
       });
+    } else {
+      onChange({ name: "", avatar: "", avatarType: "random", qqNumber: "" });
     }
   };
 
-  const handleNameChange = (name: string) => {
+  const handleNameChange = (
+    e: React.ChangeEvent<HTMLInputElement> | string,
+  ) => {
+    const name = typeof e === "string" ? e : e.target.value;
     const newAvatar =
       avatarType === "random"
         ? buildBeamAvatarDataUri(name.trim() || "匿名用户")
@@ -84,16 +92,18 @@ export default function ReviewerIdentity({
     });
   };
 
-  const handleQqChange = (qq: string) => {
-    const cleaned = qq.replace(/\D/g, "");
-    const newAvatar = cleaned
-      ? `https://q1.qlogo.cn/g?b=qq&nk=${cleaned}&s=640`
+  const handleQqChange = (
+    e: React.ChangeEvent<HTMLInputElement> | string,
+  ) => {
+    const qq = typeof e === "string" ? e.replace(/\D/g, "") : e.target.value.replace(/\D/g, "");
+    const newAvatar = qq
+      ? `https://q1.qlogo.cn/g?b=qq&nk=${qq}&s=640`
       : "";
     onChange({
       ...value,
       avatar: newAvatar,
       avatarType: "qq",
-      qqNumber: cleaned,
+      qqNumber: qq,
     });
   };
 
@@ -103,15 +113,10 @@ export default function ReviewerIdentity({
         <label className="text-sm font-semibold text-slate-600">
           显示点评人信息
         </label>
-        <button
-          type="button"
-          onClick={handleToggle}
-          className={`relative w-12 h-6 rounded-full transition-colors ${showReviewer ? "bg-cyan-500" : "bg-slate-300"}`}
-        >
-          <span
-            className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${showReviewer ? "left-7" : "left-1"}`}
-          />
-        </button>
+        <Switch
+          checked={showReviewer}
+          onCheckedChange={handleToggle}
+        />
       </div>
 
       {showReviewer && (
@@ -121,13 +126,13 @@ export default function ReviewerIdentity({
             <label className="block mb-2 text-xs font-medium text-slate-500">
               昵称
             </label>
-            <input
+            <Input
               type="text"
               value={value.name}
-              onChange={(e) => handleNameChange(e.target.value)}
+              onChange={handleNameChange}
               placeholder="输入你想显示的昵称"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-cyan-400"
               maxLength={20}
+              className="rounded-lg border-slate-200 text-sm focus:border-cyan-400"
             />
           </div>
 
@@ -137,38 +142,44 @@ export default function ReviewerIdentity({
               头像
             </label>
             <div className="flex gap-3 mb-3">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => handleAvatarTypeChange("random")}
-                className={`flex-1 py-2 px-3 rounded-lg text-sm border transition-all ${
+                className={cn(
+                  "flex-1 py-2 px-3 rounded-lg text-sm border h-auto",
                   avatarType === "random"
-                    ? "border-cyan-400 bg-cyan-50 text-cyan-600"
-                    : "border-slate-200 text-slate-500"
-                }`}
+                    ? "border-cyan-400 bg-cyan-50 text-cyan-600 hover:bg-cyan-50"
+                    : "border-slate-200 text-slate-500",
+                )}
               >
                 随机头像
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => handleAvatarTypeChange("qq")}
-                className={`flex-1 py-2 px-3 rounded-lg text-sm border transition-all ${
+                className={cn(
+                  "flex-1 py-2 px-3 rounded-lg text-sm border h-auto",
                   avatarType === "qq"
-                    ? "border-cyan-400 bg-cyan-50 text-cyan-600"
-                    : "border-slate-200 text-slate-500"
-                }`}
+                    ? "border-cyan-400 bg-cyan-50 text-cyan-600 hover:bg-cyan-50"
+                    : "border-slate-200 text-slate-500",
+                )}
               >
                 QQ头像
-              </button>
+              </Button>
             </div>
 
             {avatarType === "qq" && (
               <div>
-                <input
+                <Input
                   type="text"
                   value={qqNumber}
-                  onChange={(e) => handleQqChange(e.target.value)}
+                  onChange={handleQqChange}
                   placeholder="输入QQ号"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-cyan-400"
+                  className="rounded-lg border-slate-200 text-sm focus:border-cyan-400"
                 />
                 <p className="mt-1 text-xs text-slate-400">
                   我们只存储头像链接，不会公开你的 QQ 号

@@ -39,7 +39,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250501.0",
+    "@cloudflare/workers-types": "^4.20260610.1",
     "@playwright/test": "^1.60.0",
     "@react-router/cloudflare": "^7.6.0",
     "@react-router/dev": "^7.6.0",

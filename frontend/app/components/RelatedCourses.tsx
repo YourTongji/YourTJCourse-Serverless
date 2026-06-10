@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useRelatedCourses } from "~/lib/queries";
 import { formatRating } from "~/lib/format";
 import { Card, CardContent } from "~/components/ui/card";
+import { Skeleton } from "~/components/ui/skeleton";
 import { Button } from "~/components/ui/button";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -63,9 +64,9 @@ export default function RelatedCourses({ courseId }: RelatedCoursesProps) {
     return (
       <Card>
         <CardContent className="p-4 space-y-2">
-          <div className="h-4 w-20 rounded bg-slate-200 animate-pulse" />
-          <div className="h-4 w-full rounded bg-slate-100 animate-pulse" />
-          <div className="h-4 w-3/4 rounded bg-slate-100 animate-pulse" />
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
         </CardContent>
       </Card>
     );
