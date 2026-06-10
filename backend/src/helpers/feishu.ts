@@ -256,7 +256,7 @@ export async function notifyReportToFeishu(
       // Must parse the response body to detect silent failures.
       const contentType = res.headers.get('content-type') || ''
       if (contentType.includes('application/json')) {
-        const result = await res.json().catch(() => ({} as any))
+        const result: any = await res.json().catch(() => ({}))
         if (result && result.code !== undefined && result.code !== 0) {
           console.warn(`[feishu] webhook business error: code=${result.code} msg=${result.msg || '-'}`)
         }
