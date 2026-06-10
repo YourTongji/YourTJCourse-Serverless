@@ -48,3 +48,12 @@ export async function computeReviewEditToken(userSecret: string, reviewId: numbe
     .join('')
 }
 
+export async function computeReviewEditProof(editToken: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`yourtj:can-edit:${editToken}`)
+  )
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+}

@@ -91,7 +91,7 @@ export const DEFAULT_MAINTENANCE_CONFIG: MaintenanceConfig = {
     },
     {
       platform: 'QQ',
-      url: 'https://qm.qq.com/q/6imb9Px7ws',
+      url: 'https://qm.qq.com/q/8MNG0NZyj6',
       label: 'QQ 群',
     },
   ],

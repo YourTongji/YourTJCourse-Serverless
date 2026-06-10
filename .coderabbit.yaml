@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+tone_instructions: 'Expert code reviewer for a full-stack course site: React 18 + Vue 3 + Hono/Cloudflare Workers. Focus on TypeScript correctness, mobile responsiveness, Worker performance, XSS prevention, and code consistency. Concise, actionable feedback in English.'
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: false
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["main", "dev"]
+  path_instructions:
+    - path: "frontend/**/*.{ts,tsx}"
+      instructions: "Review React + TypeScript code. Check for: proper React hooks usage (deps arrays, no stale closures), Tailwind CSS conventions (mobile-first responsive), component reusability, Router v6 patterns (react-router-dom), and unnecessary re-renders."
+    - path: "scheduler/**/*.vue"
+      instructions: "Review Vue 3 + TypeScript + Ant Design Vue code. Check for: Options API consistency with existing codebase, Vuex store mutation patterns, proper TypeScript typing, and responsive mobile timetable layout."
+    - path: "backend/**/*.ts"
+      instructions: "Review Hono + Cloudflare Workers backend code. Check for: D1 database query performance (batch sizes), Worker resource limits, HTTP status codes and error handling, Cache-Control headers, and request validation."
+    - path: "**/*.yml"
+      instructions: "Review GitHub Actions workflow files. Check for: proper secret handling, Wrangler CLI version pinning, and deployment correctness."
+chat:
+  auto_reply: true

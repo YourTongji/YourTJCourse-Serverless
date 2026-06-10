@@ -7,7 +7,7 @@ import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview } from '../se
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
 import { getOrCreateClientId } from '../utils/clientId'
-import { loadCreditWallet } from '../utils/creditWallet'
+import { computeReviewEditProof, computeReviewEditToken, loadCreditWallet } from '../utils/creditWallet'
 import { formatSemesterLabel } from '../utils/format'
 import AISummaryCard from '../components/AISummaryCard'
 
@@ -22,7 +22,7 @@ interface Review {
   reviewer_avatar?: string
   like_count?: number
   liked?: boolean
-  wallet_user_hash?: string | null
+  can_edit?: boolean
 }
 
 interface CourseData {
@@ -519,7 +519,6 @@ export default function Course() {
   const [loadError, setLoadError] = useState('')
   const [displayCount, setDisplayCount] = useState(20) // 初始显示20条评论
   const clientId = useMemo(() => getOrCreateClientId(), [])
-  const walletHash = loadCreditWallet()?.userHash || ''
   const shouldBypassCourseCache = useMemo(
     () => new URLSearchParams(location.search || '').has('reviewRefresh'),
     [location.search]
@@ -543,6 +542,33 @@ export default function Course() {
       })
       .catch(() => setLoadError('加载失败，请重试'))
   }, [id, clientId, shouldBypassCourseCache])
+
+  useEffect(() => {
+    if (!id || !course?.reviews?.length) return
+    const wallet = loadCreditWallet()
+    if (!wallet?.userSecret) return
+
+    let cancelled = false
+    Promise.all(
+      course.reviews.slice(0, Math.min(displayCount, 80)).map(async (review) => {
+        const token = await computeReviewEditToken(wallet.userSecret, Number(review.id))
+        const proof = await computeReviewEditProof(token)
+        return `${review.id}:${proof}`
+      })
+    )
+      .then((proofs) => {
+        if (cancelled || proofs.length === 0) return
+        return fetchCourse(id, { clientId, cacheBust: true, editReviewProofs: proofs.join(',') })
+      })
+      .then((courseData) => {
+        if (!cancelled && courseData) setCourse(courseData)
+      })
+      .catch(() => void 0)
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, clientId, displayCount, course?.reviews?.map((review) => review.id).join(',')])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -798,32 +824,32 @@ export default function Course() {
 
   if (!course) {
     return (
-      <div className="min-h-[100vh] grid grid-cols-1 lg:grid-cols-12 gap-6 animate-pulse">
+      <div className="min-h-[100vh] grid grid-cols-1 lg:grid-cols-12 gap-6 animate-pulse" style={{ animationDuration: '2s' }}>
         <div className="lg:col-span-4 space-y-4">
           <GlassCard hover={false}>
             <div className="h-6 w-28 rounded-full bg-slate-200 mb-4" />
-            <div className="h-8 w-3/4 rounded bg-slate-200 mb-3" />
-            <div className="h-4 w-1/2 rounded bg-slate-200 mb-6" />
+            <div className="h-8 w-3/4 rounded-2xl bg-slate-200 mb-3" />
+            <div className="h-4 w-1/2 rounded-xl bg-slate-200 mb-6" />
             <div className="space-y-3">
-              <div className="h-14 rounded-xl bg-slate-200/80" />
-              <div className="h-14 rounded-xl bg-slate-200/80" />
-              <div className="h-14 rounded-xl bg-slate-200/80" />
+              <div className="h-14 rounded-2xl bg-slate-200/80" />
+              <div className="h-14 rounded-2xl bg-slate-200/80" />
+              <div className="h-14 rounded-2xl bg-slate-200/80" />
             </div>
           </GlassCard>
         </div>
-        <div className="lg:col-span-8 space-y-4">
-          <div className="h-6 w-44 rounded bg-slate-200" />
-          <GlassCard hover={false} className="!p-5">
-            <div className="h-5 w-1/3 rounded bg-slate-200 mb-3" />
-            <div className="h-4 w-full rounded bg-slate-200 mb-2" />
-            <div className="h-4 w-11/12 rounded bg-slate-200 mb-2" />
-            <div className="h-4 w-10/12 rounded bg-slate-200" />
+        <div className="lg:col-span-8 space-y-5">
+          <div className="h-6 w-44 rounded-xl bg-slate-200" />
+          <GlassCard hover={false} className="!p-6">
+            <div className="h-5 w-1/3 rounded-2xl bg-slate-200 mb-3" />
+            <div className="h-4 w-full rounded-xl bg-slate-200 mb-2" />
+            <div className="h-4 w-11/12 rounded-xl bg-slate-200 mb-2" />
+            <div className="h-4 w-10/12 rounded-xl bg-slate-200" />
           </GlassCard>
-          <GlassCard hover={false} className="!p-5">
-            <div className="h-5 w-1/3 rounded bg-slate-200 mb-3" />
-            <div className="h-4 w-full rounded bg-slate-200 mb-2" />
-            <div className="h-4 w-11/12 rounded bg-slate-200 mb-2" />
-            <div className="h-4 w-10/12 rounded bg-slate-200" />
+          <GlassCard hover={false} className="!p-6">
+            <div className="h-5 w-1/3 rounded-2xl bg-slate-200 mb-3" />
+            <div className="h-4 w-full rounded-xl bg-slate-200 mb-2" />
+            <div className="h-4 w-11/12 rounded-xl bg-slate-200 mb-2" />
+            <div className="h-4 w-10/12 rounded-xl bg-slate-200" />
           </GlassCard>
         </div>
       </div>
@@ -836,15 +862,15 @@ export default function Course() {
       {/* Left: Course Info */}
       <div className="lg:col-span-4 space-y-4">
         <GlassCard className="bg-gradient-to-b from-cyan-50/80 to-white" hover={false}>
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-white rounded-full text-xs font-bold text-cyan-600 shadow-sm mb-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-white rounded-full text-xs font-bold text-cyan-600 shadow-sm ring-1 ring-cyan-200/60 mb-4">
             <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
             {course.code}
           </div>
 
-          <h2 className="text-2xl font-bold text-slate-800 mb-1">{course.name}</h2>
-          <p className="text-slate-500 font-medium mb-6">{course.department}</p>
+          <h2 className="text-2xl font-bold text-slate-800 mb-1 animate-fade-in" style={{ animationDelay: '0.05s' }}>{course.name}</h2>
+          <p className="text-slate-500 font-medium mb-4">{course.department}</p>
           {Array.isArray(course.semesters) && course.semesters.length > 0 && (
-            <div className="mb-6 flex flex-wrap gap-2">
+            <div className="mb-4 flex flex-wrap gap-2">
               {course.semesters.map((s) => (
                 <span
                   key={s}
@@ -857,9 +883,9 @@ export default function Course() {
           )}
 
           <div className="space-y-3">
-            <div className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-white">
-              <div className="w-10 h-10 rounded-xl bg-cyan-100 flex items-center justify-center text-cyan-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md hover:border-cyan-100">
+              <div className="w-11 h-11 rounded-xl bg-cyan-100 flex items-center justify-center text-cyan-600">
+                <svg aria-hidden="true" className="w-5.5 h-5.5" style={{ width: '1.375rem', height: '1.375rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
               </div>
@@ -869,9 +895,9 @@ export default function Course() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-white">
-              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-500">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md hover:border-amber-100">
+              <div className="w-11 h-11 rounded-xl bg-amber-100 flex items-center justify-center text-amber-500">
+                <svg aria-hidden="true" className="w-5.5 h-5.5" style={{ width: '1.375rem', height: '1.375rem' }} fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                 </svg>
               </div>
@@ -881,9 +907,9 @@ export default function Course() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-white">
-              <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-3 p-3 bg-white/60 rounded-xl border border-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md hover:border-purple-100">
+              <div className="w-11 h-11 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600">
+                <svg aria-hidden="true" className="w-5.5 h-5.5" style={{ width: '1.375rem', height: '1.375rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
@@ -894,13 +920,13 @@ export default function Course() {
             </div>
           </div>
 
-          <div className="mt-6 pt-6 border-t border-cyan-100/50">
+          <div className="mt-5 pt-5 border-t border-cyan-100/50">
             <Link
               to={`/write-review/${course.id}`}
               data-tour="tour-write-review-button"
-              className="w-full py-3 bg-slate-800 text-white rounded-2xl font-bold shadow-lg hover:bg-slate-700 hover:shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
+              className="w-full py-3 bg-slate-800 text-white rounded-2xl font-bold shadow-lg hover:bg-slate-700 hover:shadow-xl hover:shadow-cyan-500/20 transition-all active:scale-[0.97] flex items-center justify-center gap-2"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
               撰写评价
@@ -915,7 +941,7 @@ export default function Course() {
             <button
               type="button"
               onClick={() => setIsRelatedPanelCollapsed(false)}
-              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white/80 px-3 py-2.5 text-left transition hover:border-cyan-200 hover:bg-cyan-50/60"
+              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white/80 px-3 py-2.5 text-left transition-all duration-300 hover:border-cyan-200 hover:bg-cyan-50/60 hover:shadow-md hover:scale-[1.01]"
             >
               <div className="flex min-w-0 items-center gap-2">
                 <div className="h-2 w-2 shrink-0 rounded-full bg-cyan-500"></div>
@@ -926,7 +952,7 @@ export default function Course() {
                   </span>
                 </p>
               </div>
-              <svg className="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
@@ -969,8 +995,8 @@ export default function Course() {
       </div>
 
       {/* Right: Reviews */}
-      <div className="lg:col-span-8 space-y-4">
-        <div className="flex items-center justify-between mb-2">
+      <div className="lg:col-span-8 space-y-5">
+        <div className="flex items-center justify-between mb-1">
           <h3 className="text-xl font-bold text-slate-800">
             课程评价 <span className="text-slate-400 text-sm font-normal">({course.review_count})</span>
           </h3>
@@ -982,11 +1008,12 @@ export default function Course() {
               <GlassCard
                 key={review.id}
                 hover={false}
-                className="!p-5 bg-white/98 md:bg-white/70 border-white/90 md:border-white/60 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.24)] md:shadow-[0_4px_20px_-4px_rgba(6,182,212,0.15)]"
+                className="!p-5 bg-white/98 md:bg-white/70 border-white/90 md:border-white/60 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.24)] md:shadow-[0_4px_20px_-4px_rgba(6,182,212,0.15)] animate-scale-in"
+                style={{ animationDelay: `${Math.min(index * 0.06, 0.6)}s` }}
               >
                 <div data-tour={index === 0 ? 'tour-latest-review' : undefined}>
                 <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5">
                     {getReviewAvatarUrl(review, 36) ? (
                       <img
                         src={getReviewAvatarUrl(review, 36)}
@@ -1005,7 +1032,7 @@ export default function Course() {
                   </div>
                   <div className="flex gap-0.5">
                     {[1, 2, 3, 4, 5].map((s) => (
-                      <svg key={s} className={`w-4 h-4 ${s <= review.rating ? 'text-amber-400 fill-amber-400' : 'text-slate-200'}`} viewBox="0 0 24 24">
+                      <svg key={s} className={`w-5 h-5 ${s <= review.rating ? 'text-amber-400 fill-amber-400' : 'text-slate-200'}`} viewBox="0 0 24 24">
                         <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                       </svg>
                     ))}
@@ -1016,19 +1043,20 @@ export default function Course() {
                   <CollapsibleMarkdown content={review.comment} maxLength={300} />
                 </div>
 
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
                   <button
                     type="button"
                     onClick={() => toggleLike(review.id)}
                     data-tour={index === 0 ? 'tour-like-button' : undefined}
-                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-extrabold transition-colors ${
+                    className={`inline-flex min-w-fit shrink-0 items-center whitespace-nowrap gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-extrabold leading-none transition-all duration-300 sm:gap-2 sm:px-3 ${
                       review.liked
-                        ? 'bg-orange-50 border-orange-200 text-orange-700'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        ? 'bg-orange-50 border-orange-200 text-orange-700 hover:-translate-y-0.5'
+                        : 'bg-white border-slate-200/70 text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5'
                     }`}
                     title={review.liked ? '撤销点赞' : '点赞'}
                   >
                     <svg
+                      aria-hidden="true"
                       className={`w-4 h-4 ${review.liked ? 'text-orange-600' : 'text-slate-400'}`}
                       viewBox="0 0 24 24"
                       fill={review.liked ? 'currentColor' : 'none'}
@@ -1042,7 +1070,7 @@ export default function Course() {
                         d="M7 11l5-7a2 2 0 013 2l-1 5h5a2 2 0 012 2l-2 7a2 2 0 01-2 2H7"
                       />
                     </svg>
-                    <span>{Number(review.like_count || 0)}</span>
+                    <span className="tabular-nums">{Number(review.like_count || 0)}</span>
                     <span className="text-[10px] font-black opacity-80">点赞</span>
                   </button>
 
@@ -1050,23 +1078,23 @@ export default function Course() {
                     type="button"
                     onClick={() => void openSharePreview(review)}
                     data-tour={index === 0 ? 'tour-share-button' : undefined}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white border-slate-200 text-xs font-extrabold text-slate-600 hover:bg-slate-50"
+                    className="inline-flex min-w-fit shrink-0 items-center whitespace-nowrap gap-1.5 px-2.5 py-1.5 rounded-full border bg-white border-slate-200/70 text-xs font-extrabold leading-none text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5 transition-all duration-300 sm:gap-2 sm:px-3"
                     title="评论长图"
                   >
-                    <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg aria-hidden="true" className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C9.046 13.12 9.47 13 9.91 13c.44 0 .864.12 1.226.342l3.218 1.974A3 3 0 1016 14a2.99 2.99 0 00-1.646.494l-3.218-1.974A3.001 3.001 0 0010 7a3 3 0 101.136 2.774l3.218 1.974A3 3 0 1016 10a2.99 2.99 0 00-1.646.494l-3.218-1.974A3 3 0 108.684 13.342z" />
                     </svg>
-                    <span className="text-[10px] font-black opacity-80">{shareBusyId === review.id ? '生成中...' : '分享评论'}</span>
+                    <span className="text-[10px] font-black opacity-80">{shareBusyId === review.id ? '生成中…' : '分享评论'}</span>
                   </button>
 
-                  {walletHash && (
+                  {review.can_edit && (
                     <button
                       type="button"
                       onClick={() => startEdit(review)}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white border-slate-200 text-xs font-extrabold text-slate-600 hover:bg-slate-50"
+                      className="inline-flex min-w-fit shrink-0 items-center whitespace-nowrap gap-1.5 px-2.5 py-1.5 rounded-full border bg-white border-slate-200/70 text-xs font-extrabold leading-none text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5 transition-all duration-300 sm:gap-2 sm:px-3"
                       title="编辑"
                     >
-                      <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <svg aria-hidden="true" className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 3.5a2.1 2.1 0 013 3L8 18l-4 1 1-4 11.5-11.5z" />
                       </svg>
                       <span className="text-[10px] font-black opacity-80">编辑</span>
@@ -1074,8 +1102,8 @@ export default function Course() {
                   )}
 
                   {review.sqid && (
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-slate-400">
+                      <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
                       </svg>
                       <span className="font-mono">{review.sqid}</span>
@@ -1091,9 +1119,9 @@ export default function Course() {
               <div className="flex justify-center pt-2">
                 <button
                   onClick={handleLoadMore}
-                  className="px-6 py-3 bg-white/70 hover:bg-white/90 backdrop-blur-sm border border-white/60 rounded-2xl font-semibold text-slate-700 shadow-lg hover:shadow-xl transition-all active:scale-95 flex items-center gap-2"
+                  className="px-6 py-3 bg-gradient-to-b from-white/80 to-white/60 hover:from-white/90 hover:to-white/80 backdrop-blur-sm border border-white/60 rounded-2xl font-semibold text-slate-700 shadow-lg hover:shadow-xl hover:shadow-cyan-500/10 transition-all duration-300 active:scale-[0.97] flex items-center gap-2"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                   加载更多 ({course.reviews.length - displayCount} 条)
@@ -1102,9 +1130,9 @@ export default function Course() {
             )}
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center py-20 bg-white/50 rounded-3xl border border-dashed border-slate-200">
+          <div className="flex flex-col items-center justify-center py-20 bg-white/50 rounded-3xl border border-dashed border-slate-200/70 animate-fade-in">
             <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-              <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg aria-hidden="true" className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
             </div>
@@ -1115,7 +1143,7 @@ export default function Course() {
     </div>
 
       {sharePreview && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 px-4 py-8 backdrop-blur-sm" onClick={closeSharePreview}>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 px-4 py-8 backdrop-blur-sm animate-fade-in" style={{ overscrollBehavior: 'contain' }} onClick={closeSharePreview}>
           <div className="yourtj-share-printer max-h-full w-full max-w-[960px] overflow-auto rounded-[32px] bg-white/95 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.32)]" onClick={(event) => event.stopPropagation()}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 text-center sm:text-left">

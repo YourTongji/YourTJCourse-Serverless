@@ -30,9 +30,9 @@ const DEFAULT_FILTERS: FilterState = {
 }
 
 const SEARCH_PLACEHOLDERS = [
-  '搜索课程名、代码或教师...',
-  '试试“高等数学”“线性代数”...',
-  '从真实评价里找到更适合你的课程...'
+  '搜索课程名、代码或教师…',
+  '试试\u201c高等数学\u201d\u201c线性代数\u201d\u2026',
+  '从真实评价里找到更适合你的课程…'
 ]
 
 const PAGE_SIZE = 20
@@ -134,16 +134,13 @@ export default function Courses() {
   const legacyIframeRef = useRef<HTMLIFrameElement | null>(null)
   const legacyUrl = '/wlc/index.html'
   const [page, setPage] = useState(initialStateRef.current.page)
-  const [total, setTotal] = useState<number | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [departments, setDepartments] = useState<string[]>([])
   const [filters, setFilters] = useState<FilterState>(initialStateRef.current.filters || DEFAULT_FILTERS)
   const [typingPlaceholder, setTypingPlaceholder] = useState('')
   const [expandedSemesterCourseId, setExpandedSemesterCourseId] = useState<number | null>(null)
   const [sessionShuffleSeed] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
-  const [pageDraft, setPageDraft] = useState(String(initialStateRef.current.page))
   const searchInputRef = useRef<HTMLInputElement | null>(null)
-  const totalPages = total ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null
 
   const syncUrl = (nextKeyword: string, nextPage: number, nextFilters: FilterState) => {
     const nextSearch = buildSearchQuery(nextKeyword, nextPage, nextFilters)
@@ -181,17 +178,19 @@ export default function Courses() {
       const nextCourses = Array.isArray(data.data) ? data.data : []
       const shouldShuffle = !nextKeyword.trim() && nextPage === 1 && !hasActiveFilters(nextFilters)
 
-      setCourses(shouldShuffle ? shuffleCoursesForSession(nextCourses, sessionShuffleSeed) : nextCourses)
-      setHasMore(Boolean(data.hasMore))
-      setTotal(typeof data.total === 'number' ? data.total : null)
+      if (nextPage > 1) {
+        setCourses((prev) => [...prev, ...(shouldShuffle ? shuffleCoursesForSession(nextCourses, sessionShuffleSeed) : nextCourses)])
+      } else {
+        setCourses(shouldShuffle ? shuffleCoursesForSession(nextCourses, sessionShuffleSeed) : nextCourses)
+      }
+      const total = typeof data.total === 'number' ? data.total : null
+      setHasMore(total != null ? nextPage * PAGE_SIZE < total : Boolean(data.hasMore))
       setPage(nextPage)
-      setPageDraft(String(nextPage))
     } catch (err) {
       console.error('Failed to fetch courses:', err)
       setError('加载失败，请稍后重试')
       setCourses([])
       setHasMore(false)
-      setTotal(null)
     } finally {
       setLoading(false)
       setIsSearching(false)
@@ -212,21 +211,6 @@ export default function Courses() {
     setFilters(nextFilters)
     setPage(1)
     void search(1, keyword, nextFilters)
-  }
-
-  const submitPageDraft = () => {
-    const parsed = Number.parseInt(pageDraft, 10)
-    if (!Number.isFinite(parsed)) {
-      setPageDraft(String(page))
-      return
-    }
-
-    const nextPage = Math.max(1, totalPages ? Math.min(parsed, totalPages) : parsed)
-    if (nextPage === page) {
-      setPageDraft(String(page))
-      return
-    }
-    void search(nextPage)
   }
 
   const toggleLegacyDocs = () => {
@@ -369,6 +353,10 @@ export default function Courses() {
     || String(course.name || '').includes('评论区测试')
   ))?.id
 
+  // Only show the full-page skeleton on the very first load; keep the existing
+  // list visible while re-searching or appending ("加载更多").
+  const isInitialLoading = loading && courses.length === 0
+
   return (
     <div className="space-y-4 md:space-y-4">
       <FilterPanel
@@ -379,25 +367,28 @@ export default function Courses() {
 
       <GlassCard className="relative min-h-[160px] overflow-hidden bg-gradient-to-r from-cyan-50 to-white" hover={false}>
         <div className="absolute right-0 top-0 p-6 opacity-10">
-          <svg className="h-32 w-32 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="h-32 w-32 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
 
         <div className="relative z-10 max-w-2xl">
-          <h2 className="mb-2 text-2xl font-bold text-slate-800 md:text-3xl">探索同济大学精彩课程</h2>
-          <p className="mb-5 text-sm text-slate-500 md:text-base">不记名、自由、简洁、高效的选课社区</p>
+          <h2 className="animate-fade-in mb-2 text-2xl font-black tracking-tight text-slate-800 md:text-3xl">探索同济大学精彩课程</h2>
+          <p className="animate-fade-in mb-5 text-sm text-slate-500 md:text-base" style={{ animationDelay: '0.15s' }}>不记名、自由、简洁、高效的选课社区</p>
 
-          <div className="flex items-center gap-2 rounded-2xl border border-cyan-100 bg-white p-2 shadow-sm transition-shadow focus-within:ring-2 focus-within:ring-cyan-400">
-            <svg className="ml-2 h-5 w-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="flex items-center gap-2 rounded-2xl border border-cyan-100 bg-white p-2 shadow-sm transition-all duration-300 focus-within:border-cyan-300 focus-within:shadow-[0_0_20px_-4px_rgba(6,182,212,0.25)] focus-within:ring-2 focus-within:ring-cyan-400">
+            <svg className="ml-2 h-5 w-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
               ref={searchInputRef}
               data-tour="tour-search-input"
               type="text"
-              placeholder={typingPlaceholder || '搜索课程名、代码或教师...'}
-              className="h-10 min-w-0 w-full border-none bg-transparent text-slate-700 outline-none placeholder:text-slate-400"
+              name="course-search"
+              autoComplete="off"
+              aria-label="搜索课程"
+              placeholder={typingPlaceholder || '搜索课程名、代码或教师…'}
+              className="h-10 min-w-0 w-full border-none bg-transparent text-slate-700 outline-none placeholder:text-slate-500 placeholder:font-medium"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               onKeyDown={(event) => {
@@ -418,7 +409,7 @@ export default function Courses() {
               disabled={loading}
               className="shrink-0 whitespace-nowrap rounded-xl bg-slate-800 px-4 py-2.5 font-semibold text-white transition-colors hover:bg-slate-700 disabled:opacity-50 md:px-6"
             >
-              {loading && isSearching ? '搜索中...' : '搜索'}
+              {loading && isSearching ? '搜索中…' : '搜索'}
             </button>
           </div>
 
@@ -429,7 +420,7 @@ export default function Courses() {
               className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
             >
               查阅旧乌龙茶文档
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h6m0 0v6m0-6L10 16m-1 5H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v4" />
               </svg>
             </button>
@@ -482,7 +473,7 @@ export default function Courses() {
             {!legacyReady && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/75 backdrop-blur-sm">
                 <Logo size={50} animate />
-                <p className="text-sm font-medium text-slate-500">历史文档加载中...</p>
+                <p className="text-sm font-medium text-slate-500">历史文档加载中…</p>
               </div>
             )}
             <iframe
@@ -510,10 +501,27 @@ export default function Courses() {
       )}
 
       <div className="min-h-[60vh]">
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-16">
-            <Logo size={60} animate />
-            <p className="mt-4 text-slate-500">加载中...</p>
+        {isInitialLoading && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:gap-4">
+            {[1, 2, 3, 4, 5, 6].map((skeleton) => (
+              <div
+                key={skeleton}
+                className="animate-pulse rounded-[20px] border border-slate-100 bg-white/80 p-4"
+                style={{ animationDelay: '0s', animation: 'pulse 2s ease-in-out infinite' }}
+              >
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <div className="h-5 w-20 rounded-md bg-slate-100" />
+                  <div className="h-6 w-24 rounded-md bg-slate-100" />
+                </div>
+                <div className="mb-2 h-5 w-3/4 rounded-md bg-slate-100" />
+                <div className="mb-1.5 h-3.5 w-1/2 rounded-md bg-slate-100" />
+                <div className="mb-3 h-3.5 w-1/3 rounded-md bg-slate-100" />
+                <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                  <div className="h-4 w-20 rounded-md bg-slate-100" />
+                  <div className="h-4 w-16 rounded-md bg-slate-100" />
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -529,21 +537,10 @@ export default function Courses() {
           </div>
         )}
 
-        {!loading && !error && (
+        {!isInitialLoading && !error && (
           <>
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold text-slate-800">课程列表</h3>
-              <span className="text-sm text-slate-400">
-                {typeof total === 'number'
-                  ? `共 ${total} 门课程`
-                  : hasMore
-                  ? `第 ${page} 页，可继续翻页`
-                  : `第 ${page} 页`}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6" style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 500px' }}>
-              {courses.map((course) => {
+            <div className="columns-1 gap-3 sm:columns-2 lg:columns-3 xl:gap-4">
+              {courses.map((course, index) => {
                 const semesters = Array.isArray(course.semesters) ? course.semesters.map(formatSemesterLabel).filter(Boolean) : []
                 const uniqueSemesters = Array.from(new Set(semesters))
                 const orderedSemesters = uniqueSemesters.slice().sort((left, right) => semesterLabelScore(right) - semesterLabelScore(left))
@@ -559,19 +556,18 @@ export default function Courses() {
                     key={course.id}
                     to={`/course/${course.id}`}
                     data-tour={course.id === tourTargetCourseId ? 'tour-course-target' : undefined}
-                    className="block h-full"
-                    style={{ contentVisibility: 'auto', containIntrinsicSize: '0 208px' }}
+                    className="mb-3 block break-inside-avoid xl:mb-4"
                   >
-                    <GlassCard className="group flex min-h-[188px] flex-col justify-between rounded-[24px] border-white/70 bg-white/80 !p-5 hover:-translate-y-0.5">
+                    <GlassCard hover={false} className="animate-scale-in group flex flex-col border-white/70 bg-white/80 !p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_30px_-8px_rgba(6,182,212,0.22)] hover:border-cyan-200/80" style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
                       <div>
-                        <div className="mb-3 flex items-start justify-between gap-3">
+                        <div className="mb-2 flex items-start justify-between gap-3">
                           <span className={`inline-flex rounded-md border px-2 py-1 text-[11px] font-bold tracking-wide ${course.is_legacy ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-cyan-100 bg-cyan-50 text-cyan-700'}`}>
                             {course.code}
                           </span>
 
                           {course.rating > 0 ? (
                             <div className="flex items-center gap-1 rounded-md border border-amber-100 bg-amber-50 px-2 py-1">
-                              <span className="text-sm font-bold text-amber-500">{course.rating.toFixed(1)}</span>
+                              <span className="text-sm font-extrabold text-amber-500">{course.rating.toFixed(1)}</span>
                               <div className="flex">
                                 {[1, 2, 3, 4, 5].map((score) => (
                                   <div key={score} className={`mx-[1px] h-1.5 w-1.5 rounded-full ${score <= Math.round(course.rating || 0) ? 'bg-amber-400' : 'bg-slate-200'}`} />
@@ -583,7 +579,7 @@ export default function Courses() {
                           )}
                         </div>
 
-                        <h3 className="mb-1 line-clamp-1 text-lg font-bold text-slate-800 transition-colors group-hover:text-cyan-700 md:text-xl">
+                        <h3 className="mb-1 line-clamp-2 text-base font-bold text-slate-800 transition-colors group-hover:text-cyan-700 md:text-lg">
                           {course.name}
                         </h3>
 
@@ -598,8 +594,9 @@ export default function Courses() {
                               </span>
 
                               {hiddenCount > 0 && (
-                                <button
-                                  type="button"
+                                <span
+                                  role="button"
+                                  tabIndex={0}
                                   className="whitespace-nowrap rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[10px] font-black text-pink-700 transition-colors hover:bg-pink-100"
                                   aria-label={`展开历史学期，共 ${hiddenCount} 个`}
                                   aria-expanded={isSemesterExpanded}
@@ -608,9 +605,16 @@ export default function Courses() {
                                     event.stopPropagation()
                                     setExpandedSemesterCourseId((current) => (current === course.id ? null : course.id))
                                   }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      setExpandedSemesterCourseId((current) => (current === course.id ? null : course.id))
+                                    }
+                                  }}
                                 >
                                   +{hiddenCount}
-                                </button>
+                                </span>
                               )}
 
                               <div
@@ -640,11 +644,11 @@ export default function Courses() {
 
                       </div>
 
-                      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+                      <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
                         <span className="text-xs text-slate-400">{course.review_count} 条评论</span>
                         <span className="inline-flex items-center text-xs font-semibold text-slate-400 transition-colors group-hover:text-cyan-600">
                           详细信息
-                          <svg className="ml-1 h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="ml-1 h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
                         </span>
@@ -655,46 +659,42 @@ export default function Courses() {
               })}
             </div>
 
-            {hasLoadedOnce && courses.length === 0 && (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-white/50 py-20 text-center">
-                <p className="text-slate-400">没有找到相关课程，换个关键词试试吧。</p>
+            {hasLoadedOnce && courses.length > 0 && hasMore && (
+              <div className="flex justify-center pt-4 pb-2">
+                <button
+                  onClick={() => void search(page + 1)}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/80 px-6 py-3 text-sm font-bold text-slate-600 shadow-sm backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-[0_8px_20px_-8px_rgba(6,182,212,0.2)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      加载中…
+                    </>
+                  ) : (
+                    <>
+                      加载更多课程
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </>
+                  )}
+                </button>
               </div>
             )}
 
-            {(page > 1 || hasMore || (totalPages != null && totalPages > 1)) && (
-              <div className="flex items-center justify-center gap-2 pt-2">
-                <button
-                  onClick={() => void search(page - 1)}
-                  disabled={page <= 1 || loading}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  上一页
-                </button>
-                <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center font-bold text-slate-600">
-                  <input
-                    value={pageDraft}
-                    inputMode="numeric"
-                    aria-label="当前页码"
-                    disabled={loading}
-                    onChange={(event) => setPageDraft(event.target.value.replace(/\D/g, '').slice(0, 5))}
-                    onBlur={submitPageDraft}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.currentTarget.blur()
-                      }
-                    }}
-                    className="h-6 w-10 rounded-md border border-slate-200 bg-slate-50 text-center text-sm font-black text-slate-700 outline-none transition focus:border-cyan-300 focus:bg-white focus:ring-2 focus:ring-cyan-100 disabled:opacity-60"
-                  />
-                  <span className="text-sm text-slate-400">/</span>
-                  <span className="min-w-6 text-sm text-slate-600">{totalPages ?? '…'}</span>
-                </div>
-                <button
-                  onClick={() => void search(page + 1)}
-                  disabled={loading || (totalPages ? page >= totalPages : !hasMore)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  下一页
-                </button>
+            {hasLoadedOnce && courses.length > 0 && !hasMore && (
+              <div className="pt-4 pb-2 text-center">
+                <p className="text-xs text-slate-400">已显示全部课程</p>
+              </div>
+            )}
+
+            {hasLoadedOnce && courses.length === 0 && (
+              <div className="animate-fade-in rounded-3xl border border-dashed border-slate-300 bg-white/50 py-20 text-center">
+                <p className="text-slate-400">没有找到相关课程，换个关键词试试吧。</p>
               </div>
             )}
           </>

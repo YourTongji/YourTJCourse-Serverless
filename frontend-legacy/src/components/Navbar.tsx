@@ -118,29 +118,29 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
     navigate('/')
   }
 
-  const navBtnBase = 'w-8 h-8 md:w-9 md:h-9 rounded-xl md:rounded-2xl flex items-center justify-center border bg-white/60 backdrop-blur hover:bg-white/80 active:scale-95 transition'
+  const navBtnBase = 'w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 rounded-xl md:rounded-2xl flex items-center justify-center border bg-white/60 backdrop-blur hover:scale-105 hover:bg-white/80 active:scale-95 transition duration-150'
   const navBtnEnabled = 'border-slate-200 text-slate-600'
   const navBtnDisabled = 'border-slate-100 text-slate-300 cursor-not-allowed opacity-70'
   const showAnnouncementBell = Boolean(announcementCollapsed && onToggleAnnouncementCollapsed)
 
   return (
-    <nav className="sticky top-4 z-50 px-4 mx-auto max-w-7xl" data-tour="tour-navbar">
+    <nav className="sticky top-4 z-50 mx-auto w-screen max-w-[100vw] px-2 sm:px-4 md:max-w-7xl" data-tour="tour-navbar">
       <div className="relative">
-        <div className="flex items-center justify-start px-4 md:px-6 py-3 bg-white/80 backdrop-blur-2xl border border-white/50 shadow-lg shadow-cyan-900/5 rounded-2xl md:rounded-full">
-          <Link to="/" className="flex items-center gap-3 min-w-0 flex-1">
-            <Logo size={40} className="shrink-0" />
-            <div className="hidden sm:block">
-              <h1 className="text-lg font-bold text-slate-800 tracking-tight">YOURTJ选课社区</h1>
+        <div className="flex items-center justify-start rounded-2xl border border-white/50 bg-white/80 px-2.5 py-3 shadow-lg shadow-cyan-900/5 backdrop-blur-2xl sm:px-4 md:rounded-full md:px-6">
+          <Link to="/" className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden pr-1 sm:gap-3 sm:pr-2 md:pr-4">
+            <Logo size={40} className="h-8 w-8 shrink-0 sm:h-10 sm:w-10" />
+            <div className="hidden min-w-0 sm:block">
+              <h1 className="text-lg font-bold text-slate-800 tracking-tight hover:drop-shadow-[0_0_6px_rgba(6,182,212,0.35)] transition duration-300">YOURTJ选课社区</h1>
               <p className="text-[10px] text-slate-500 font-medium tracking-wider uppercase">xk.yourtj.de</p>
             </div>
-            <div className="block sm:hidden">
-              <h1 className="text-[17px] font-bold text-slate-800 tracking-tight whitespace-nowrap">YOURTJ选课社区</h1>
+            <div className="block min-w-0 sm:hidden">
+              <h1 className="truncate text-[15px] font-bold tracking-tight text-slate-800 transition duration-300 hover:drop-shadow-[0_0_6px_rgba(6,182,212,0.35)] min-[360px]:text-[16px]">YOURTJ选课社区</h1>
             </div>
           </Link>
 
-          <div className="flex items-center gap-1 md:gap-2 shrink-0">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1 md:gap-2">
             {/* In-app navigation arrows (never leave the site) */}
-            <div className="flex items-center gap-1 md:gap-1.5 shrink-0" data-tour="tour-nav-controls">
+            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1 md:gap-1.5" data-tour="tour-nav-controls">
               <button
                 type="button"
                 onClick={navBack}
@@ -150,7 +150,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 aria-label="后退"
                 title="后退"
               >
-                <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="h-4 w-4 sm:h-[18px] sm:w-[18px] md:h-5 md:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
                 </svg>
               </button>
@@ -163,7 +163,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 aria-label="前进"
                 title="前进"
               >
-                <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="h-4 w-4 sm:h-[18px] sm:w-[18px] md:h-5 md:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
                 </svg>
               </button>
@@ -176,7 +176,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 aria-label="回到首页"
                 title="回到首页"
               >
-                <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="h-4 w-4 sm:h-[18px] sm:w-[18px] md:h-5 md:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5l9-7 9 7" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 22V12h6v10" />
                 </svg>
@@ -192,7 +192,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                       href={item.path}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-5 py-2 rounded-full text-sm font-semibold transition-all text-slate-600 hover:text-cyan-600 hover:bg-white/60"
+                      className="px-5 py-2 rounded-full text-sm font-semibold transition-all duration-200 text-slate-600 hover:text-cyan-600 hover:bg-white/60"
                     >
                       {item.label}
                     </a>
@@ -203,11 +203,11 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
-                      location.pathname === item.path
-                        ? 'bg-white text-cyan-700 shadow-sm'
-                        : 'text-slate-600 hover:text-cyan-600 hover:bg-white/60'
-                    }`}
+                    className={`px-5 py-2 rounded-full text-sm font-semibold transition-all duration-200 ${
+                    location.pathname === item.path
+                      ? 'bg-white text-cyan-700 shadow-sm ring-1 ring-cyan-200/60 drop-shadow-[0_0_6px_rgba(6,182,212,0.2)]'
+                      : 'text-slate-600 hover:text-cyan-600 hover:bg-white/60'
+                  }`}
                   >
                     {item.label}
                   </Link>
@@ -224,7 +224,7 @@ export default function Navbar({ announcementCollapsed, onToggleAnnouncementColl
                 aria-label="展开公告"
                 title="展开公告"
               >
-                <svg className="h-4 w-4 md:h-5 md:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg className="h-[18px] w-[18px] md:h-5 md:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"

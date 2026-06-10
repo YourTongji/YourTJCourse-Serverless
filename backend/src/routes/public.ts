@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import type { Bindings } from '../helpers/types'
 import { encodeReviewId, decodeReviewId } from '../sqids'
 import { refreshCourseStats } from '../courseStats'
@@ -22,7 +23,6 @@ import {
   refreshAuxiliaryCourseData,
   rebuildAllAuxiliaryCourseData,
   isAuxiliaryCourseDataReady,
-  triggerAuxiliaryCourseDataBuild,
   getCourseSemesters,
   getMaintenanceModeSetting,
   getMaintenanceConfigSetting,
@@ -34,7 +34,9 @@ import {
 } from '../helpers/db'
 import { verifyTurnstile, isAllowedTurnstileHostname } from '../helpers/turnstile'
 import { verifyTongjiCaptcha } from '../helpers/captcha'
-import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar } from '../helpers/review'
+import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar, sha256Hex } from '../helpers/review'
+import { notifyReportToFeishu, verifyActionToken } from '../helpers/feishu'
+import { getMiniSearchCourseCandidates } from '../helpers/course-mini-search'
 import {
   buildCacheControl,
   COURSE_DETAIL_CACHE_VERSION,
@@ -45,11 +47,99 @@ import {
 } from '../helpers/cache'
 
 const publicRoutes = new Hono<{ Bindings: Bindings }>()
+type AppContext = Context<{ Bindings: Bindings }>
 
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'other'])
 
 function containsLikePattern(value: string) {
   return `%${escapeLikePattern(value)}%`
+}
+
+function isLikelyChineseTeacherName(value: string) {
+  return /^[\u4e00-\u9fa5]{2,3}$/.test(value)
+}
+
+function buildStructuredKeywordTerms(keyword: string) {
+  const raw = String(keyword || '').trim()
+  const normalized = raw
+    .replace(/[+＋]/g, ' ')
+    .replace(/\s*的\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!normalized) return []
+  const terms = Array.from(new Set(normalized.split(' ').map((item) => item.trim()).filter((item) => item.length >= 2)))
+  if (terms.length < 2) return []
+  const hasExplicitRelation = /[+＋的]/.test(raw)
+  const hasLikelyChineseName = terms.some(isLikelyChineseTeacherName)
+  return hasExplicitRelation || hasLikelyChineseName ? terms : []
+}
+
+async function loadReviewIdSetByClient(
+  db: D1Database,
+  reviewIds: number[],
+  clientId: string
+) {
+  const result = new Set<number>()
+  const ids = Array.from(new Set(reviewIds.filter((id) => Number.isFinite(id) && id > 0)))
+  if (!clientId || ids.length === 0) return result
+
+  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '?').join(',')
+    const rows = await db
+      .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders})`)
+      .bind(clientId, ...part)
+      .all<{ review_id: number }>()
+    for (const row of rows.results || []) {
+      result.add(Number((row as any).review_id))
+    }
+  }
+
+  return result
+}
+
+function parseReviewEditProofs(raw: string) {
+  const proofs = new Map<number, string>()
+  for (const item of String(raw || '').split(',')) {
+    const [idPart, tokenPart] = item.split(':')
+    const id = Number(idPart)
+    const token = String(tokenPart || '').trim()
+    if (Number.isFinite(id) && id > 0 && /^[a-f0-9]{64}$/i.test(token)) {
+      proofs.set(id, token)
+    }
+  }
+  return proofs
+}
+
+async function loadEditableReviewIdSetByToken(
+  db: D1Database,
+  proofs: Map<number, string>
+) {
+  const result = new Set<number>()
+  const entries = Array.from(proofs.entries()).filter(([id]) => Number.isFinite(id) && id > 0)
+  if (entries.length === 0) return result
+
+  for (const part of chunkArray(entries, D1_SAFE_BATCH_SIZE)) {
+    const reviewIds = part.map(([id]) => id)
+    const placeholders = reviewIds.map(() => '?').join(',')
+    const rows = await db
+      .prepare(`SELECT id, edit_token FROM reviews WHERE id IN (${placeholders})`)
+      .bind(...reviewIds)
+      .all<{ id: number; edit_token?: string | null }>()
+    for (const row of rows.results || []) {
+      const id = Number((row as any).id)
+      const expected = String((row as any).edit_token || '').trim()
+      if (!expected) continue
+      const expectedProof = await sha256Hex(`yourtj:can-edit:${expected}`)
+      if (proofs.get(id) === expectedProof) result.add(id)
+    }
+  }
+
+  return result
+}
+
+function stripWalletUserHash<T extends Record<string, any>>(review: T) {
+  const { wallet_user_hash: _walletUserHash, ...safeReview } = review
+  return safeReview
 }
 
 async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
@@ -159,10 +249,6 @@ publicRoutes.get('/courses', async (c) => {
     const offset = (page - 1) * limit
 
     const showIcu = await getShowIcuSetting(c.env.DB)
-    const courseAuxReady = await isAuxiliaryCourseDataReady(c.env.DB)
-    if (!courseAuxReady) {
-      c.executionCtx.waitUntil(triggerAuxiliaryCourseDataBuild(c.env.DB))
-    }
     const canUseWorkerCache = !includeTotal
 
     if (canUseWorkerCache) {
@@ -182,6 +268,9 @@ publicRoutes.get('/courses', async (c) => {
     const baseParams: any[] = []
     const ctes: string[] = []
     const cteParams: any[] = []
+    let miniSearchCandidate:
+      | Awaited<ReturnType<typeof getMiniSearchCourseCandidates>>
+      | null = null
 
     if (!showIcu) {
       baseWhere += ' AND (c.is_icu = 0 OR c.is_icu IS NULL)'
@@ -190,17 +279,47 @@ publicRoutes.get('/courses', async (c) => {
     baseWhere += " AND NOT (c.is_legacy = 1 AND c.code LIKE '%AUTO%')"
 
     if (keyword) {
+      try {
+        miniSearchCandidate = await getMiniSearchCourseCandidates(
+          c.env.DB,
+          showIcu,
+          keyword,
+          {
+            departments,
+            courseName,
+            courseCode,
+            teacherName,
+            teacherCode,
+            campus,
+            faculty
+          },
+          c.env.COURSE_SEARCH_INDEX
+        )
+      } catch {
+        miniSearchCandidate = null
+      }
+
+      const courseAuxReady = miniSearchCandidate ? false : await isAuxiliaryCourseDataReady(c.env.DB)
       const ftsQuery = courseAuxReady ? buildCourseSearchMatchQuery(keyword) : ''
       const rawVariants = buildKeywordSearchVariants(keyword)
       const looseVariants = Array.from(new Set(rawVariants.map((item) => normalizeLooseSearchText(item)).filter(Boolean)))
+      const structuredKeywordTerms = buildStructuredKeywordTerms(keyword)
       const keywordClauses: string[] = []
 
-      if (courseAuxReady && ftsQuery) {
+      if (miniSearchCandidate) {
+        if (miniSearchCandidate.courseIds.length > 0) {
+          const placeholders = miniSearchCandidate.courseIds.map(() => '?').join(',')
+          baseWhere += ` AND c.id IN (${placeholders})`
+          baseParams.push(...miniSearchCandidate.courseIds)
+        } else {
+          baseWhere += ' AND 0'
+        }
+      } else if (courseAuxReady && ftsQuery) {
         keywordClauses.push('c.id IN (SELECT course_id FROM course_search WHERE search_doc MATCH ?)')
         baseParams.push(ftsQuery)
       }
 
-      if (rawVariants.length > 0) {
+      if (!miniSearchCandidate && rawVariants.length > 0) {
         const perVariant =
           "(c.code LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\' OR t.name LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM course_aliases a WHERE a.system = 'onesystem' AND a.course_id = c.id AND a.alias LIKE ? ESCAPE '\\'))"
         keywordClauses.push(rawVariants.map(() => perVariant).join(' OR '))
@@ -210,7 +329,7 @@ publicRoutes.get('/courses', async (c) => {
         }
       }
 
-      if (looseVariants.length > 0) {
+      if (!miniSearchCandidate && looseVariants.length > 0) {
         const looseExprs = [
           buildLooseSqlExpr('c.code'),
           buildLooseSqlExpr('c.name'),
@@ -222,6 +341,38 @@ publicRoutes.get('/courses', async (c) => {
           const likeKey = containsLikePattern(variant)
           baseParams.push(likeKey, likeKey, likeKey, likeKey)
         }
+      }
+
+      if (structuredKeywordTerms.length >= 2) {
+        const perTermSql =
+          "(cd.courseName LIKE ? ESCAPE '\\' OR cd.name LIKE ? ESCAPE '\\' OR cd.courseCode LIKE ? ESCAPE '\\' OR cd.code LIKE ? ESCAPE '\\' OR cd.newCourseCode LIKE ? ESCAPE '\\' OR cd.newCode LIKE ? ESCAPE '\\' OR kt.teacherName LIKE ? ESCAPE '\\' OR kt.teacherCode LIKE ? ESCAPE '\\')"
+        const structuredWhere = structuredKeywordTerms.map(() => perTermSql).join(' AND ')
+        const structuredParams = structuredKeywordTerms.flatMap((term) => {
+          const likeTerm = containsLikePattern(term)
+          return [likeTerm, likeTerm, likeTerm, likeTerm, likeTerm, likeTerm, likeTerm, likeTerm]
+        })
+
+        ctes.push(`
+          pk_keyword_match AS (
+            SELECT DISTINCT c2.id AS id, TRIM(kt.teacherName) AS matched_teacher_name
+            FROM courses c2
+            JOIN coursedetail cd ON (
+              cd.courseCode = c2.code OR cd.code = c2.code OR cd.newCourseCode = c2.code OR cd.newCode = c2.code
+            )
+            JOIN teacher kt ON kt.teachingClassId = cd.id
+            WHERE ${structuredWhere}
+            UNION
+            SELECT DISTINCT a.course_id AS id, TRIM(kt.teacherName) AS matched_teacher_name
+            FROM course_aliases a
+            JOIN coursedetail cd ON (
+              a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
+            )
+            JOIN teacher kt ON kt.teachingClassId = cd.id
+            WHERE a.system = 'onesystem' AND ${structuredWhere}
+          )
+        `)
+        cteParams.push(...structuredParams, ...structuredParams)
+        keywordClauses.push('c.id IN (SELECT id FROM pk_keyword_match)')
       }
 
       if (keywordClauses.length > 0) {
@@ -236,17 +387,7 @@ publicRoutes.get('/courses', async (c) => {
       baseParams.push(likeCode, likeCode)
     }
 
-    if (teacherName) {
-      baseWhere += " AND t.name LIKE ? ESCAPE '\\'"
-      baseParams.push(containsLikePattern(teacherName))
-    }
-
-    if (teacherCode) {
-      baseWhere += " AND t.tid LIKE ? ESCAPE '\\'"
-      baseParams.push(containsLikePattern(teacherCode))
-    }
-
-    const needPkFilter = Boolean(courseName || campus || faculty)
+    const needPkFilter = Boolean(courseName || teacherName || teacherCode || campus || faculty)
     if (needPkFilter) {
       const pkWhere: string[] = []
       const pkParams: any[] = []
@@ -263,19 +404,33 @@ publicRoutes.get('/courses', async (c) => {
         pkWhere.push('cd.faculty = ?')
         pkParams.push(faculty)
       }
+      if (teacherName) {
+        pkWhere.push("EXISTS (SELECT 1 FROM teacher tt WHERE tt.teachingClassId = cd.id AND tt.teacherName LIKE ? ESCAPE '\\')")
+        pkParams.push(containsLikePattern(teacherName))
+      }
+      if (teacherCode) {
+        pkWhere.push("EXISTS (SELECT 1 FROM teacher tt WHERE tt.teachingClassId = cd.id AND tt.teacherCode LIKE ? ESCAPE '\\')")
+        pkParams.push(containsLikePattern(teacherCode))
+      }
 
       const pkExtraWhere = pkWhere.length > 0 ? ` AND ${pkWhere.join(' AND ')}` : ''
 
       ctes.push(`
         pk_match AS (
-          SELECT DISTINCT c2.id AS id
+          SELECT DISTINCT c2.id AS id, TRIM(tt.teacherName) AS matched_teacher_name
           FROM courses c2
-          JOIN coursedetail cd ON (cd.courseCode = c2.code OR cd.newCourseCode = c2.code)
+          JOIN coursedetail cd ON (
+            cd.courseCode = c2.code OR cd.code = c2.code OR cd.newCourseCode = c2.code OR cd.newCode = c2.code
+          )
+          LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
           WHERE 1=1${pkExtraWhere}
           UNION
-          SELECT DISTINCT a.course_id AS id
+          SELECT DISTINCT a.course_id AS id, TRIM(tt.teacherName) AS matched_teacher_name
           FROM course_aliases a
-          JOIN coursedetail cd ON (a.alias = cd.courseCode OR a.alias = cd.newCourseCode)
+          JOIN coursedetail cd ON (
+            a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
+          )
+          LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
           WHERE a.system = 'onesystem'${pkExtraWhere}
         )
       `)
@@ -296,6 +451,16 @@ publicRoutes.get('/courses', async (c) => {
 
     const groupKey = `c.code, c.name, COALESCE(t.name, '')`
     const having = onlyWithReviews ? 'HAVING SUM(COALESCE(c.review_count, 0)) > 0' : ''
+    const matchedTeacherExprs: string[] = []
+    if (keyword && buildStructuredKeywordTerms(keyword).length >= 2) {
+      matchedTeacherExprs.push("(SELECT GROUP_CONCAT(DISTINCT matched_teacher_name) FROM pk_keyword_match pkm WHERE pkm.id = c.id AND TRIM(COALESCE(matched_teacher_name, '')) != '')")
+    }
+    if (teacherName || teacherCode) {
+      matchedTeacherExprs.push("(SELECT GROUP_CONCAT(DISTINCT matched_teacher_name) FROM pk_match pm WHERE pm.id = c.id AND TRIM(COALESCE(matched_teacher_name, '')) != '')")
+    }
+    const displayTeacherExpr = matchedTeacherExprs.length > 0
+      ? `COALESCE(${matchedTeacherExprs.join(', ')}, t.name, '')`
+      : "COALESCE(t.name, '')"
     const representativeValueExpr = `COALESCE(
       MAX(CASE WHEN c.is_legacy = 0 THEN printf('%010d|%s', c.id, c.code) END),
       MAX(printf('%010d|%s', c.id, c.code))
@@ -314,7 +479,7 @@ publicRoutes.get('/courses', async (c) => {
           END AS rating,
           SUM(COALESCE(c.review_count, 0)) AS review_count,
           CASE WHEN SUM(CASE WHEN c.is_legacy = 0 THEN 1 ELSE 0 END) > 0 THEN 0 ELSE 1 END AS is_legacy,
-          COALESCE(t.name, '') AS teacher_name,
+          ${displayTeacherExpr} AS teacher_name,
           COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.department END), MAX(c.department)) AS department,
           COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.credit END), MAX(c.credit), 0) AS credit
         FROM courses c
@@ -373,6 +538,11 @@ publicRoutes.get('/courses', async (c) => {
       payload.total = total
       payload.totalPages = Math.ceil(total / limit)
     }
+    if (miniSearchCandidate) {
+      c.header('x-course-search-index-source', miniSearchCandidate.source)
+      c.header('x-course-search-index-docs', String(miniSearchCandidate.docCount))
+      c.header('x-course-search-index-ms', String(miniSearchCandidate.elapsedMs))
+    }
 
     if (!canUseWorkerCache) {
       setPublicCacheHeaders(c, 15, 30)
@@ -423,8 +593,7 @@ publicRoutes.get('/course/:id', async (c) => {
 
     const hasClientId = Boolean((c.req.query('clientId') || '').trim())
     const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
-    const requestedWalletHash = String(c.req.query('walletUserHash') || c.req.query('wallet_user_hash') || '').trim()
-    const editableWalletHash = /^[a-f0-9]{64}$/i.test(requestedWalletHash) ? requestedWalletHash : ''
+    const editProofs = parseReviewEditProofs(c.req.query('editReviewProofs') || '')
     const bypassCourseDetailCache = Boolean((c.req.query('_') || c.req.query('reviewRefresh') || '').trim())
     const cacheKey = buildCourseDetailCacheRequest(id, showIcu)
     const cache = caches.default
@@ -433,12 +602,16 @@ publicRoutes.get('/course/:id', async (c) => {
       const cached = bypassCourseDetailCache ? null : await cache.match(cacheKey)
       if (cached) {
         const cachedPayload = (await cached.json()) as Record<string, any>
+        const cachedReviews = Array.isArray((cachedPayload as any).reviews)
+          ? (cachedPayload as any).reviews.map((r: any) => stripWalletUserHash(r))
+          : []
         const basePayload = {
           ...cachedPayload,
-          credit: effectiveCourse.credit
+          credit: effectiveCourse.credit,
+          reviews: cachedReviews
         }
 
-        if (!clientId && !editableWalletHash) {
+        if (!clientId && editProofs.size === 0) {
           return new Response(JSON.stringify(basePayload), {
             headers: {
               'Content-Type': 'application/json; charset=utf-8',
@@ -451,25 +624,8 @@ publicRoutes.get('/course/:id', async (c) => {
           ? (basePayload as any).reviews.map((r: any) => Number(r?.id)).filter((n: number) => Number.isFinite(n))
           : []
 
-        let likedSet = new Set<number>()
-        if (clientId && reviewIds.length > 0) {
-          const placeholders2 = reviewIds.map(() => '?').join(',')
-          const likedRows = await c.env.DB
-            .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders2})`)
-            .bind(clientId, ...reviewIds)
-            .all<{ review_id: number }>()
-          likedSet = new Set<number>((likedRows.results || []).map((r: any) => Number(r.review_id)))
-        }
-
-        let editableSet = new Set<number>()
-        if (editableWalletHash && reviewIds.length > 0) {
-          const placeholders2 = reviewIds.map(() => '?').join(',')
-          const editableRows = await c.env.DB
-            .prepare(`SELECT id FROM reviews WHERE wallet_user_hash = ? AND id IN (${placeholders2})`)
-            .bind(editableWalletHash, ...reviewIds)
-            .all<{ id: number }>()
-          editableSet = new Set<number>((editableRows.results || []).map((r: any) => Number(r.id)))
-        }
+        const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
+        const editableSet = await loadEditableReviewIdSetByToken(c.env.DB, editProofs)
 
         const personalized = {
           ...(basePayload as any),
@@ -544,14 +700,8 @@ publicRoutes.get('/course/:id', async (c) => {
       .all()
 
     const rawReviews = (reviews.results || []) as any[]
-    const editableSet = new Set<number>(
-      rawReviews
-        .filter((r: any) => editableWalletHash && String(r?.wallet_user_hash || '').trim() === editableWalletHash)
-        .map((r: any) => Number(r?.id))
-        .filter((n: number) => Number.isFinite(n))
-    )
     const reviewsWithSqid = addSqidToReviews(rawReviews).map((r: any) => ({
-      ...r,
+      ...stripWalletUserHash(r),
       like_count: Number(r?.approve_count || 0),
       liked: false
     }))
@@ -580,18 +730,11 @@ publicRoutes.get('/course/:id', async (c) => {
     })
     c.executionCtx.waitUntil(cache.put(cacheKey, cacheRes.clone()))
 
-    if (!clientId && !editableWalletHash) return cacheRes
+    if (!clientId && editProofs.size === 0) return cacheRes
 
     const reviewIds = rawReviews.map((r) => Number(r?.id)).filter((n) => Number.isFinite(n))
-    let likedSet = new Set<number>()
-    if (clientId && reviewIds.length > 0) {
-      const placeholders2 = reviewIds.map(() => '?').join(',')
-      const likedRows = await c.env.DB
-        .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders2})`)
-        .bind(clientId, ...reviewIds)
-        .all<{ review_id: number }>()
-      likedSet = new Set<number>((likedRows.results || []).map((r: any) => Number(r.review_id)))
-    }
+    const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
+    const editableSet = await loadEditableReviewIdSetByToken(c.env.DB, editProofs)
 
     const personalized = {
       ...basePayload,
@@ -761,19 +904,29 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
           .prepare(
             `SELECT c.id as id
              FROM courses c
-             LEFT JOIN teachers t ON c.teacher_id = t.id
-             WHERE c.name IN (
-               SELECT DISTINCT cd.courseName
+             WHERE (
+               c.code = ?
+               OR EXISTS (
+                 SELECT 1 FROM course_aliases a
+                 WHERE a.system = 'onesystem'
+                   AND a.alias = ?
+                   AND a.course_id = c.id
+               )
+             )
+             AND EXISTS (
+               SELECT 1
                FROM coursedetail cd
                LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
-               WHERE (cd.code = ? OR cd.courseCode = ? OR cd.newCourseCode = ?)
+               WHERE (cd.code = ? OR cd.courseCode = ? OR cd.newCourseCode = ? OR cd.newCode = ?)
                ${pkTeacherFilter.sql}
              )
-             ${courseTeacherFilter.sql}
-             ORDER BY COALESCE(c.review_count, 0) DESC, c.id DESC
+             ORDER BY
+               CASE WHEN c.code = ? THEN 0 ELSE 1 END,
+               COALESCE(c.review_count, 0) DESC,
+               c.id DESC
              LIMIT 1`
           )
-          .bind(code, code, code, ...pkTeacherFilter.args, ...courseTeacherFilter.args)
+          .bind(code, code, code, code, code, code, ...pkTeacherFilter.args, code)
           .first<{ id: number }>()
       : null
 
@@ -853,26 +1006,37 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
            FROM courses c
            LEFT JOIN teachers t ON c.teacher_id = t.id
            WHERE c.name = ?
-           ${courseTeacherFilter.sql}
-           ORDER BY COALESCE(c.review_count, 0) DESC, c.id DESC`
+             AND (
+               ${courseTeacherFilter.sql ? courseTeacherFilter.sql.replace(/^ AND /, '') : '0'}
+               OR EXISTS (
+                 SELECT 1
+                 FROM course_aliases a
+                 JOIN coursedetail cd ON (
+                   a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
+                 )
+                 LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
+                 WHERE a.system = 'onesystem'
+                   AND a.course_id = c.id
+                   ${pkTeacherFilter.sql}
+               )
+               OR EXISTS (
+                 SELECT 1
+                 FROM coursedetail cd
+                 LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
+                 WHERE (cd.courseCode = c.code OR cd.code = c.code OR cd.newCourseCode = c.code OR cd.newCode = c.code)
+                   ${pkTeacherFilter.sql}
+               )
+             )
+           ORDER BY
+             CASE WHEN c.id = ? THEN 0 ELSE 1 END,
+             COALESCE(c.review_count, 0) DESC,
+             c.id DESC
+           LIMIT 100`
         )
-        .bind((course as any).name, ...courseTeacherFilter.args)
+        .bind((course as any).name, ...courseTeacherFilter.args, ...pkTeacherFilter.args, ...pkTeacherFilter.args, Number(courseId))
         .all<{ id: number }>()
 
       for (const r of sameNameTeacherRows.results || []) matchedIds.add(Number((r as any).id))
-
-      const primaryMatchedId = Number((sameNameTeacherRows.results || [])[0]?.id || 0)
-      if (primaryMatchedId && primaryMatchedId !== Number(courseId)) {
-        const matchedCourse = await c.env.DB.prepare(
-          `SELECT c.*, t.name as teacher_name FROM courses c
-           LEFT JOIN teachers t ON c.teacher_id = t.id
-           WHERE c.id = ?`
-        ).bind(primaryMatchedId).first()
-        if (matchedCourse) {
-          course = matchedCourse
-          courseId = primaryMatchedId
-        }
-      }
 
       if (matchedIds.size === 0) matchedIds.add(Number(courseId))
     } else if ((course as any).teacher_id) {
@@ -905,14 +1069,7 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     let likedSet = new Set<number>()
     if (clientId && (reviewsWithSqid || []).length > 0) {
       const ids = (reviewsWithSqid || []).map((r: any) => Number(r?.id)).filter((n) => Number.isFinite(n))
-      if (ids.length > 0) {
-        const placeholders2 = ids.map(() => '?').join(',')
-        const likedRows = await c.env.DB
-          .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders2})`)
-          .bind(clientId, ...ids)
-          .all()
-        likedSet = new Set<number>((likedRows.results || []).map((r: any) => Number(r.review_id)))
-      }
+      likedSet = await loadReviewIdSetByClient(c.env.DB, ids, clientId)
     }
 
     const mappedReviews = (reviewsWithSqid || []).map((r: any) => ({
@@ -931,6 +1088,7 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     const fallbackCredits = await loadPkCreditFallbacks(c.env.DB, [Number((course as any).id)])
     const effectiveCourse = {
       ...(course as any),
+      teacher_name: teacherName || (course as any).teacher_name,
       credit: Number((course as any).credit || 0) > 0
         ? (course as any).credit
         : fallbackCredits.get(Number((course as any).id)) ?? (course as any).credit
@@ -1143,28 +1301,76 @@ publicRoutes.post('/review/:id/report', async (c) => {
   const clientId = await getReviewLikeClientKey(c)
   if (!clientId) return c.json({ error: 'Unable to identify client' }, 400)
 
-  const existingReview = await c.env.DB
-    .prepare('SELECT id FROM reviews WHERE id = ? AND is_hidden = 0 LIMIT 1')
+  const reviewRow = await c.env.DB
+    .prepare(
+      `SELECT r.id, r.comment, r.rating, r.semester, r.course_id,
+              c.name AS course_name
+       FROM reviews r
+       JOIN courses c ON c.id = r.course_id
+       WHERE r.id = ? AND r.is_hidden = 0 LIMIT 1`
+    )
     .bind(id)
-    .first<{ id: number }>()
-  if (!existingReview) return c.json({ error: 'Review not found' }, 404)
+    .first<{ id: number; comment?: string | null; rating: number; semester?: string | null; course_id: number; course_name: string }>()
+  if (!reviewRow) return c.json({ error: 'Review not found' }, 404)
 
-  await c.env.DB
+  const report = await c.env.DB
     .prepare(
       `INSERT INTO review_reports (review_id, client_id, reason, status, created_at, updated_at)
        VALUES (?, ?, ?, 'open', strftime('%s', 'now'), strftime('%s', 'now'))
        ON CONFLICT(review_id, client_id)
-       DO UPDATE SET reason = excluded.reason, status = 'open', updated_at = strftime('%s', 'now')`
+       DO NOTHING
+       RETURNING id`
     )
     .bind(id, clientId, reason)
-    .run()
-
-  const report = await c.env.DB
-    .prepare('SELECT id FROM review_reports WHERE review_id = ? AND client_id = ? LIMIT 1')
-    .bind(id, clientId)
     .first<{ id: number }>()
 
-  return c.json({ success: true, reportId: Number(report?.id || 0) || null })
+  const reportId = Number(report?.id || 0) || null
+  const isNewReport = Boolean(reportId)
+  let effectiveReportId = reportId
+  let isReopenedReport = false
+  if (!isNewReport) {
+    const existing = await c.env.DB
+      .prepare('SELECT id, status FROM review_reports WHERE review_id = ? AND client_id = ? LIMIT 1')
+      .bind(id, clientId)
+      .first<{ id: number; status: string }>()
+    // Re-reporting a processed report reopens it; admins must hear about it too.
+    isReopenedReport = Boolean(existing && existing.status !== 'open')
+    await c.env.DB
+      .prepare(
+        `UPDATE review_reports
+         SET reason = ?, status = 'open', updated_at = strftime('%s', 'now')
+         WHERE review_id = ? AND client_id = ?`
+      )
+      .bind(reason, id, clientId)
+      .run()
+    effectiveReportId = Number(existing?.id || 0) || null
+  }
+
+  if ((isNewReport || isReopenedReport) && effectiveReportId) {
+    // Fire-and-forget Feishu notification (don't block response)
+    const origin = new URL(c.req.url).origin
+    c.executionCtx.waitUntil(
+      notifyReportToFeishu(
+        {
+          reportId: effectiveReportId,
+          reviewId: id,
+          reviewSqid: encodeReviewId(id),
+          courseName: String(reviewRow.course_name || ''),
+          courseId: Number(reviewRow.course_id),
+          reason,
+          reporterClientId: clientId,
+          reviewSnippet: String(reviewRow.comment || '').trim(),
+          rating: Number(reviewRow.rating || 0),
+          semester: String(reviewRow.semester || ''),
+          reopened: isReopenedReport,
+        },
+        c.env,
+        origin,
+      ).catch(() => void 0)
+    )
+  }
+
+  return c.json({ success: true, reportId: effectiveReportId })
 })
 
 publicRoutes.post('/review/:id/like', async (c) => {
@@ -1260,6 +1466,232 @@ publicRoutes.delete('/review/:id/like', async (c) => {
   }
 
   return c.json({ success: true, liked: false, like_count: Number(review.approve_count || 0) })
+})
+
+function buildReportActionHtml(options: {
+  title: string
+  message: string
+  statusCode?: number
+  action?: string
+  actionLabel?: string
+  reportId?: number
+  deadline?: string
+  sig?: string
+  color?: string
+}) {
+  const statusCode = options.statusCode || 200
+  const color = options.color || '#111827'
+  const form = options.action && options.reportId && options.deadline && options.sig
+    ? `<form method="post" action="/api/admin/report/${options.reportId}/resolve" style="margin-top:24px">
+        <input type="hidden" name="action" value="${options.action}" />
+        <input type="hidden" name="deadline" value="${options.deadline}" />
+        <input type="hidden" name="sig" value="${options.sig}" />
+        <button type="submit" style="appearance:none;border:0;border-radius:10px;background:${color};color:white;padding:12px 18px;font-size:16px;cursor:pointer">${options.actionLabel}</button>
+      </form>`
+    : ''
+
+  return {
+    statusCode,
+    html: `<html><body style="font-family:system-ui;padding:40px;text-align:center">
+      <h1 style="color:${color}">${options.title}</h1>
+      <p>${options.message}</p>
+      ${form}
+      <p style="color:#6b7280;font-size:14px;margin-top:24px">您可以关闭此页面。</p>
+    </body></html>`
+  }
+}
+
+function reportActionResponse(page: ReturnType<typeof buildReportActionHtml>) {
+  return new Response(page.html, {
+    status: page.statusCode,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store'
+    }
+  })
+}
+
+async function renderReportActionConfirm(c: AppContext) {
+  const reportId = Number(c.req.param('reportId'))
+  if (!Number.isFinite(reportId) || reportId <= 0) {
+    return c.json({ error: 'Invalid report id' }, 400)
+  }
+
+  const action = String(c.req.query('action') || '').trim()
+  const deadline = String(c.req.query('deadline') || '').trim()
+  const sig = String(c.req.query('sig') || '').trim()
+
+  if (!['resolved', 'rejected'].includes(action)) {
+    return c.json({ error: 'Invalid action' }, 400)
+  }
+  if (!deadline || !sig) {
+    return c.json({ error: 'Missing signature params' }, 400)
+  }
+
+  const valid = await verifyActionToken(reportId, action, deadline, sig, c.env.ADMIN_SECRET)
+  if (!valid) {
+    const page = buildReportActionHtml({
+      title: '链接无效或已过期',
+      message: '该操作链接已失效，请从飞书卡片重新操作。',
+      statusCode: 403,
+      color: '#dc2626'
+    })
+    return reportActionResponse(page)
+  }
+
+  await ensureReviewReportsTable(c.env.DB)
+
+  const report = await c.env.DB
+    .prepare('SELECT id, status FROM review_reports WHERE id = ? LIMIT 1')
+    .bind(reportId)
+    .first<{ id: number; status: string }>()
+
+  if (!report) {
+    const page = buildReportActionHtml({
+      title: '举报不存在',
+      message: '该举报记录已被删除。',
+      statusCode: 404,
+      color: '#dc2626'
+    })
+    return reportActionResponse(page)
+  }
+
+  if (report.status !== 'open') {
+    const label = report.status === 'resolved' ? '已处理（通过）' : '已处理（驳回）'
+    const page = buildReportActionHtml({
+      title: '举报已处理',
+      message: `该举报已被标记为：${label}`,
+      color: '#ca8a04'
+    })
+    return reportActionResponse(page)
+  }
+
+  const isResolve = action === 'resolved'
+  const page = buildReportActionHtml({
+    title: isResolve ? '确认通过举报？' : '确认驳回举报？',
+    message: isResolve
+      ? `举报 #${reportId} 将被标记为通过，被举报的评价将被隐藏。`
+      : `举报 #${reportId} 将被驳回，评价保留显示。`,
+    action,
+    actionLabel: isResolve ? '确认通过' : '确认驳回',
+    reportId,
+    deadline,
+    sig,
+    color: isResolve ? '#16a34a' : '#dc2626'
+  })
+  return reportActionResponse(page)
+}
+
+// Feishu card action confirmation page. Old card links also land here and must
+// be explicitly submitted before mutating report state.
+publicRoutes.get('/admin/report/:reportId/confirm', renderReportActionConfirm)
+publicRoutes.get('/admin/report/:reportId/resolve', renderReportActionConfirm)
+
+publicRoutes.post('/admin/report/:reportId/resolve', async (c) => {
+  const reportId = Number(c.req.param('reportId'))
+  if (!Number.isFinite(reportId) || reportId <= 0) {
+    return c.json({ error: 'Invalid report id' }, 400)
+  }
+
+  const form = await c.req.formData().catch(() => null)
+  const action = String(form?.get('action') || '').trim()
+  const deadline = String(form?.get('deadline') || '').trim()
+  const sig = String(form?.get('sig') || '').trim()
+
+  if (!['resolved', 'rejected'].includes(action)) {
+    return c.json({ error: 'Invalid action' }, 400)
+  }
+  if (!deadline || !sig) {
+    return c.json({ error: 'Missing signature params' }, 400)
+  }
+
+  const valid = await verifyActionToken(reportId, action, deadline, sig, c.env.ADMIN_SECRET)
+  if (!valid) {
+    const page = buildReportActionHtml({
+      title: '链接无效或已过期',
+      message: '该操作链接已失效，请从飞书卡片重新操作。',
+      statusCode: 403,
+      color: '#dc2626'
+    })
+    return reportActionResponse(page)
+  }
+
+  await ensureReviewReportsTable(c.env.DB)
+
+  const report = await c.env.DB
+    .prepare('SELECT id, review_id, status FROM review_reports WHERE id = ? LIMIT 1')
+    .bind(reportId)
+    .first<{ id: number; review_id: number; status: string }>()
+
+  if (!report) {
+    const page = buildReportActionHtml({
+      title: '举报不存在',
+      message: '该举报记录已被删除。',
+      statusCode: 404,
+      color: '#dc2626'
+    })
+    return reportActionResponse(page)
+  }
+
+  if (report.status !== 'open') {
+    const label = report.status === 'resolved' ? '已处理（通过）' : '已处理（驳回）'
+    const page = buildReportActionHtml({
+      title: '举报已处理',
+      message: `该举报已被标记为：${label}`,
+      color: '#ca8a04'
+    })
+    return reportActionResponse(page)
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  const updateResult = await c.env.DB
+    .prepare(
+      `UPDATE review_reports
+       SET status = ?, resolved_at = ?, updated_at = ?
+       WHERE id = ? AND status = 'open'`
+    )
+    .bind(action, now, now, reportId)
+    .run()
+
+  if (Number(updateResult.meta?.changes || 0) === 0) {
+    const latest = await c.env.DB
+      .prepare('SELECT status FROM review_reports WHERE id = ? LIMIT 1')
+      .bind(reportId)
+      .first<{ status: string }>()
+    const latestLabel = latest?.status === 'resolved'
+      ? '已处理（通过）'
+      : latest?.status === 'rejected'
+        ? '已处理（驳回）'
+        : '状态未变更'
+    const page = buildReportActionHtml({
+      title: '举报已处理',
+      message: `该举报当前状态为：${latestLabel}`,
+      color: '#ca8a04'
+    })
+    return reportActionResponse(page)
+  }
+
+  if (action === 'resolved') {
+    // UGC compliance: approving a report removes the offending review from public view.
+    const review = await c.env.DB
+      .prepare('SELECT course_id FROM reviews WHERE id = ? LIMIT 1')
+      .bind(report.review_id)
+      .first<{ course_id: number }>()
+    await c.env.DB.prepare('UPDATE reviews SET is_hidden = 1 WHERE id = ?').bind(report.review_id).run()
+    if (review) {
+      await refreshCourseStats(c.env.DB, Number(review.course_id))
+      await purgeRelatedCourseDetailCache(c.env.DB, Number(review.course_id))
+    }
+  }
+
+  const label = action === 'resolved' ? '已通过（评价已隐藏）' : '已驳回（评价保留）'
+  const color = action === 'resolved' ? '#16a34a' : '#dc2626'
+  const page = buildReportActionHtml({
+    title: '操作完成',
+    message: `举报 #${reportId} 已标记为：${label}`,
+    color
+  })
+  return reportActionResponse(page)
 })
 
 export default publicRoutes

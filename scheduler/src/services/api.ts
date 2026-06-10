@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-// Base URL is set in main.ts via axios.defaults.baseURL
-const api = axios.create()
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || ''
+const api = axios.create({ baseURL: API_BASE_URL })
 
 // Error helper
 function extractError(error: unknown, fallback: string): string {
@@ -68,7 +68,8 @@ export async function getAllFaculty() {
 
 export async function getLatestUpdateTime() {
   const res = await api.get('/api/getLatestUpdateTime')
-  return res.data?.data || res.data
+  const value = res.data?.data || res.data
+  return typeof value === 'string' && !value.trim().startsWith('<') ? value : ''
 }
 
 export async function getLatestCourseInfo(calendarId: number, codes: string[]) {
