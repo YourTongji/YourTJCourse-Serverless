@@ -388,24 +388,21 @@ publicRoutes.get('/courses', async (c) => {
     }
 
     // Teacher filters resolve precisely through the main `teachers` table. Each `courses`
-    // row is a (course, teacher) section via teacher_id, so this returns exactly the sections
+    // row is a (course, teacher) section via teacher_id, so this matches exactly the sections
     // the teacher actually teaches — and the displayed teacher (t.name) then matches the course
-    // detail page. The PK coursedetail/teacher tables can only be joined to main courses by
-    // shared course code, which is NOT teacher-specific: short shared codes (e.g. the 形势与政策
-    // / 思修 family) link one teacher's section to many other teachers' sections, so a PK-based
-    // teacher match returns the wrong teachers' courses (filtering 弓昭民 surfaced 陈双珠 etc. in
-    // issue #86). Teacher filters therefore must not go through the PK code join.
-    if (teacherName || teacherCode) {
-      const teacherWhere: string[] = []
-      if (teacherName) {
-        teacherWhere.push("t2.name LIKE ? ESCAPE '\\'")
-        baseParams.push(containsLikePattern(teacherName))
-      }
-      if (teacherCode) {
-        teacherWhere.push("t2.tid LIKE ? ESCAPE '\\'")
-        baseParams.push(containsLikePattern(teacherCode))
-      }
-      baseWhere += ` AND c.id IN (SELECT c2.id FROM courses c2 JOIN teachers t2 ON t2.id = c2.teacher_id WHERE ${teacherWhere.join(' AND ')})`
+    // detail page. The aggregated CTE already joins `teachers t ON c.teacher_id = t.id`, so we
+    // filter that alias directly. The PK coursedetail/teacher tables can only be joined to main
+    // courses by shared course code, which is NOT teacher-specific: short shared codes (e.g. the
+    // 形势与政策 / 思修 family) link one teacher's section to many other teachers' sections, so a
+    // PK-based teacher match returns the wrong teachers' courses (filtering 弓昭民 surfaced 陈双珠
+    // etc. in issue #86). Teacher filters therefore must not go through the PK code join.
+    if (teacherName) {
+      baseWhere += " AND t.name LIKE ? ESCAPE '\\'"
+      baseParams.push(containsLikePattern(teacherName))
+    }
+    if (teacherCode) {
+      baseWhere += " AND t.tid LIKE ? ESCAPE '\\'"
+      baseParams.push(containsLikePattern(teacherCode))
     }
 
     // courseName / campus / faculty live in the PK coursedetail table. campus & faculty are
