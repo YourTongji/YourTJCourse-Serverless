@@ -1,4 +1,9 @@
 import { Card } from "~/components/ui/card";
+import type { MetaFunction } from "react-router";
+export const meta: MetaFunction = () => [
+  { title: "常见问题 — YOURTJ选课社区" },
+  { name: "description", content: "YOURTJ选课社区的常见问题与回答" },
+];
 
 export default function FAQ() {
   return (

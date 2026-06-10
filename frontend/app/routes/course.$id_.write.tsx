@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { MetaFunction } from "react-router";
+export const meta: MetaFunction = () => [
+  { title: "写评价 — YOURTJ选课社区" },
+  { name: "description", content: "撰写课程评价" },
+];
 import {
   useLoaderData,
   useLocation,

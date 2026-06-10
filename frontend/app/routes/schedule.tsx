@@ -1,5 +1,5 @@
-
 import { useState, useCallback, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import type { CourseInfo } from "~/lib/schedule/types";
 import { useSchedulerStore } from "~/lib/schedule/store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
@@ -17,6 +17,10 @@ export default function Schedule() {
   const [timeCellOpen, setTimeCellOpen] = useState(false);
   const [timeCellCourses, setTimeCellCourses] = useState<CourseInfo[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
+
+  // ── Cascade loading state: show spinner while calendars are being fetched
+  const calendars = useSchedulerStore((s) => s.calendars);
+  const cascadeLoading = calendars.length === 0;
 
   // ── Persistence restoration: when cascade values are restored from
   //     localStorage by Zustand persist middleware, trigger compulsory
@@ -42,6 +46,17 @@ export default function Schedule() {
     setTimeCellCourses(courses);
     setTimeCellOpen(true);
   }, []);
+
+  if (cascadeLoading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-slate-500">
+          <Loader2 className="size-8 animate-spin text-brand" />
+          <p className="text-sm">加载排课数据...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

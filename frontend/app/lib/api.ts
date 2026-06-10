@@ -440,12 +440,6 @@ export async function fetchSiteRuntimeState(): Promise<SiteRuntimeState> {
   return safeJson<SiteRuntimeState>(res);
 }
 
-export async function fetchShowIcu(): Promise<{ show_icu: boolean }> {
-  const res = await fetchWithTimeout(`${API_BASE}/api/settings/show_icu`, undefined, 15000);
-  if (!res.ok) throw new Error("Failed to fetch show_icu setting");
-  return safeJson<{ show_icu: boolean }>(res);
-}
-
 export async function fetchAnnouncements(): Promise<{ announcements: Announcement[] }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/settings/announcements`, undefined, 15000);
   if (!res.ok) throw new Error("Failed to fetch announcements");

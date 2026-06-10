@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+import type { MetaFunction } from "react-router";
+export const meta: MetaFunction = () => [
+  { title: "反馈 — YOURTJ选课社区" },
+  { name: "description", content: "向YOURTJ选课社区提交问题、建议和站点反馈" },
+];
 import { useEffect, useRef, useState } from "react";
 
 import { Card } from "~/components/ui/card";

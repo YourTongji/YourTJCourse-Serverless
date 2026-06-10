@@ -16,5 +16,6 @@ export default [
     route("feedback", "routes/feedback.tsx"),
     route("schedule", "routes/schedule.tsx"),
     route("admin", "routes/admin.tsx"),
+    route("*", "routes/splat.tsx"),
   ]),
 ] satisfies RouteConfig;

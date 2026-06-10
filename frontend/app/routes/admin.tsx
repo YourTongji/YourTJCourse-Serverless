@@ -1,4 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import type { MetaFunction } from "react-router";
+
+export const meta: MetaFunction = () => [
+  { title: "管理后台 — YOURTJ选课社区" },
+];
 
 export default function Admin() {
   return (
