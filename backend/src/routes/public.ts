@@ -34,8 +34,9 @@ import {
 } from '../helpers/db'
 import { verifyTurnstile, isAllowedTurnstileHostname } from '../helpers/turnstile'
 import { verifyTongjiCaptcha } from '../helpers/captcha'
-import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar } from '../helpers/review'
+import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar, sha256Hex } from '../helpers/review'
 import { notifyReportToFeishu, verifyActionToken } from '../helpers/feishu'
+import { getMiniSearchCourseCandidates } from '../helpers/course-mini-search'
 import {
   buildCacheControl,
   COURSE_DETAIL_CACHE_VERSION,
@@ -134,13 +135,6 @@ async function loadEditableReviewIdSetByToken(
   }
 
   return result
-}
-
-async function sha256Hex(value: string) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
 }
 
 function stripWalletUserHash<T extends Record<string, any>>(review: T) {
@@ -255,7 +249,6 @@ publicRoutes.get('/courses', async (c) => {
     const offset = (page - 1) * limit
 
     const showIcu = await getShowIcuSetting(c.env.DB)
-    const courseAuxReady = await isAuxiliaryCourseDataReady(c.env.DB)
     const canUseWorkerCache = !includeTotal
 
     if (canUseWorkerCache) {
@@ -275,6 +268,9 @@ publicRoutes.get('/courses', async (c) => {
     const baseParams: any[] = []
     const ctes: string[] = []
     const cteParams: any[] = []
+    let miniSearchCandidate:
+      | Awaited<ReturnType<typeof getMiniSearchCourseCandidates>>
+      | null = null
 
     if (!showIcu) {
       baseWhere += ' AND (c.is_icu = 0 OR c.is_icu IS NULL)'
@@ -283,18 +279,47 @@ publicRoutes.get('/courses', async (c) => {
     baseWhere += " AND NOT (c.is_legacy = 1 AND c.code LIKE '%AUTO%')"
 
     if (keyword) {
+      try {
+        miniSearchCandidate = await getMiniSearchCourseCandidates(
+          c.env.DB,
+          showIcu,
+          keyword,
+          {
+            departments,
+            courseName,
+            courseCode,
+            teacherName,
+            teacherCode,
+            campus,
+            faculty
+          },
+          c.env.COURSE_SEARCH_INDEX
+        )
+      } catch {
+        miniSearchCandidate = null
+      }
+
+      const courseAuxReady = miniSearchCandidate ? false : await isAuxiliaryCourseDataReady(c.env.DB)
       const ftsQuery = courseAuxReady ? buildCourseSearchMatchQuery(keyword) : ''
       const rawVariants = buildKeywordSearchVariants(keyword)
       const looseVariants = Array.from(new Set(rawVariants.map((item) => normalizeLooseSearchText(item)).filter(Boolean)))
       const structuredKeywordTerms = buildStructuredKeywordTerms(keyword)
       const keywordClauses: string[] = []
 
-      if (courseAuxReady && ftsQuery) {
+      if (miniSearchCandidate) {
+        if (miniSearchCandidate.courseIds.length > 0) {
+          const placeholders = miniSearchCandidate.courseIds.map(() => '?').join(',')
+          baseWhere += ` AND c.id IN (${placeholders})`
+          baseParams.push(...miniSearchCandidate.courseIds)
+        } else {
+          baseWhere += ' AND 0'
+        }
+      } else if (courseAuxReady && ftsQuery) {
         keywordClauses.push('c.id IN (SELECT course_id FROM course_search WHERE search_doc MATCH ?)')
         baseParams.push(ftsQuery)
       }
 
-      if (rawVariants.length > 0) {
+      if (!miniSearchCandidate && rawVariants.length > 0) {
         const perVariant =
           "(c.code LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\' OR t.name LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM course_aliases a WHERE a.system = 'onesystem' AND a.course_id = c.id AND a.alias LIKE ? ESCAPE '\\'))"
         keywordClauses.push(rawVariants.map(() => perVariant).join(' OR '))
@@ -304,7 +329,7 @@ publicRoutes.get('/courses', async (c) => {
         }
       }
 
-      if (looseVariants.length > 0) {
+      if (!miniSearchCandidate && looseVariants.length > 0) {
         const looseExprs = [
           buildLooseSqlExpr('c.code'),
           buildLooseSqlExpr('c.name'),
@@ -394,13 +419,17 @@ publicRoutes.get('/courses', async (c) => {
         pk_match AS (
           SELECT DISTINCT c2.id AS id, TRIM(tt.teacherName) AS matched_teacher_name
           FROM courses c2
-          JOIN coursedetail cd ON (cd.courseCode = c2.code OR cd.newCourseCode = c2.code)
+          JOIN coursedetail cd ON (
+            cd.courseCode = c2.code OR cd.code = c2.code OR cd.newCourseCode = c2.code OR cd.newCode = c2.code
+          )
           LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
           WHERE 1=1${pkExtraWhere}
           UNION
           SELECT DISTINCT a.course_id AS id, TRIM(tt.teacherName) AS matched_teacher_name
           FROM course_aliases a
-          JOIN coursedetail cd ON (a.alias = cd.courseCode OR a.alias = cd.newCourseCode)
+          JOIN coursedetail cd ON (
+            a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
+          )
           LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
           WHERE a.system = 'onesystem'${pkExtraWhere}
         )
@@ -508,6 +537,11 @@ publicRoutes.get('/courses', async (c) => {
     if (typeof total === 'number') {
       payload.total = total
       payload.totalPages = Math.ceil(total / limit)
+    }
+    if (miniSearchCandidate) {
+      c.header('x-course-search-index-source', miniSearchCandidate.source)
+      c.header('x-course-search-index-docs', String(miniSearchCandidate.docCount))
+      c.header('x-course-search-index-ms', String(miniSearchCandidate.elapsedMs))
     }
 
     if (!canUseWorkerCache) {
@@ -1279,32 +1313,37 @@ publicRoutes.post('/review/:id/report', async (c) => {
     .first<{ id: number; comment?: string | null; rating: number; semester?: string | null; course_id: number; course_name: string }>()
   if (!reviewRow) return c.json({ error: 'Review not found' }, 404)
 
-  const isNewReport = !(await c.env.DB
-    .prepare('SELECT 1 AS x FROM review_reports WHERE review_id = ? AND client_id = ? LIMIT 1')
-    .bind(id, clientId)
-    .first<{ x: number }>())
-
   const report = await c.env.DB
     .prepare(
       `INSERT INTO review_reports (review_id, client_id, reason, status, created_at, updated_at)
        VALUES (?, ?, ?, 'open', strftime('%s', 'now'), strftime('%s', 'now'))
        ON CONFLICT(review_id, client_id)
-       DO UPDATE SET reason = excluded.reason, status = 'open', updated_at = strftime('%s', 'now')
+       DO NOTHING
        RETURNING id`
     )
     .bind(id, clientId, reason)
     .first<{ id: number }>()
 
   const reportId = Number(report?.id || 0) || null
+  const isNewReport = Boolean(reportId)
+  const effectiveReportId = reportId || Number((await c.env.DB
+    .prepare(
+      `UPDATE review_reports
+       SET reason = ?, status = 'open', updated_at = strftime('%s', 'now')
+       WHERE review_id = ? AND client_id = ?
+       RETURNING id`
+    )
+    .bind(reason, id, clientId)
+    .first<{ id: number }>())?.id || 0) || null
 
-  if (isNewReport && reportId) {
+  if (isNewReport && effectiveReportId) {
     // Fire-and-forget Feishu notification (don't block response)
     const sqid = (await c.env.DB.prepare('SELECT id FROM reviews WHERE id = ? LIMIT 1').bind(id).first<{ id: number }>())?.id
     const origin = new URL(c.req.url).origin
     c.executionCtx.waitUntil(
       notifyReportToFeishu(
         {
-          reportId,
+          reportId: effectiveReportId,
           reviewId: id,
           reviewSqid: sqid ? String(sqid) : String(id),
           courseName: String(reviewRow.course_name || ''),
@@ -1321,7 +1360,7 @@ publicRoutes.post('/review/:id/report', async (c) => {
     )
   }
 
-  return c.json({ success: true, reportId })
+  return c.json({ success: true, reportId: effectiveReportId })
 })
 
 publicRoutes.post('/review/:id/like', async (c) => {
@@ -1455,7 +1494,10 @@ function buildReportActionHtml(options: {
 function reportActionResponse(page: ReturnType<typeof buildReportActionHtml>) {
   return new Response(page.html, {
     status: page.statusCode,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store'
+    }
   })
 }
 
@@ -1590,7 +1632,7 @@ publicRoutes.post('/admin/report/:reportId/resolve', async (c) => {
   }
 
   const now = Math.floor(Date.now() / 1000)
-  await c.env.DB
+  const updateResult = await c.env.DB
     .prepare(
       `UPDATE review_reports
        SET status = ?, resolved_at = ?, updated_at = ?
@@ -1598,6 +1640,24 @@ publicRoutes.post('/admin/report/:reportId/resolve', async (c) => {
     )
     .bind(action, now, now, reportId)
     .run()
+
+  if (Number(updateResult.meta?.changes || 0) === 0) {
+    const latest = await c.env.DB
+      .prepare('SELECT status FROM review_reports WHERE id = ? LIMIT 1')
+      .bind(reportId)
+      .first<{ status: string }>()
+    const latestLabel = latest?.status === 'resolved'
+      ? '已处理（通过）'
+      : latest?.status === 'rejected'
+        ? '已处理（驳回）'
+        : '状态未变更'
+    const page = buildReportActionHtml({
+      title: '举报已处理',
+      message: `该举报当前状态为：${latestLabel}`,
+      color: '#ca8a04'
+    })
+    return reportActionResponse(page)
+  }
 
   const label = action === 'resolved' ? '已通过（评价保持显示）' : '已驳回'
   const color = action === 'resolved' ? '#16a34a' : '#dc2626'

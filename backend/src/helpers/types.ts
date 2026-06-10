@@ -1,5 +1,6 @@
 export type Bindings = {
   DB: D1Database
+  COURSE_SEARCH_INDEX?: KVNamespace
   CAPTCHA_SITEVERIFY_URL: string
   ADMIN_SECRET: string
   TURNSTILE_SECRET_KEY?: string
