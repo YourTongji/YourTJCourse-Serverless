@@ -172,12 +172,12 @@ jobs:
             echo "feishu webhook secret: missing"
           fi
 
-          if [ -n "${ADMIN_SECRET:-}" ]; then
-            echo "$ADMIN_SECRET" | npx wrangler versions secret put ADMIN_SECRET --env ""
-            echo "admin secret: set"
-          else
-            echo "admin secret: missing (JCOURSE_ADMIN_SECRET)"
+          if [ -z "$ADMIN_SECRET" ]; then
+            echo "Missing secrets.JCOURSE_ADMIN_SECRET (used as backend ADMIN_SECRET)" >&2
+            exit 1
           fi
+          echo "$ADMIN_SECRET" | npx wrangler versions secret put ADMIN_SECRET --env ""
+          echo "admin secret: set"
 
       - name: Deploy Worker
         run: npx wrangler deploy
