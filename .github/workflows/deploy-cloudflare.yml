@@ -81,6 +81,8 @@ jobs:
       AI_SUMMARY_KEY: ${{ secrets.AI_SUMMARY_KEY }}
       AI_SUMMARY_MODEL: ${{ secrets.AI_SUMMARY_MODEL }}
       AI_SUMMARY_BASE_URL: ${{ secrets.AI_SUMMARY_BASE_URL }}
+      FEISHU_REPORT_WEBHOOK_URL: ${{ secrets.FEISHU_REPORT_WEBHOOK_URL }}
+      FEISHU_REPORT_WEBHOOK_SECRET: ${{ secrets.FEISHU_REPORT_WEBHOOK_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -153,6 +155,20 @@ jobs:
             echo "ai summary base url: set"
           else
             echo "ai summary base url: missing"
+          fi
+
+          if [ -n "${FEISHU_REPORT_WEBHOOK_URL:-}" ]; then
+            echo "$FEISHU_REPORT_WEBHOOK_URL" | npx wrangler versions secret put FEISHU_REPORT_WEBHOOK_URL --env ""
+            echo "feishu webhook url: set"
+          else
+            echo "feishu webhook url: missing"
+          fi
+
+          if [ -n "${FEISHU_REPORT_WEBHOOK_SECRET:-}" ]; then
+            echo "$FEISHU_REPORT_WEBHOOK_SECRET" | npx wrangler versions secret put FEISHU_REPORT_WEBHOOK_SECRET --env ""
+            echo "feishu webhook secret: set"
+          else
+            echo "feishu webhook secret: missing"
           fi
 
       - name: Deploy Worker

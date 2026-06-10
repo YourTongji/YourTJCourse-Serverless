@@ -1,5 +1,6 @@
 export type Bindings = {
   DB: D1Database
+  COURSE_SEARCH_INDEX?: KVNamespace
   CAPTCHA_SITEVERIFY_URL: string
   ADMIN_SECRET: string
   TURNSTILE_SECRET_KEY?: string
@@ -11,6 +12,8 @@ export type Bindings = {
   VITE_CREDIT_API_BASE?: string
   JCOURSE_INTEGRATION_SECRET?: string
   APP_ENV?: string
+  FEISHU_REPORT_WEBHOOK_URL?: string
+  FEISHU_REPORT_WEBHOOK_SECRET?: string
   AI_SUMMARY_KEY?: string
   AI_SUMMARY_MODEL?: string
   AI_SUMMARY_BASE_URL?: string

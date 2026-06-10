@@ -10,6 +10,10 @@ binding = "DB"
 database_name = "jcourse-db"
 database_id = "ced26cfd-a3a7-4b06-ac3f-587c9c939c1c"
 
+[[kv_namespaces]]
+binding = "COURSE_SEARCH_INDEX"
+id = "2a9f78e1e4e84bdfa2d7285f85b5eff0"
+
 [env.dev]
 name = "jcourse-backend-dev"
 
@@ -20,6 +24,10 @@ APP_ENV = "dev"
 binding = "DB"
 database_name = "jcourse-db"
 database_id = "ced26cfd-a3a7-4b06-ac3f-587c9c939c1c"
+
+[[env.dev.kv_namespaces]]
+binding = "COURSE_SEARCH_INDEX"
+id = "e5079669bf8f4bdeac218dcfa88733b9"
 
 # 环境变量需要通过 wrangler secret 设置:
 # wrangler secret put CAPTCHA_SITEVERIFY_URL

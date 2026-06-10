@@ -84,7 +84,7 @@ GET /api/course/:id/related
 GET /api/course/by-code/:code
 ```
 
-- `/api/course/:id` 返回课程信息、评价、点赞状态和相关基础信息。
+- `/api/course/:id` 返回课程信息、评价、点赞状态和相关基础信息；不会暴露内部钱包字段，编辑入口仅通过本地生成的只读 `edit_token` 证明标记，提交编辑时仍由服务端校验 `edit_token`。
 - `/api/course/:id/related` 返回同教师其他课程、同课程其他教师的简要信息。
 - `/api/course/by-code/:code` 给排课模拟器弹窗使用，支持 `teacherName`、`teacherCode`、`clientId` 查询参数。
 - 当管理员关闭乌龙茶/ICU 数据显示时，`is_icu=1` 的课程和评价会被隐藏。
@@ -94,6 +94,7 @@ GET /api/course/by-code/:code
 ```http
 POST /api/review
 PUT /api/review/:id
+POST /api/review/:id/report
 POST /api/review/:id/like
 DELETE /api/review/:id/like
 ```
@@ -120,6 +121,16 @@ DELETE /api/review/:id/like
 ```
 
 当前没有点踩接口。取消点赞使用 `DELETE /api/review/:id/like`。
+
+举报接口用于 App Store UGC 合规，`reason` 支持 `spam`、`harassment`、`misinformation`、`other`：
+
+```json
+{ "reason": "spam", "clientId": "browser-client-id" }
+```
+
+同一服务端派生客户端对同一评价重复举报会更新原因与时间，不会重复创建多条记录；若该举报此前已被处理，重复举报会将其重新打开并再次通知管理员。
+
+管理员通过飞书卡片按钮处理举报：按钮打开确认页（GET），确认提交（POST）后才会变更状态。"通过"会将被举报的评价设为隐藏并刷新课程统计，"驳回"则保留评价。
 
 ## 排课模拟器接口
 

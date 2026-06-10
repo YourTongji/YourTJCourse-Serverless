@@ -105,11 +105,12 @@ export async function fetchDepartments(legacy?: boolean) {
   return res.json()
 }
 
-export async function fetchCourse(id: string, opts?: { clientId?: string; legacy?: boolean; cacheBust?: boolean }) {
+export async function fetchCourse(id: string, opts?: { clientId?: string; legacy?: boolean; cacheBust?: boolean; editReviewProofs?: string }) {
   const q = new URLSearchParams()
   if (opts?.clientId) q.set('clientId', opts.clientId)
   if (opts?.legacy) q.set('legacy', 'true')
   if (opts?.cacheBust) q.set('_', String(Date.now()))
+  if (opts?.editReviewProofs) q.set('editReviewProofs', opts.editReviewProofs)
   const suffix = q.toString() ? `?${q.toString()}` : ''
   const res = await fetchWithTimeout(`${API_BASE}/api/course/${id}${suffix}`, opts?.cacheBust ? {
     cache: 'no-store',
