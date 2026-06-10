@@ -415,32 +415,38 @@ publicRoutes.get('/courses', async (c) => {
 
       const pkExtraWhere = pkWhere.length > 0 ? ` AND ${pkWhere.join(' AND ')}` : ''
 
-      // Teacher filters must also resolve through the main `teachers` table (courses.teacher_id),
-      // which is what the MiniSearch index draws teacherName/teacherCode from. Without this, a
-      // teacher that only exists in the main table (no PK coursedetail section) is found by the
-      // search box but dropped by the filter — the misalignment behind issue #86. The PK-only
-      // fields (courseName/campus/faculty) cannot be satisfied by the main table, so this branch
-      // applies only when the active filters are teacher-only.
-      const mainTeacherWhere: string[] = []
-      const mainTeacherParams: any[] = []
-      const canMatchMainTeachers = !courseName && !campus && !faculty && Boolean(teacherName || teacherCode)
-      if (canMatchMainTeachers) {
+      // The MiniSearch index draws course name and teacher name/code from the main
+      // courses/teachers tables, but the PK match above resolves them only through the
+      // coursedetail/teacher tables. A course or teacher that exists only in the main tables
+      // (no PK coursedetail section) is therefore found by the search box yet dropped by the
+      // filter — the misalignment behind issue #86. Mirror the satisfiable filters against the
+      // main tables too. campus/faculty are PK-only columns, so the main branch can contribute
+      // only when neither of them is requested.
+      const mainWhere: string[] = []
+      const mainParams: any[] = []
+      const canMatchMain = !campus && !faculty && Boolean(courseName || teacherName || teacherCode)
+      const needMainTeacherJoin = Boolean(teacherName || teacherCode)
+      if (canMatchMain) {
+        if (courseName) {
+          mainWhere.push("c2.name LIKE ? ESCAPE '\\'")
+          mainParams.push(containsLikePattern(courseName))
+        }
         if (teacherName) {
-          mainTeacherWhere.push("t2.name LIKE ? ESCAPE '\\'")
-          mainTeacherParams.push(containsLikePattern(teacherName))
+          mainWhere.push("t2.name LIKE ? ESCAPE '\\'")
+          mainParams.push(containsLikePattern(teacherName))
         }
         if (teacherCode) {
-          mainTeacherWhere.push("t2.tid LIKE ? ESCAPE '\\'")
-          mainTeacherParams.push(containsLikePattern(teacherCode))
+          mainWhere.push("t2.tid LIKE ? ESCAPE '\\'")
+          mainParams.push(containsLikePattern(teacherCode))
         }
       }
-      const mainTeacherBranch = canMatchMainTeachers
+      const mainTeacherBranch = canMatchMain
         ? `
           UNION
-          SELECT DISTINCT c2.id AS id, TRIM(t2.name) AS matched_teacher_name
+          SELECT DISTINCT c2.id AS id, ${needMainTeacherJoin ? 'TRIM(t2.name)' : "''"} AS matched_teacher_name
           FROM courses c2
-          JOIN teachers t2 ON t2.id = c2.teacher_id
-          WHERE ${mainTeacherWhere.join(' AND ')}`
+          ${needMainTeacherJoin ? 'JOIN teachers t2 ON t2.id = c2.teacher_id' : ''}
+          WHERE ${mainWhere.join(' AND ')}`
         : ''
 
       ctes.push(`
@@ -465,7 +471,7 @@ publicRoutes.get('/courses', async (c) => {
 
       baseWhere += ` AND c.id IN (SELECT id FROM pk_match)`
 
-      cteParams.push(...pkParams, ...pkParams, ...mainTeacherParams)
+      cteParams.push(...pkParams, ...pkParams, ...mainParams)
     }
 
     if (departments) {
