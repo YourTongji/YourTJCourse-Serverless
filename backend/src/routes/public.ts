@@ -96,27 +96,51 @@ async function loadReviewIdSetByClient(
   return result
 }
 
-async function loadEditableReviewIdSet(
+function parseReviewEditProofs(raw: string) {
+  const proofs = new Map<number, string>()
+  for (const item of String(raw || '').split(',')) {
+    const [idPart, tokenPart] = item.split(':')
+    const id = Number(idPart)
+    const token = String(tokenPart || '').trim()
+    if (Number.isFinite(id) && id > 0 && /^[a-f0-9]{64}$/i.test(token)) {
+      proofs.set(id, token)
+    }
+  }
+  return proofs
+}
+
+async function loadEditableReviewIdSetByToken(
   db: D1Database,
-  reviewIds: number[],
-  walletHash: string
+  proofs: Map<number, string>
 ) {
   const result = new Set<number>()
-  const ids = Array.from(new Set(reviewIds.filter((id) => Number.isFinite(id) && id > 0)))
-  if (!walletHash || ids.length === 0) return result
+  const entries = Array.from(proofs.entries()).filter(([id]) => Number.isFinite(id) && id > 0)
+  if (entries.length === 0) return result
 
-  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
-    const placeholders = part.map(() => '?').join(',')
+  for (const part of chunkArray(entries, D1_SAFE_BATCH_SIZE)) {
+    const reviewIds = part.map(([id]) => id)
+    const placeholders = reviewIds.map(() => '?').join(',')
     const rows = await db
-      .prepare(`SELECT id FROM reviews WHERE wallet_user_hash = ? AND id IN (${placeholders})`)
-      .bind(walletHash, ...part)
-      .all<{ id: number }>()
+      .prepare(`SELECT id, edit_token FROM reviews WHERE id IN (${placeholders})`)
+      .bind(...reviewIds)
+      .all<{ id: number; edit_token?: string | null }>()
     for (const row of rows.results || []) {
-      result.add(Number((row as any).id))
+      const id = Number((row as any).id)
+      const expected = String((row as any).edit_token || '').trim()
+      if (!expected) continue
+      const expectedProof = await sha256Hex(`yourtj:can-edit:${expected}`)
+      if (proofs.get(id) === expectedProof) result.add(id)
     }
   }
 
   return result
+}
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 function stripWalletUserHash<T extends Record<string, any>>(review: T) {
@@ -535,8 +559,7 @@ publicRoutes.get('/course/:id', async (c) => {
 
     const hasClientId = Boolean((c.req.query('clientId') || '').trim())
     const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
-    const requestedWalletHash = String(c.req.query('walletUserHash') || c.req.query('wallet_user_hash') || '').trim()
-    const editableWalletHash = /^[a-f0-9]{64}$/i.test(requestedWalletHash) ? requestedWalletHash : ''
+    const editProofs = parseReviewEditProofs(c.req.query('editReviewProofs') || '')
     const bypassCourseDetailCache = Boolean((c.req.query('_') || c.req.query('reviewRefresh') || '').trim())
     const cacheKey = buildCourseDetailCacheRequest(id, showIcu)
     const cache = caches.default
@@ -554,7 +577,7 @@ publicRoutes.get('/course/:id', async (c) => {
           reviews: cachedReviews
         }
 
-        if (!clientId && !editableWalletHash) {
+        if (!clientId && editProofs.size === 0) {
           return new Response(JSON.stringify(basePayload), {
             headers: {
               'Content-Type': 'application/json; charset=utf-8',
@@ -568,7 +591,7 @@ publicRoutes.get('/course/:id', async (c) => {
           : []
 
         const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
-        const editableSet = await loadEditableReviewIdSet(c.env.DB, reviewIds, editableWalletHash)
+        const editableSet = await loadEditableReviewIdSetByToken(c.env.DB, editProofs)
 
         const personalized = {
           ...(basePayload as any),
@@ -643,12 +666,6 @@ publicRoutes.get('/course/:id', async (c) => {
       .all()
 
     const rawReviews = (reviews.results || []) as any[]
-    const editableSet = new Set<number>(
-      rawReviews
-        .filter((r: any) => editableWalletHash && String(r?.wallet_user_hash || '').trim() === editableWalletHash)
-        .map((r: any) => Number(r?.id))
-        .filter((n: number) => Number.isFinite(n))
-    )
     const reviewsWithSqid = addSqidToReviews(rawReviews).map((r: any) => ({
       ...stripWalletUserHash(r),
       like_count: Number(r?.approve_count || 0),
@@ -679,18 +696,11 @@ publicRoutes.get('/course/:id', async (c) => {
     })
     c.executionCtx.waitUntil(cache.put(cacheKey, cacheRes.clone()))
 
-    if (!clientId && !editableWalletHash) return cacheRes
+    if (!clientId && editProofs.size === 0) return cacheRes
 
     const reviewIds = rawReviews.map((r) => Number(r?.id)).filter((n) => Number.isFinite(n))
-    let likedSet = new Set<number>()
-    if (clientId && reviewIds.length > 0) {
-      const placeholders2 = reviewIds.map(() => '?').join(',')
-      const likedRows = await c.env.DB
-        .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders2})`)
-        .bind(clientId, ...reviewIds)
-        .all<{ review_id: number }>()
-      likedSet = new Set<number>((likedRows.results || []).map((r: any) => Number(r.review_id)))
-    }
+    const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
+    const editableSet = await loadEditableReviewIdSetByToken(c.env.DB, editProofs)
 
     const personalized = {
       ...basePayload,
