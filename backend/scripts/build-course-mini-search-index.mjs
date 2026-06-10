@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import MiniSearch from 'minisearch'
 
-const INDEX_VERSION = 'course-mini-search-v1'
+const INDEX_VERSION = 'course-mini-search-v2'
 const KV_VALUE_LIMIT_BYTES = 25 * 1024 * 1024
 const DEFAULT_PAGE_SIZE = 5000
 
@@ -254,16 +254,12 @@ function buildDocuments(source, showIcu) {
   return documents
 }
 
-function buildPayload(documents, showIcu) {
+// The KV value is the raw MiniSearch index JSON so the worker can feed it to
+// MiniSearch.loadJSON without an intermediate parse; envelope fields go in KV metadata.
+function buildIndexJson(documents) {
   const search = new MiniSearch(miniSearchOptions)
   search.addAll(documents)
-  return {
-    version: INDEX_VERSION,
-    showIcu,
-    builtAt: Date.now(),
-    docCount: documents.length,
-    index: search.toJSON()
-  }
+  return JSON.stringify(search.toJSON())
 }
 
 function putKv(key, filePath, bytes, docCount, showIcu) {
@@ -273,6 +269,7 @@ function putKv(key, filePath, bytes, docCount, showIcu) {
     version: INDEX_VERSION,
     showIcu: showIcu ? '1' : '0',
     docCount: String(docCount),
+    builtAt: String(Date.now()),
     bytes: String(bytes)
   }))
   runWrangler(command, { stdio: 'pipe' })
@@ -286,8 +283,7 @@ fs.mkdirSync(generatedDir, { recursive: true })
 const summaries = []
 for (const showIcu of showIcuTargets) {
   const documents = buildDocuments(source, showIcu)
-  const payload = buildPayload(documents, showIcu)
-  const serialized = JSON.stringify(payload)
+  const serialized = buildIndexJson(documents)
   const bytes = Buffer.byteLength(serialized)
   const key = `${INDEX_VERSION}:show_icu:${showIcu ? '1' : '0'}`
   const outputPath = path.join(generatedDir, `${key.replace(/[:]/g, '-')}.json`)

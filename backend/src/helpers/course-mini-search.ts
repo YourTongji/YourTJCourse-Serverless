@@ -9,7 +9,7 @@ import {
 const INDEX_TTL_MS = 5 * 60 * 1000
 const MAX_INDEX_ROWS = 80_000
 const SEARCH_CANDIDATE_LIMIT = 500
-const INDEX_VERSION = 'course-mini-search-v1'
+const INDEX_VERSION = 'course-mini-search-v2'
 
 type MiniCourseDocument = {
   id: string
@@ -38,12 +38,13 @@ type CourseSearchCandidates = {
   source: 'memory' | 'kv' | 'd1'
 }
 
-type SerializedMiniSearchPayload = {
-  version: string
-  showIcu: boolean
-  builtAt: number
-  docCount: number
-  index: unknown
+// The KV value is the raw MiniSearch index JSON; envelope fields live in KV metadata
+// so the index string can go straight into MiniSearch.loadJSON without re-parsing.
+type MiniSearchKvMetadata = {
+  version?: string
+  showIcu?: string
+  docCount?: string
+  builtAt?: string
 }
 
 let cache: MiniSearchCache | null = null
@@ -198,9 +199,12 @@ async function loadMiniSearchDocuments(db: D1Database, showIcu: boolean) {
   return documents
 }
 
-function loadMiniSearchFromPayload(payload: SerializedMiniSearchPayload): MiniSearch<MiniCourseDocument> | null {
-  if (!payload || payload.version !== INDEX_VERSION || typeof payload.index !== 'object') return null
-  return MiniSearch.loadJSON<MiniCourseDocument>(JSON.stringify(payload.index), miniSearchOptions)
+function loadMiniSearchFromIndexJson(indexJson: string): MiniSearch<MiniCourseDocument> | null {
+  try {
+    return MiniSearch.loadJSON<MiniCourseDocument>(indexJson, miniSearchOptions)
+  } catch {
+    return null
+  }
 }
 
 async function getMiniSearch(db: D1Database, showIcu: boolean, kv?: KVNamespace) {
@@ -208,17 +212,18 @@ async function getMiniSearch(db: D1Database, showIcu: boolean, kv?: KVNamespace)
   if (cache && cache.showIcu === showIcu && now - cache.builtAt < INDEX_TTL_MS) return cache
 
   if (kv) {
-    const payload = await kv
-      .get<SerializedMiniSearchPayload>(buildKvKey(showIcu), { type: 'json', cacheTtl: 60 })
+    const entry = await kv
+      .getWithMetadata<MiniSearchKvMetadata>(buildKvKey(showIcu), { type: 'text', cacheTtl: 60 })
       .catch(() => null)
-    if (payload?.version === INDEX_VERSION && payload.showIcu === showIcu) {
-      const search = loadMiniSearchFromPayload(payload)
+    const metadata = entry?.metadata
+    if (entry?.value && metadata?.version === INDEX_VERSION && metadata.showIcu === (showIcu ? '1' : '0')) {
+      const search = loadMiniSearchFromIndexJson(entry.value)
       if (search) {
         cache = {
           search,
           builtAt: now,
           showIcu,
-          docCount: Number(payload.docCount || 0),
+          docCount: Number(metadata.docCount || 0),
           source: 'kv'
         }
         return cache
