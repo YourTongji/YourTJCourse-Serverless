@@ -85,10 +85,9 @@
 }
 
 /* ─── Accessibility ─── */
-/* WCAG SC 2.5.5 Target Size: ensure interactive elements reach
-   minimum 44×44px touch area on coarse-pointer devices.
-   Icon buttons (size-icon, h-6, h-7) should use padding to
-   extend hit area when reworking touch-target pass (M5). */
+@media (pointer: coarse) {
+  .touch-target { min-height: 44px; min-width: 44px; }
+}
 
 /* ─── Reduced Motion ─── */
 @media (prefers-reduced-motion: reduce) {
@@ -102,55 +101,29 @@
 
 /* ─── Announcement Bar Carousel ─── */
 @keyframes slide-in-next {
-  from {
-    opacity: 0;
-    transform: translateX(2rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(2rem); }
+  to { opacity: 1; transform: translateX(0); }
 }
-
 @keyframes slide-in-prev {
-  from {
-    opacity: 0;
-    transform: translateX(-2rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-2rem); }
+  to { opacity: 1; transform: translateX(0); }
 }
-
-@utility animate-slide-in-next {
-  animation: slide-in-next 520ms ease-out both;
-}
-
-@utility animate-slide-in-prev {
-  animation: slide-in-prev 520ms ease-out both;
-}
+@utility animate-slide-in-next { animation: slide-in-next 520ms ease-out both; }
+@utility animate-slide-in-prev { animation: slide-in-prev 520ms ease-out both; }
 
 /* ─── AI Summary Shimmer ─── */
 @keyframes summary-dot {
   0%, 100% { opacity: 0.2; transform: scale(0.8); }
   50% { opacity: 1; transform: scale(1.2); }
 }
-
 @keyframes summary-shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+@utility animate-summary-dot { animation: summary-dot 1.2s ease-in-out infinite; }
+@utility animate-summary-shimmer { background-size: 200% 100%; animation: summary-shimmer 1.8s ease-in-out infinite; }
 
-@utility animate-summary-dot {
-  animation: summary-dot 1.2s ease-in-out infinite;
-}
-
-@utility animate-summary-shimmer {
-  background-size: 200% 100%;
-  animation: summary-shimmer 1.8s ease-in-out infinite;
-}
-
+/* ─── Theme tokens ─── */
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
@@ -193,48 +166,54 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ─── Dark mode ─── */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --color-brand: oklch(0.72 0.118 180);
+  --background: oklch(0.145 0.015 250);
+  --foreground: oklch(0.985 0.005 240);
+  --card: oklch(0.18 0.018 250);
+  --card-foreground: oklch(0.985 0.005 240);
+  --popover: oklch(0.18 0.018 250);
+  --popover-foreground: oklch(0.985 0.005 240);
+  --primary: oklch(0.62 0.118 180);
+  --primary-foreground: oklch(0.985 0.005 180);
+  --secondary: oklch(0.26 0.024 250);
+  --secondary-foreground: oklch(0.985 0.005 240);
+  --muted: oklch(0.26 0.024 250);
+  --muted-foreground: oklch(0.64 0.02 250);
+  --accent: oklch(0.28 0.052 180);
+  --accent-foreground: oklch(0.985 0.005 240);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.26 0.024 250);
+  --input: oklch(0.26 0.024 250);
+  --ring: oklch(0.62 0.118 180);
+  --sidebar: oklch(0.18 0.018 250);
+  --sidebar-foreground: oklch(0.985 0.005 240);
+  --sidebar-primary: oklch(0.62 0.118 180);
+  --sidebar-primary-foreground: oklch(0.985 0.005 180);
+  --sidebar-accent: oklch(0.26 0.024 250);
+  --sidebar-accent-foreground: oklch(0.985 0.005 240);
+  --sidebar-border: oklch(0.26 0.024 250);
+  --sidebar-ring: oklch(0.62 0.118 180);
+}
+.dark .glass-card {
+  --glass-bg: rgba(30, 41, 59, 0.72);
+  --glass-border: rgba(51, 65, 85, 0.55);
 }
 
+/* ─── Base layer ─── */
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; }
+  html { @apply font-sans; }
+}
+
+/* ─── Markdown table wrap ─── */
+.yourtj-md-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.9rem 0;
+  border: 1px solid oklch(0.9 0.01 250);
+  border-radius: 0.9rem;
+  background: rgba(248, 250, 252, 0.75);
 }

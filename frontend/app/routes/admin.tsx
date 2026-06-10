@@ -15,7 +15,21 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { API_BASE, type AdminReview, type AdminCourse } from "~/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  type AdminReview,
+  type AdminCourse,
+  fetchAdminReviews,
+  fetchAdminCourses,
+  fetchAdminSettings,
+  updateAdminReview,
+  toggleReviewHide,
+  deleteReview,
+  createCourse,
+  updateCourse,
+  deleteCourse,
+  updateSetting,
+} from "~/lib/api";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
@@ -88,6 +102,7 @@ interface EditableReview {
   rating: number;
   comment: string;
   reviewer_name: string;
+  reviewer_avatar: string;
 }
 
 interface EditableCourse {
@@ -121,20 +136,15 @@ export default function Admin() {
     setSecretError("");
 
     try {
-      // TODO: Connect to real admin auth endpoint — currently trusts input
-      // const res = await fetch(`${API_BASE}/api/admin/auth`, {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify({ secret: secretInput }),
-      // });
-      // if (!res.ok) throw new Error("密钥错误");
-
+      // Verify by attempting to fetch settings — if 401, secret is wrong
+      await fetchAdminSettings(secretInput.trim());
       const token = secretInput.trim();
       setStoredSecret(token);
       setSecret(token);
       setSecretInput("");
     } catch (e) {
-      setSecretError(e instanceof Error ? e.message : "验证失败");
+      const msg = e instanceof Error ? e.message : "验证失败";
+      setSecretError(msg === "管理密钥错误" ? "密钥错误" : msg);
     } finally {
       setVerifying(false);
     }
@@ -147,117 +157,94 @@ export default function Admin() {
     setSecretError("");
   }, []);
 
-  // ─── Data state ───────────────────────────────────────────────────────────
+  // ─── Data state (page/search for query keys) ──────────────────────────────
 
-  const [reviews, setReviews] = useState<AdminReview[]>([]);
-  const [reviewsTotal, setReviewsTotal] = useState(0);
   const [reviewsPage, setReviewsPage] = useState(1);
   const [reviewsSearch, setReviewsSearch] = useState("");
-  const [reviewsLoading, setReviewsLoading] = useState(false);
-  const [reviewsError, setReviewsError] = useState("");
-
-  const [courses, setCourses] = useState<AdminCourse[]>([]);
-  const [coursesTotal, setCoursesTotal] = useState(0);
   const [coursesPage, setCoursesPage] = useState(1);
   const [coursesSearch, setCoursesSearch] = useState("");
-  const [coursesLoading, setCoursesLoading] = useState(false);
-  const [coursesError, setCoursesError] = useState("");
 
-  const [settings, setSettings] = useState<Record<string, string>>({});
-  const [settingsLoading, setSettingsLoading] = useState(false);
-  const [settingsError, setSettingsError] = useState("");
+  // ─── Queries ──────────────────────────────────────────────────────────────
 
-  // ─── Fetch helpers ────────────────────────────────────────────────────────
+  const {
+    data: reviewsData,
+    isLoading: reviewsLoading,
+    error: reviewsError,
+  } = useQuery({
+    queryKey: ["admin", "reviews", reviewsPage, reviewsSearch, secret],
+    queryFn: () =>
+      fetchAdminReviews({
+        q: reviewsSearch || undefined,
+        page: reviewsPage,
+        limit: PAGE_SIZE,
+        adminSecret: secret,
+      }),
+    enabled: isAuthed && activeTab === "reviews",
+    staleTime: 15_000,
+  });
 
-  const fetchReviews = useCallback(async () => {
-    if (!isAuthed) return;
-    setReviewsLoading(true);
-    setReviewsError("");
+  const {
+    data: coursesData,
+    isLoading: coursesLoading,
+    error: coursesError,
+  } = useQuery({
+    queryKey: ["admin", "courses", coursesPage, coursesSearch, secret],
+    queryFn: () =>
+      fetchAdminCourses({
+        q: coursesSearch || undefined,
+        page: coursesPage,
+        limit: PAGE_SIZE,
+        adminSecret: secret,
+      }),
+    enabled: isAuthed && activeTab === "courses",
+    staleTime: 15_000,
+  });
 
-    try {
-      // TODO: Wire to real API when auth flow is ready
-      // const qp = new URLSearchParams({
-      //   page: String(reviewsPage),
-      //   limit: String(PAGE_SIZE),
-      // });
-      // if (reviewsSearch) qp.set("q", reviewsSearch);
-      // const res = await fetch(`${API_BASE}/api/admin/reviews?${qp}`, {
-      //   headers: { "x-admin-secret": secret },
-      // });
-      // if (!res.ok) throw new Error("获取评价列表失败");
-      // const data = await res.json();
+  const {
+    data: settings,
+    isLoading: settingsLoading,
+    error: settingsError,
+  } = useQuery({
+    queryKey: ["admin", "settings", secret],
+    queryFn: () => fetchAdminSettings(secret),
+  });
 
-      // Mock empty state — replace with real fetch above
-      setReviews([]);
-      setReviewsTotal(0);
-    } catch (e) {
-      setReviewsError(e instanceof Error ? e.message : "加载失败");
-    } finally {
-      setReviewsLoading(false);
-    }
-  }, [isAuthed, reviewsPage, reviewsSearch, secret]);
-
-  const fetchCourses = useCallback(async () => {
-    if (!isAuthed) return;
-    setCoursesLoading(true);
-    setCoursesError("");
-
-    try {
-      // TODO: Wire to real API when auth flow is ready
-      // const qp = new URLSearchParams({
-      //   page: String(coursesPage),
-      //   limit: String(PAGE_SIZE),
-      // });
-      // if (coursesSearch) qp.set("q", coursesSearch);
-      // const res = await fetch(`${API_BASE}/api/admin/courses?${qp}`, {
-      //   headers: { "x-admin-secret": secret },
-      // });
-      // if (!res.ok) throw new Error("获取课程列表失败");
-      // const data = await res.json();
-
-      setCourses([]);
-      setCoursesTotal(0);
-    } catch (e) {
-      setCoursesError(e instanceof Error ? e.message : "加载失败");
-    } finally {
-      setCoursesLoading(false);
-    }
-  }, [isAuthed, coursesPage, coursesSearch, secret]);
-
-  const fetchSettings = useCallback(async () => {
-    if (!isAuthed) return;
-    setSettingsLoading(true);
-    setSettingsError("");
-
-    try {
-      // TODO: Wire to real API when auth flow is ready
-      // const res = await fetch(`${API_BASE}/api/admin/settings`, {
-      //   headers: { "x-admin-secret": secret },
-      // });
-      // if (!res.ok) throw new Error("获取设置失败");
-      // const data = await res.json();
-
-      setSettings({});
-    } catch (e) {
-      setSettingsError(e instanceof Error ? e.message : "加载失败");
-    } finally {
-      setSettingsLoading(false);
-    }
-  }, [isAuthed, secret]);
-
-  // ─── Effects ──────────────────────────────────────────────────────────────
+  // ─── 401 detection — clear secret if any query returns auth error ─────────
 
   useEffect(() => {
-    if (isAuthed && activeTab === "reviews") fetchReviews();
-  }, [isAuthed, activeTab, fetchReviews]);
+    const keyError = "管理密钥错误";
+    if (
+      (reviewsError instanceof Error && reviewsError.message === keyError) ||
+      (coursesError instanceof Error && coursesError.message === keyError) ||
+      (settingsError instanceof Error && settingsError.message === keyError)
+    ) {
+      clearStoredSecret();
+      setSecret("");
+    }
+  }, [reviewsError, coursesError, settingsError]);
 
-  useEffect(() => {
-    if (isAuthed && activeTab === "courses") fetchCourses();
-  }, [isAuthed, activeTab, fetchCourses]);
+  // ─── Derived data ─────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (isAuthed && activeTab === "settings") fetchSettings();
-  }, [isAuthed, activeTab, fetchSettings]);
+  const reviews = reviewsData?.data ?? [];
+  const reviewsTotal = reviewsData?.total ?? 0;
+  const courses = coursesData?.data ?? [];
+  const coursesTotal = coursesData?.total ?? 0;
+
+  const totalPages = (tab: string) => {
+    const total = tab === "reviews" ? reviewsTotal : coursesTotal;
+    return Math.max(1, Math.ceil(total / PAGE_SIZE));
+  };
+
+  const tp = totalPages(activeTab);
+
+  // ─── Render error message for query errors ────────────────────────────────
+
+  const reviewsErrorMessage =
+    reviewsError instanceof Error ? reviewsError.message : "";
+  const coursesErrorMessage =
+    coursesError instanceof Error ? coursesError.message : "";
+  const settingsErrorMessage =
+    settingsError instanceof Error ? settingsError.message : "";
 
   // ─── Auth gate ────────────────────────────────────────────────────────────
 
@@ -305,14 +292,7 @@ export default function Admin() {
     );
   }
 
-  // ─── Auth toolbar ─────────────────────────────────────────────────────────
-
-  const totalPages = (tab: string) => {
-    const total = tab === "reviews" ? reviewsTotal : coursesTotal;
-    return Math.max(1, Math.ceil(total / PAGE_SIZE));
-  };
-
-  const tp = totalPages(activeTab);
+  // ─── Main layout ──────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -322,9 +302,7 @@ export default function Admin() {
           管理后台
         </h1>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            已认证
-          </span>
+          <span className="text-xs text-muted-foreground">已认证</span>
           <Button variant="outline" size="sm" onClick={handleLogout}>
             退出
           </Button>
@@ -352,13 +330,12 @@ export default function Admin() {
           <ReviewTab
             reviews={reviews}
             loading={reviewsLoading}
-            error={reviewsError}
+            error={reviewsErrorMessage}
             search={reviewsSearch}
             onSearchChange={setReviewsSearch}
             page={reviewsPage}
             totalPages={tp}
             onPageChange={setReviewsPage}
-            onRefresh={fetchReviews}
             secret={secret}
           />
         </TabsContent>
@@ -368,13 +345,12 @@ export default function Admin() {
           <CourseTab
             courses={courses}
             loading={coursesLoading}
-            error={coursesError}
+            error={coursesErrorMessage}
             search={coursesSearch}
             onSearchChange={setCoursesSearch}
             page={coursesPage}
             totalPages={tp}
             onPageChange={setCoursesPage}
-            onRefresh={fetchCourses}
             secret={secret}
           />
         </TabsContent>
@@ -382,10 +358,9 @@ export default function Admin() {
         {/* ── Settings Tab ───────────────────────────────────────────────── */}
         <TabsContent value="settings">
           <SettingsTab
-            settings={settings}
+            settings={settings ?? {}}
             loading={settingsLoading}
-            error={settingsError}
-            onRefresh={fetchSettings}
+            error={settingsErrorMessage}
             secret={secret}
           />
         </TabsContent>
@@ -405,7 +380,6 @@ function ReviewTab({
   page,
   totalPages,
   onPageChange,
-  onRefresh,
   secret,
 }: {
   reviews: AdminReview[];
@@ -416,16 +390,52 @@ function ReviewTab({
   page: number;
   totalPages: number;
   onPageChange: (p: number) => void;
-  onRefresh: () => void;
   secret: string;
 }) {
-  const [editingReview, setEditingReview] = useState<EditableReview | null>(null);
+  const queryClient = useQueryClient();
+
+  const [editingReview, setEditingReview] = useState<EditableReview | null>(
+    null,
+  );
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+
+  // ─── Mutations ───────────────────────────────────────────────────────────
+
+  const editMutation = useMutation({
+    mutationFn: (data: EditableReview) =>
+      updateAdminReview(data.id, {
+        rating: data.rating,
+        comment: data.comment,
+        reviewer_name: data.reviewer_name,
+        reviewer_avatar: data.reviewer_avatar,
+      }, secret),
+    onSuccess: () => {
+      setEditDialogOpen(false);
+      setEditingReview(null);
+      queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: (id: number) => toggleReviewHide(id, secret),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteReview(id, secret),
+    onSuccess: () => {
+      setDeleteDialogOpen(false);
+      setDeletingId(null);
+      queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
+    },
+  });
+
+  // ─── Handlers ────────────────────────────────────────────────────────────
 
   const handleEdit = (review: AdminReview) => {
     setEditingReview({
@@ -433,67 +443,23 @@ function ReviewTab({
       rating: review.rating,
       comment: review.comment,
       reviewer_name: review.reviewer_name ?? "",
+      reviewer_avatar: review.reviewer_avatar ?? "",
     });
     setEditDialogOpen(true);
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
     if (!editingReview) return;
-    setSaving(true);
-    try {
-      // TODO: Wire to real API
-      // await fetch(`${API_BASE}/api/admin/review/${editingReview.id}`, {
-      //   method: "PUT",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     "x-admin-secret": secret,
-      //   },
-      //   body: JSON.stringify({
-      //     rating: editingReview.rating,
-      //     comment: editingReview.comment,
-      //     reviewer_name: editingReview.reviewer_name,
-      //   }),
-      // });
-      setEditDialogOpen(false);
-      setEditingReview(null);
-      onRefresh();
-    } catch (e) {
-      // keep dialog open on error
-    } finally {
-      setSaving(false);
-    }
+    editMutation.mutate(editingReview);
   };
 
-  const handleToggleHide = async (review: AdminReview) => {
-    try {
-      // TODO: Wire to real API
-      // await fetch(`${API_BASE}/api/admin/review/${review.id}/toggle`, {
-      //   method: "POST",
-      //   headers: { "x-admin-secret": secret },
-      // });
-      onRefresh();
-    } catch {
-      // silently fail — user can retry
-    }
+  const handleToggleHide = (review: AdminReview) => {
+    toggleMutation.mutate(review.id);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (deletingId === null) return;
-    setDeleting(true);
-    try {
-      // TODO: Wire to real API
-      // await fetch(`${API_BASE}/api/admin/review/${deletingId}`, {
-      //   method: "DELETE",
-      //   headers: { "x-admin-secret": secret },
-      // });
-      setDeleteDialogOpen(false);
-      setDeletingId(null);
-      onRefresh();
-    } catch {
-      // keep dialog open on error
-    } finally {
-      setDeleting(false);
-    }
+    deleteMutation.mutate(deletingId);
   };
 
   return (
@@ -524,7 +490,15 @@ function ReviewTab({
           ) : error ? (
             <div className="flex flex-col items-center gap-2 p-8 text-center">
               <p className="text-sm text-destructive">{error}</p>
-              <Button variant="outline" size="sm" onClick={onRefresh}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  queryClient.invalidateQueries({
+                    queryKey: ["admin", "reviews"],
+                  })
+                }
+              >
                 重试
               </Button>
             </div>
@@ -557,7 +531,13 @@ function ReviewTab({
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={r.rating >= 4 ? "default" : r.rating >= 2 ? "secondary" : "destructive"}
+                        variant={
+                          r.rating >= 4
+                            ? "default"
+                            : r.rating >= 2
+                              ? "secondary"
+                              : "destructive"
+                        }
                       >
                         {r.rating}
                       </Badge>
@@ -653,9 +633,7 @@ function ReviewTab({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>编辑评价</DialogTitle>
-            <DialogDescription>
-              修改评价内容和评分
-            </DialogDescription>
+            <DialogDescription>修改评价内容和评分</DialogDescription>
           </DialogHeader>
           {editingReview && (
             <div className="space-y-4">
@@ -707,13 +685,15 @@ function ReviewTab({
           <DialogFooter>
             <DialogClose
               render={
-                <Button variant="outline" disabled={saving} />
+                <Button variant="outline" disabled={editMutation.isPending} />
               }
             >
               取消
             </DialogClose>
-            <Button onClick={handleSaveEdit} disabled={saving}>
-              {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
+            <Button onClick={handleSaveEdit} disabled={editMutation.isPending}>
+              {editMutation.isPending && (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              )}
               保存
             </Button>
           </DialogFooter>
@@ -732,7 +712,7 @@ function ReviewTab({
           <DialogFooter>
             <DialogClose
               render={
-                <Button variant="outline" disabled={deleting} />
+                <Button variant="outline" disabled={deleteMutation.isPending} />
               }
             >
               取消
@@ -740,9 +720,11 @@ function ReviewTab({
             <Button
               variant="destructive"
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={deleteMutation.isPending}
             >
-              {deleting && <Loader2 className="mr-2 size-4 animate-spin" />}
+              {deleteMutation.isPending && (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              )}
               删除
             </Button>
           </DialogFooter>
@@ -763,7 +745,6 @@ function CourseTab({
   page,
   totalPages,
   onPageChange,
-  onRefresh,
   secret,
 }: {
   courses: AdminCourse[];
@@ -774,9 +755,10 @@ function CourseTab({
   page: number;
   totalPages: number;
   onPageChange: (p: number) => void;
-  onRefresh: () => void;
   secret: string;
 }) {
+  const queryClient = useQueryClient();
+
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newCourse, setNewCourse] = useState({
     code: "",
@@ -785,37 +767,72 @@ function CourseTab({
     department: "",
     teacher_name: "",
   });
-  const [creating, setCreating] = useState(false);
 
-  const [editingCourse, setEditingCourse] = useState<EditableCourse | null>(null);
+  const [editingCourse, setEditingCourse] = useState<EditableCourse | null>(
+    null,
+  );
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
-  const handleCreate = async () => {
-    if (!newCourse.code.trim() || !newCourse.name.trim()) return;
-    setCreating(true);
-    try {
-      // TODO: Wire to real API
-      // await fetch(`${API_BASE}/api/admin/course`, {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     "x-admin-secret": secret,
-      //   },
-      //   body: JSON.stringify(newCourse),
-      // });
+  // ─── Mutations ───────────────────────────────────────────────────────────
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      createCourse(
+        {
+          code: newCourse.code,
+          name: newCourse.name,
+          credit: newCourse.credit || undefined,
+          department: newCourse.department || undefined,
+          teacher_name: newCourse.teacher_name || undefined,
+        },
+        secret,
+      ),
+    onSuccess: () => {
       setCreateDialogOpen(false);
-      setNewCourse({ code: "", name: "", credit: 0, department: "", teacher_name: "" });
-      onRefresh();
-    } catch {
-      // keep dialog open on error
-    } finally {
-      setCreating(false);
-    }
+      setNewCourse({
+        code: "",
+        name: "",
+        credit: 0,
+        department: "",
+        teacher_name: "",
+      });
+      queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: (data: EditableCourse) =>
+      updateCourse(data.id, {
+        code: data.code,
+        name: data.name,
+        credit: data.credit,
+        department: data.department,
+        teacher_name: data.teacher_name,
+      }, secret),
+    onSuccess: () => {
+      setEditDialogOpen(false);
+      setEditingCourse(null);
+      queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteCourse(id, secret),
+    onSuccess: () => {
+      setDeleteDialogOpen(false);
+      setDeletingId(null);
+      queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+    },
+  });
+
+  // ─── Handlers ────────────────────────────────────────────────────────────
+
+  const handleCreate = () => {
+    if (!newCourse.code.trim() || !newCourse.name.trim()) return;
+    createMutation.mutate();
   };
 
   const handleEdit = (course: AdminCourse) => {
@@ -830,52 +847,14 @@ function CourseTab({
     setEditDialogOpen(true);
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
     if (!editingCourse) return;
-    setSaving(true);
-    try {
-      // TODO: Wire to real API
-      // await fetch(`${API_BASE}/api/admin/course/${editingCourse.id}`, {
-      //   method: "PUT",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     "x-admin-secret": secret,
-      //   },
-      //   body: JSON.stringify({
-      //     code: editingCourse.code,
-      //     name: editingCourse.name,
-      //     credit: editingCourse.credit,
-      //     department: editingCourse.department,
-      //     teacher_name: editingCourse.teacher_name,
-      //   }),
-      // });
-      setEditDialogOpen(false);
-      setEditingCourse(null);
-      onRefresh();
-    } catch {
-      // keep dialog open on error
-    } finally {
-      setSaving(false);
-    }
+    editMutation.mutate(editingCourse);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (deletingId === null) return;
-    setDeleting(true);
-    try {
-      // TODO: Wire to real API
-      // await fetch(`${API_BASE}/api/admin/course/${deletingId}`, {
-      //   method: "DELETE",
-      //   headers: { "x-admin-secret": secret },
-      // });
-      setDeleteDialogOpen(false);
-      setDeletingId(null);
-      onRefresh();
-    } catch {
-      // keep dialog open on error
-    } finally {
-      setDeleting(false);
-    }
+    deleteMutation.mutate(deletingId);
   };
 
   return (
@@ -912,7 +891,15 @@ function CourseTab({
           ) : error ? (
             <div className="flex flex-col items-center gap-2 p-8 text-center">
               <p className="text-sm text-destructive">{error}</p>
-              <Button variant="outline" size="sm" onClick={onRefresh}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  queryClient.invalidateQueries({
+                    queryKey: ["admin", "courses"],
+                  })
+                }
+              >
                 重试
               </Button>
             </div>
@@ -1014,9 +1001,7 @@ function CourseTab({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>添加课程</DialogTitle>
-            <DialogDescription>
-              填写课程基本信息
-            </DialogDescription>
+            <DialogDescription>填写课程基本信息</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -1084,16 +1069,25 @@ function CourseTab({
           <DialogFooter>
             <DialogClose
               render={
-                <Button variant="outline" disabled={creating} />
+                <Button
+                  variant="outline"
+                  disabled={createMutation.isPending}
+                />
               }
             >
               取消
             </DialogClose>
             <Button
               onClick={handleCreate}
-              disabled={creating || !newCourse.code.trim() || !newCourse.name.trim()}
+              disabled={
+                createMutation.isPending ||
+                !newCourse.code.trim() ||
+                !newCourse.name.trim()
+              }
             >
-              {creating && <Loader2 className="mr-2 size-4 animate-spin" />}
+              {createMutation.isPending && (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              )}
               创建
             </Button>
           </DialogFooter>
@@ -1105,9 +1099,7 @@ function CourseTab({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>编辑课程</DialogTitle>
-            <DialogDescription>
-              修改课程信息
-            </DialogDescription>
+            <DialogDescription>修改课程信息</DialogDescription>
           </DialogHeader>
           {editingCourse && (
             <div className="space-y-4">
@@ -1179,13 +1171,18 @@ function CourseTab({
           <DialogFooter>
             <DialogClose
               render={
-                <Button variant="outline" disabled={saving} />
+                <Button
+                  variant="outline"
+                  disabled={editMutation.isPending}
+                />
               }
             >
               取消
             </DialogClose>
-            <Button onClick={handleSaveEdit} disabled={saving}>
-              {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
+            <Button onClick={handleSaveEdit} disabled={editMutation.isPending}>
+              {editMutation.isPending && (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              )}
               保存
             </Button>
           </DialogFooter>
@@ -1204,7 +1201,10 @@ function CourseTab({
           <DialogFooter>
             <DialogClose
               render={
-                <Button variant="outline" disabled={deleting} />
+                <Button
+                  variant="outline"
+                  disabled={deleteMutation.isPending}
+                />
               }
             >
               取消
@@ -1212,9 +1212,11 @@ function CourseTab({
             <Button
               variant="destructive"
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={deleteMutation.isPending}
             >
-              {deleting && <Loader2 className="mr-2 size-4 animate-spin" />}
+              {deleteMutation.isPending && (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              )}
               删除
             </Button>
           </DialogFooter>
@@ -1230,18 +1232,31 @@ function SettingsTab({
   settings,
   loading,
   error,
-  onRefresh,
   secret,
 }: {
   settings: Record<string, string>;
   loading: boolean;
   error: string;
-  onRefresh: () => void;
   secret: string;
 }) {
+  const queryClient = useQueryClient();
+
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [saving, setSaving] = useState(false);
+
+  // ─── Mutation ────────────────────────────────────────────────────────────
+
+  const saveMutation = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string }) =>
+      updateSetting(key, value, secret),
+    onSuccess: () => {
+      setEditingKey(null);
+      setEditValue("");
+      queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
+    },
+  });
+
+  // ─── Handlers ────────────────────────────────────────────────────────────
 
   const handleStartEdit = (key: string, value: string) => {
     setEditingKey(key);
@@ -1253,30 +1268,9 @@ function SettingsTab({
     setEditValue("");
   };
 
-  const handleSaveSetting = async () => {
+  const handleSaveSetting = () => {
     if (!editingKey) return;
-    setSaving(true);
-    try {
-      // TODO: Wire to real API
-      // await fetch(
-      //   `${API_BASE}/api/admin/settings/${encodeURIComponent(editingKey)}`,
-      //   {
-      //     method: "PUT",
-      //     headers: {
-      //       "Content-Type": "application/json",
-      //       "x-admin-secret": secret,
-      //     },
-      //     body: JSON.stringify({ value: editValue }),
-      //   },
-      // );
-      setEditingKey(null);
-      setEditValue("");
-      onRefresh();
-    } catch {
-      // keep editing on error
-    } finally {
-      setSaving(false);
-    }
+    saveMutation.mutate({ key: editingKey, value: editValue });
   };
 
   return (
@@ -1296,7 +1290,15 @@ function SettingsTab({
         <Card>
           <CardContent className="flex flex-col items-center gap-2 p-8 text-center">
             <p className="text-sm text-destructive">{error}</p>
-            <Button variant="outline" size="sm" onClick={onRefresh}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                queryClient.invalidateQueries({
+                  queryKey: ["admin", "settings"],
+                })
+              }
+            >
               重试
             </Button>
           </CardContent>
@@ -1310,7 +1312,15 @@ function SettingsTab({
             <p className="text-sm text-muted-foreground">
               暂无站点设置数据
             </p>
-            <Button variant="outline" size="sm" onClick={onRefresh}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                queryClient.invalidateQueries({
+                  queryKey: ["admin", "settings"],
+                })
+              }
+            >
               刷新
             </Button>
           </CardContent>
@@ -1336,9 +1346,9 @@ function SettingsTab({
                           <Button
                             size="sm"
                             onClick={handleSaveSetting}
-                            disabled={saving}
+                            disabled={saveMutation.isPending}
                           >
-                            {saving && (
+                            {saveMutation.isPending && (
                               <Loader2 className="mr-1.5 size-3 animate-spin" />
                             )}
                             保存
@@ -1347,7 +1357,7 @@ function SettingsTab({
                             variant="outline"
                             size="sm"
                             onClick={handleCancelEdit}
-                            disabled={saving}
+                            disabled={saveMutation.isPending}
                           >
                             取消
                           </Button>
@@ -1358,7 +1368,9 @@ function SettingsTab({
                         <p
                           className={cn(
                             "flex-1 text-sm whitespace-pre-wrap break-words",
-                            value.length > 100 ? "" : "text-foreground",
+                            value.length > 100
+                              ? ""
+                              : "text-foreground",
                           )}
                         >
                           {value || (
