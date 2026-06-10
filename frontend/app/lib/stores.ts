@@ -47,19 +47,29 @@ interface UIState {
   toggleMobileMenu: () => void;
 }
 
-export const useUIStore = create<UIState>()((set) => ({
-  announcementReadIds: [],
-  isAnnouncementBarExpanded: false,
-  isMobileMenuOpen: false,
+export const useUIStore = create<UIState>()(
+  persist(
+    (set) => ({
+      announcementReadIds: [],
+      isAnnouncementBarExpanded: false,
+      isMobileMenuOpen: false,
 
-  markAnnouncementRead: (id) =>
-    set((s) => ({
-      announcementReadIds: s.announcementReadIds.includes(id)
-        ? s.announcementReadIds
-        : [...s.announcementReadIds, id],
-    })),
-  toggleAnnouncementBar: () =>
-    set((s) => ({ isAnnouncementBarExpanded: !s.isAnnouncementBarExpanded })),
-  toggleMobileMenu: () =>
-    set((s) => ({ isMobileMenuOpen: !s.isMobileMenuOpen })),
-}));
+      markAnnouncementRead: (id) =>
+        set((s) => ({
+          announcementReadIds: s.announcementReadIds.includes(id)
+            ? s.announcementReadIds
+            : [...s.announcementReadIds, id],
+        })),
+      toggleAnnouncementBar: () =>
+        set((s) => ({ isAnnouncementBarExpanded: !s.isAnnouncementBarExpanded })),
+      toggleMobileMenu: () =>
+        set((s) => ({ isMobileMenuOpen: !s.isMobileMenuOpen })),
+    }),
+    {
+      name: "yourtj-ui",
+      partialize: (state) => ({
+        announcementReadIds: state.announcementReadIds,
+      }),
+    },
+  ),
+);

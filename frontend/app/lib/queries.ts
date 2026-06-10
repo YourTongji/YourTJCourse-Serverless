@@ -1,6 +1,6 @@
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { API_BASE } from "./api";
+import { API_BASE, AiSummaryResult, AiSummaryResponse } from "./api";
 import { getClientId } from "./clientId";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -90,10 +90,7 @@ export interface Department {
   name: string;
 }
 
-export interface AiSummary {
-  summary: string;
-  generated_at: number;
-}
+// AiSummary types (AiSummaryResult, AiSummaryResponse) are now imported from api.ts
 
 export interface AdminReview {
   id: number;
@@ -317,10 +314,11 @@ export function useReportReview() {
       reviewId: number;
       reason: string;
     }) => {
+      const clientId = getClientId();
       const res = await fetch(`${API_BASE}/api/review/${reviewId}/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason, clientId }),
       });
       if (!res.ok) throw new Error("Failed to report review");
       return res.json();
@@ -338,7 +336,7 @@ export function useRuntimeState() {
     () => ({
       queryKey: ["runtime"] as const,
       queryFn: async (): Promise<RuntimeState> => {
-        return apiFetch<RuntimeState>("/api/settings/runtime");
+        return apiFetch<RuntimeState>("/api/settings/runtime-state");
       },
       refetchInterval: 15_000,
       staleTime: 10_000,
@@ -353,8 +351,8 @@ export function useAnnouncements() {
     () => ({
       queryKey: ["announcements"] as const,
       queryFn: async (): Promise<Announcement[]> => {
-        const { announcements } = await apiFetch<RuntimeState>(
-          "/api/settings/runtime",
+        const { announcements } = await apiFetch<{ announcements: Announcement[] }>(
+          "/api/settings/announcements",
         );
         return announcements;
       },
@@ -375,7 +373,7 @@ export function useMaintenanceStatus() {
         maintenanceMessage?: string;
       }> => {
         const { maintenance, maintenanceMessage } =
-          await apiFetch<RuntimeState>("/api/settings/runtime");
+          await apiFetch<RuntimeState>("/api/settings/runtime-state");
         return { maintenance, maintenanceMessage };
       },
       staleTime: 10_000,
@@ -392,7 +390,7 @@ export function useShowIcu() {
       queryKey: ["settings", "showIcu"] as const,
       queryFn: async (): Promise<boolean> => {
         const data = await apiFetch<{ showIcu: boolean }>(
-          "/api/settings/showIcu",
+          "/api/settings/show_icu",
         );
         return data.showIcu;
       },
@@ -409,8 +407,8 @@ export function useAiSummary(courseId: number, enabled = false) {
   return useMemo(
     () => ({
       queryKey: ["course", courseId, "ai-summary"] as const,
-      queryFn: async (): Promise<AiSummary> => {
-        return apiFetch<AiSummary>(`/api/course/${courseId}/ai-summary`);
+      queryFn: async (): Promise<AiSummaryResponse> => {
+        return apiFetch<AiSummaryResponse>(`/api/course/${courseId}/summary`);
       },
       staleTime: 5 * 60_000,
       gcTime: 30 * 60_000,
@@ -441,12 +439,11 @@ export function useDepartments() {
   );
 }
 
-// ─── Admin Queries ───────────────────────────────────────────────────────────
-
 export function useAdminReviews(params: {
   page?: number;
   limit?: number;
   hidden?: boolean;
+  adminSecret?: string;
 }) {
   return useMemo(
     () => ({
@@ -460,6 +457,8 @@ export function useAdminReviews(params: {
         if (params.limit) searchParams.set("limit", String(params.limit));
         if (params.hidden !== undefined)
           searchParams.set("hidden", String(params.hidden));
+        const headers: Record<string, string> = {};
+        if (params.adminSecret) headers["x-admin-secret"] = params.adminSecret;
         return apiFetch(`/api/admin/reviews?${searchParams}`);
       },
       staleTime: 0,

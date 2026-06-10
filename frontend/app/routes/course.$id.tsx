@@ -500,8 +500,8 @@ export default function CourseDetail() {
                         })
                         .catch(() => alert("举报失败，请稍后重试"));
                     }}
-                    onEdit={(review) => {
-                      window.location.href = `/write-review/${course.id}?edit=1`;
+                    onEdit={() => {
+                      window.location.href = `/course/${course.id}/write?edit=1`;
                     }}
                   />
                 ))}

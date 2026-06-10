@@ -1,76 +1,18 @@
-import { useState, useCallback, useRef } from "react";
-
-interface AiSummaryData {
-  rating_consensus: string;
-  keywords: string[];
-  pros: string[];
-  cons: string[];
-  representative: Array<{ text: string; sentiment: string }>;
-}
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAiSummary } from "~/lib/queries";
+import type { AiSummaryResult } from "~/lib/api";
 
 export default function AISummaryCard({ courseId }: { courseId: number }) {
-  const [collapsed, setCollapsed] = useState(true);
-  const [state, setState] = useState<"idle" | "loading" | "done" | "error">(
-    "idle",
-  );
-  const [data, setData] = useState<AiSummaryData | null>(null);
-  const [isHit, setIsHit] = useState(false);
-  const [loadingRefresh, setLoadingRefresh] = useState(false);
-  const [refreshError, setRefreshError] = useState(false);
-  const fetchIdRef = useRef(0);
+  const [enabled, setEnabled] = useState(false);
+  const queryOptions = useAiSummary(courseId, enabled);
+  const { data: response, isLoading, isFetching, isError, refetch } =
+    useQuery(queryOptions);
 
-  const fetchSummary = useCallback(
-    async (refresh = false) => {
-      if (refresh && loadingRefresh) return;
-      const fetchId = ++fetchIdRef.current;
-
-      if (refresh) {
-        setLoadingRefresh(true);
-        setRefreshError(false);
-      } else {
-        setCollapsed(false);
-        setState("loading");
-      }
-
-      try {
-        const res = await fetch(
-          `/api/course/${courseId}/summary${refresh ? "?refresh=true" : ""}`,
-        );
-        if (fetchId !== fetchIdRef.current) return;
-
-        if (!res.ok) {
-          if (res.status === 429) {
-            if (refresh) {
-              setRefreshError(true);
-              setLoadingRefresh(false);
-            } else {
-              setState("error");
-            }
-            return;
-          }
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const json = (await res.json()) as {
-          data: AiSummaryData;
-          cache: string;
-        };
-        setData(json.data);
-        setIsHit(json.cache === "hit" || json.cache === "db");
-        setState("done");
-      } catch (e) {
-        console.error("AI summary error:", e);
-        if (fetchId !== fetchIdRef.current) return;
-        if (refresh) {
-          setRefreshError(true);
-        } else {
-          setState("error");
-        }
-      } finally {
-        setLoadingRefresh(false);
-      }
-    },
-    [courseId, loadingRefresh],
-  );
+  const data: AiSummaryResult | null = response?.data ?? null;
+  const isHit = response?.cache === "hit" || response?.cache === "db";
+  const isRefreshing = isFetching && !!response;
+  const hasRefreshError = isError && !!response && !isFetching;
 
   const consensusColors: Record<string, string> = {
     "一致好评": "text-emerald-600 bg-emerald-50 border-emerald-200",
@@ -87,11 +29,11 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
   };
 
   // Collapsed trigger button
-  if (collapsed) {
+  if (!enabled) {
     return (
       <button
         type="button"
-        onClick={() => fetchSummary(false)}
+        onClick={() => setEnabled(true)}
         className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 text-left transition hover:border-cyan-200 hover:bg-cyan-50/60"
       >
         <div className="flex min-w-0 items-center gap-2">
@@ -123,8 +65,8 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
     );
   }
 
-  // Loading state
-  if (state === "loading") {
+  // Loading state (first fetch, no data yet)
+  if (isLoading) {
     return (
       <div className="rounded-xl border border-cyan-100 bg-gradient-to-br from-cyan-50/30 to-white p-5">
         <div className="flex items-center justify-between mb-4">
@@ -216,14 +158,14 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
     );
   }
 
-  // Error state (no data yet)
-  if (state === "error" && !data) {
+  // Error state (first fetch failed, no data yet)
+  if (isError && !response) {
     return (
       <div className="rounded-xl border border-red-100 bg-red-50/50 p-5 text-center">
         <p className="text-xs text-red-400 mb-2">AI 总结生成失败</p>
         <button
           type="button"
-          onClick={() => fetchSummary(true)}
+          onClick={() => refetch()}
           className="text-xs font-medium text-red-500 hover:text-red-600 underline"
         >
           重新尝试
@@ -237,7 +179,7 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
     return (
       <button
         type="button"
-        onClick={() => fetchSummary(false)}
+        onClick={() => refetch()}
         className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white/80 px-3 py-2.5 text-left transition hover:border-cyan-200 hover:bg-cyan-50/60"
       >
         <div className="flex min-w-0 items-center gap-2">
@@ -273,15 +215,15 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
   return (
     <div className="rounded-xl border border-cyan-100 bg-gradient-to-br from-cyan-50/30 to-white p-5">
       {/* Refresh error banner */}
-      {refreshError && (
+      {hasRefreshError && (
         <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200">
           <p className="text-[11px] text-amber-600 font-medium">
             刷新失败，已显示上一次结果
           </p>
           <button
             type="button"
-            onClick={() => fetchSummary(true)}
-            disabled={loadingRefresh}
+            onClick={() => refetch()}
+            disabled={isFetching}
             className="text-[11px] font-medium text-amber-700 hover:text-amber-800 underline"
           >
             重试
@@ -300,7 +242,7 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
           <span className="text-sm font-semibold text-slate-700">
             AI 评课总结
           </span>
-          {loadingRefresh ? (
+          {isRefreshing ? (
             <div className="flex items-center gap-0.5 ml-1">
               <span className="text-xs text-cyan-500 font-medium">
                 正在思考
@@ -327,7 +269,7 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
               {data.rating_consensus}
             </span>
           )}
-          {!loadingRefresh && isHit && (
+          {!isRefreshing && isHit && (
             <span className="text-[10px] text-slate-400 font-medium ml-1">
               已缓存
             </span>
@@ -335,12 +277,12 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
         </div>
         <button
           type="button"
-          onClick={() => fetchSummary(true)}
-          disabled={loadingRefresh}
+          onClick={() => refetch()}
+          disabled={isRefreshing}
           className="text-[11px] font-medium text-cyan-600 hover:text-cyan-700 disabled:opacity-40 flex items-center gap-1"
         >
           <svg
-            className={`w-3.5 h-3.5 ${loadingRefresh ? "animate-spin" : ""}`}
+            className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -352,7 +294,7 @@ export default function AISummaryCard({ courseId }: { courseId: number }) {
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
             />
           </svg>
-          {loadingRefresh ? "生成中" : "刷新"}
+          {isRefreshing ? "生成中" : "刷新"}
         </button>
       </div>
 

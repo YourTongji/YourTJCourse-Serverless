@@ -96,7 +96,6 @@ export interface ReviewObject {
   is_icu: number;
   reviewer_name: string | null;
   reviewer_avatar: string | null;
-  wallet_user_hash: string | null;
   like_count: number;
   liked?: boolean;
   can_edit?: boolean;

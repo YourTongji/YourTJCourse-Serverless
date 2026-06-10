@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import {
@@ -14,7 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { ANNOUNCEMENT_API, READ_KEY } from "~/lib/announcements";
+import { useAnnouncements } from "~/lib/queries";
+import { useUIStore } from "~/lib/stores";
 
 interface Announcement {
   id: string;
@@ -23,70 +25,43 @@ interface Announcement {
   enabled: boolean;
 }
 
-function getReadIds(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(READ_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function markRead(id: string) {
-  try {
-    const ids = getReadIds();
-    if (!ids.includes(id)) {
-      ids.push(id);
-      localStorage.setItem(READ_KEY, JSON.stringify(ids));
-    }
-  } catch {
-    // ignore
-  }
-}
-
 export default function AnnouncementBell() {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryOpts = useAnnouncements();
+  const { data: rawData, isLoading } = useQuery(queryOpts);
+  const { announcementReadIds, markAnnouncementRead } = useUIStore();
+
   const [modalOpen, setModalOpen] = useState(false);
   const [pendingModal, setPendingModal] = useState<Announcement | null>(null);
-  const fetchedRef = useRef(false);
+  const modalShownRef = useRef(false);
 
+  // Normalize to Bell's Announcement shape (API returns { type, content, id, enabled })
+  const announcements: Announcement[] = Array.isArray(rawData)
+    ? (rawData as unknown as Announcement[]).filter((a) => a.enabled)
+    : [];
+
+  // Show modal for first unread on initial data arrival
   useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    fetch(ANNOUNCEMENT_API)
-      .then((res) => res.json() as Promise<{ announcements: Announcement[] }>)
-      .then((data) => {
-        const active = data.announcements.filter((a) => a.enabled);
-        setAnnouncements(active);
-
-        // Check for unread announcements
-        const readIds = getReadIds();
-        const unread = active.filter((a) => !readIds.includes(a.id));
-        if (unread.length > 0) {
-          // Show the first unread as a modal
-          setPendingModal(unread[0]);
-          setModalOpen(true);
-        }
-      })
-      .catch(() => {
-        // silent
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    if (modalShownRef.current || isLoading || announcements.length === 0) return;
+    modalShownRef.current = true;
+    const unread = announcements.filter(
+      (a) => !announcementReadIds.includes(a.id),
+    );
+    if (unread.length > 0) {
+      setPendingModal(unread[0]);
+      setModalOpen(true);
+    }
+  }, [announcements, announcementReadIds, isLoading]);
 
   const handleAcknowledge = useCallback(() => {
     if (pendingModal) {
-      markRead(pendingModal.id);
+      markAnnouncementRead(pendingModal.id);
       setPendingModal(null);
     }
     setModalOpen(false);
-  }, [pendingModal]);
+  }, [pendingModal, markAnnouncementRead]);
 
   const unreadCount = announcements.filter(
-    (a) => !getReadIds().includes(a.id),
+    (a) => !announcementReadIds.includes(a.id),
   ).length;
 
   return (
@@ -159,7 +134,7 @@ export default function AnnouncementBell() {
             <p className="text-sm font-bold text-slate-800">公告</p>
           </div>
           <div className="max-h-64 overflow-y-auto">
-            {loading ? (
+            {isLoading ? (
               <div className="flex items-center justify-center py-6">
                 <p className="text-xs text-muted-foreground">加载中...</p>
               </div>
@@ -169,7 +144,7 @@ export default function AnnouncementBell() {
               </div>
             ) : (
               announcements.map((a) => {
-                const isRead = getReadIds().includes(a.id);
+                const isRead = announcementReadIds.includes(a.id);
                 return (
                   <div
                     key={a.id}
