@@ -2,8 +2,8 @@
  * Feishu card notification for review report admin workflow.
  *
  * When a report is filed, sends an interactive card with "通过" / "驳回" buttons.
- * Buttons use HMAC-signed URLs — clicking them calls back to this server
- * with a proven action. No Feishu app registration required.
+ * Buttons use HMAC-signed URLs and open a confirmation page before mutating state.
+ * No Feishu app registration required.
  */
 import type { Bindings } from './types'
 
@@ -41,7 +41,9 @@ async function signHmac(keyStr: string, message: string): Promise<string> {
   return hexEncode(sig)
 }
 
-/** Build a signed action URL. Valid for 7 days. */
+const FEISHU_WEBHOOK_TIMEOUT_MS = 4000
+
+/** Build a signed action confirmation URL. Valid for 7 days. */
 async function buildActionUrl(
   origin: string,
   reportId: number,
@@ -51,7 +53,7 @@ async function buildActionUrl(
   const deadline = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60
   const payload = `${reportId}:${action}:${deadline}`
   const sig = await signHmac(adminSecret, payload)
-  return `${origin}/api/admin/report/${reportId}/resolve?action=${action}&deadline=${deadline}&sig=${sig}`
+  return `${origin}/api/admin/report/${reportId}/confirm?action=${action}&deadline=${deadline}&sig=${sig}`
 }
 
 /** Feishu webhook signing (HMAC-SHA256 → base64). */
@@ -198,7 +200,7 @@ export async function notifyReportToFeishu(
             { tag: 'hr' },
             {
               tag: 'markdown',
-              content: '**点击按钮直接处理（无需登录后台）**',
+              content: '**点击按钮后需在确认页提交处理**',
               text_align: 'left' as const,
             },
             {
@@ -230,11 +232,14 @@ export async function notifyReportToFeishu(
       body.sign = await signFeishuWebhook(timestamp, feishuSecret)
     }
 
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), FEISHU_WEBHOOK_TIMEOUT_MS)
     const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    })
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout))
 
     if (!res.ok) {
       console.warn(`[feishu] webhook HTTP ${res.status}`)

@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import type { Bindings } from '../helpers/types'
 import { encodeReviewId, decodeReviewId } from '../sqids'
 import { refreshCourseStats } from '../courseStats'
@@ -45,6 +46,7 @@ import {
 } from '../helpers/cache'
 
 const publicRoutes = new Hono<{ Bindings: Bindings }>()
+type AppContext = Context<{ Bindings: Bindings }>
 
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'other'])
 
@@ -69,6 +71,57 @@ function buildStructuredKeywordTerms(keyword: string) {
   const hasExplicitRelation = /[+＋的]/.test(raw)
   const hasLikelyChineseName = terms.some(isLikelyChineseTeacherName)
   return hasExplicitRelation || hasLikelyChineseName ? terms : []
+}
+
+async function loadReviewIdSetByClient(
+  db: D1Database,
+  reviewIds: number[],
+  clientId: string
+) {
+  const result = new Set<number>()
+  const ids = Array.from(new Set(reviewIds.filter((id) => Number.isFinite(id) && id > 0)))
+  if (!clientId || ids.length === 0) return result
+
+  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '?').join(',')
+    const rows = await db
+      .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders})`)
+      .bind(clientId, ...part)
+      .all<{ review_id: number }>()
+    for (const row of rows.results || []) {
+      result.add(Number((row as any).review_id))
+    }
+  }
+
+  return result
+}
+
+async function loadEditableReviewIdSet(
+  db: D1Database,
+  reviewIds: number[],
+  walletHash: string
+) {
+  const result = new Set<number>()
+  const ids = Array.from(new Set(reviewIds.filter((id) => Number.isFinite(id) && id > 0)))
+  if (!walletHash || ids.length === 0) return result
+
+  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '?').join(',')
+    const rows = await db
+      .prepare(`SELECT id FROM reviews WHERE wallet_user_hash = ? AND id IN (${placeholders})`)
+      .bind(walletHash, ...part)
+      .all<{ id: number }>()
+    for (const row of rows.results || []) {
+      result.add(Number((row as any).id))
+    }
+  }
+
+  return result
+}
+
+function stripWalletUserHash<T extends Record<string, any>>(review: T) {
+  const { wallet_user_hash: _walletUserHash, ...safeReview } = review
+  return safeReview
 }
 
 async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
@@ -492,9 +545,13 @@ publicRoutes.get('/course/:id', async (c) => {
       const cached = bypassCourseDetailCache ? null : await cache.match(cacheKey)
       if (cached) {
         const cachedPayload = (await cached.json()) as Record<string, any>
+        const cachedReviews = Array.isArray((cachedPayload as any).reviews)
+          ? (cachedPayload as any).reviews.map((r: any) => stripWalletUserHash(r))
+          : []
         const basePayload = {
           ...cachedPayload,
-          credit: effectiveCourse.credit
+          credit: effectiveCourse.credit,
+          reviews: cachedReviews
         }
 
         if (!clientId && !editableWalletHash) {
@@ -510,25 +567,8 @@ publicRoutes.get('/course/:id', async (c) => {
           ? (basePayload as any).reviews.map((r: any) => Number(r?.id)).filter((n: number) => Number.isFinite(n))
           : []
 
-        let likedSet = new Set<number>()
-        if (clientId && reviewIds.length > 0) {
-          const placeholders2 = reviewIds.map(() => '?').join(',')
-          const likedRows = await c.env.DB
-            .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders2})`)
-            .bind(clientId, ...reviewIds)
-            .all<{ review_id: number }>()
-          likedSet = new Set<number>((likedRows.results || []).map((r: any) => Number(r.review_id)))
-        }
-
-        let editableSet = new Set<number>()
-        if (editableWalletHash && reviewIds.length > 0) {
-          const placeholders2 = reviewIds.map(() => '?').join(',')
-          const editableRows = await c.env.DB
-            .prepare(`SELECT id FROM reviews WHERE wallet_user_hash = ? AND id IN (${placeholders2})`)
-            .bind(editableWalletHash, ...reviewIds)
-            .all<{ id: number }>()
-          editableSet = new Set<number>((editableRows.results || []).map((r: any) => Number(r.id)))
-        }
+        const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
+        const editableSet = await loadEditableReviewIdSet(c.env.DB, reviewIds, editableWalletHash)
 
         const personalized = {
           ...(basePayload as any),
@@ -610,7 +650,7 @@ publicRoutes.get('/course/:id', async (c) => {
         .filter((n: number) => Number.isFinite(n))
     )
     const reviewsWithSqid = addSqidToReviews(rawReviews).map((r: any) => ({
-      ...r,
+      ...stripWalletUserHash(r),
       like_count: Number(r?.approve_count || 0),
       liked: false
     }))
@@ -946,7 +986,8 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
            ORDER BY
              CASE WHEN c.id = ? THEN 0 ELSE 1 END,
              COALESCE(c.review_count, 0) DESC,
-             c.id DESC`
+             c.id DESC
+           LIMIT 100`
         )
         .bind((course as any).name, ...courseTeacherFilter.args, ...pkTeacherFilter.args, ...pkTeacherFilter.args, Number(courseId))
         .all<{ id: number }>()
@@ -984,14 +1025,7 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     let likedSet = new Set<number>()
     if (clientId && (reviewsWithSqid || []).length > 0) {
       const ids = (reviewsWithSqid || []).map((r: any) => Number(r?.id)).filter((n) => Number.isFinite(n))
-      if (ids.length > 0) {
-        const placeholders2 = ids.map(() => '?').join(',')
-        const likedRows = await c.env.DB
-          .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders2})`)
-          .bind(clientId, ...ids)
-          .all()
-        likedSet = new Set<number>((likedRows.results || []).map((r: any) => Number(r.review_id)))
-      }
+      likedSet = await loadReviewIdSetByClient(c.env.DB, ids, clientId)
     }
 
     const mappedReviews = (reviewsWithSqid || []).map((r: any) => ({
@@ -1240,19 +1274,15 @@ publicRoutes.post('/review/:id/report', async (c) => {
     .bind(id, clientId)
     .first<{ x: number }>())
 
-  await c.env.DB
+  const report = await c.env.DB
     .prepare(
       `INSERT INTO review_reports (review_id, client_id, reason, status, created_at, updated_at)
        VALUES (?, ?, ?, 'open', strftime('%s', 'now'), strftime('%s', 'now'))
        ON CONFLICT(review_id, client_id)
-       DO UPDATE SET reason = excluded.reason, status = 'open', updated_at = strftime('%s', 'now')`
+       DO UPDATE SET reason = excluded.reason, status = 'open', updated_at = strftime('%s', 'now')
+       RETURNING id`
     )
     .bind(id, clientId, reason)
-    .run()
-
-  const report = await c.env.DB
-    .prepare('SELECT id FROM review_reports WHERE review_id = ? AND client_id = ? LIMIT 1')
-    .bind(id, clientId)
     .first<{ id: number }>()
 
   const reportId = Number(report?.id || 0) || null
@@ -1379,9 +1409,47 @@ publicRoutes.delete('/review/:id/like', async (c) => {
   return c.json({ success: true, liked: false, like_count: Number(review.approve_count || 0) })
 })
 
-// Feishu card action callback: admin clicks "通过" or "驳回" on a report card.
-// The URL is HMAC-signed (proves it was generated by this server with ADMIN_SECRET).
-publicRoutes.get('/admin/report/:reportId/resolve', async (c) => {
+function buildReportActionHtml(options: {
+  title: string
+  message: string
+  statusCode?: number
+  action?: string
+  actionLabel?: string
+  reportId?: number
+  deadline?: string
+  sig?: string
+  color?: string
+}) {
+  const statusCode = options.statusCode || 200
+  const color = options.color || '#111827'
+  const form = options.action && options.reportId && options.deadline && options.sig
+    ? `<form method="post" action="/api/admin/report/${options.reportId}/resolve" style="margin-top:24px">
+        <input type="hidden" name="action" value="${options.action}" />
+        <input type="hidden" name="deadline" value="${options.deadline}" />
+        <input type="hidden" name="sig" value="${options.sig}" />
+        <button type="submit" style="appearance:none;border:0;border-radius:10px;background:${color};color:white;padding:12px 18px;font-size:16px;cursor:pointer">${options.actionLabel}</button>
+      </form>`
+    : ''
+
+  return {
+    statusCode,
+    html: `<html><body style="font-family:system-ui;padding:40px;text-align:center">
+      <h1 style="color:${color}">${options.title}</h1>
+      <p>${options.message}</p>
+      ${form}
+      <p style="color:#6b7280;font-size:14px;margin-top:24px">您可以关闭此页面。</p>
+    </body></html>`
+  }
+}
+
+function reportActionResponse(page: ReturnType<typeof buildReportActionHtml>) {
+  return new Response(page.html, {
+    status: page.statusCode,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+  })
+}
+
+async function renderReportActionConfirm(c: AppContext) {
   const reportId = Number(c.req.param('reportId'))
   if (!Number.isFinite(reportId) || reportId <= 0) {
     return c.json({ error: 'Invalid report id' }, 400)
@@ -1400,10 +1468,88 @@ publicRoutes.get('/admin/report/:reportId/resolve', async (c) => {
 
   const valid = await verifyActionToken(reportId, action, deadline, sig, c.env.ADMIN_SECRET)
   if (!valid) {
-    return c.html(
-      `<html><body style="font-family:system-ui;padding:40px;text-align:center"><h1>❌ 链接无效或已过期</h1><p>该操作链接已失效，请从飞书卡片重新操作。</p></body></html>`,
-      403,
-    )
+    const page = buildReportActionHtml({
+      title: '链接无效或已过期',
+      message: '该操作链接已失效，请从飞书卡片重新操作。',
+      statusCode: 403,
+      color: '#dc2626'
+    })
+    return reportActionResponse(page)
+  }
+
+  await ensureReviewReportsTable(c.env.DB)
+
+  const report = await c.env.DB
+    .prepare('SELECT id, status FROM review_reports WHERE id = ? LIMIT 1')
+    .bind(reportId)
+    .first<{ id: number; status: string }>()
+
+  if (!report) {
+    const page = buildReportActionHtml({
+      title: '举报不存在',
+      message: '该举报记录已被删除。',
+      statusCode: 404,
+      color: '#dc2626'
+    })
+    return reportActionResponse(page)
+  }
+
+  if (report.status !== 'open') {
+    const label = report.status === 'resolved' ? '已处理（通过）' : '已处理（驳回）'
+    const page = buildReportActionHtml({
+      title: '举报已处理',
+      message: `该举报已被标记为：${label}`,
+      color: '#ca8a04'
+    })
+    return reportActionResponse(page)
+  }
+
+  const isResolve = action === 'resolved'
+  const page = buildReportActionHtml({
+    title: isResolve ? '确认通过举报？' : '确认驳回举报？',
+    message: `举报 #${reportId} 将被标记为：${isResolve ? '通过' : '驳回'}。`,
+    action,
+    actionLabel: isResolve ? '确认通过' : '确认驳回',
+    reportId,
+    deadline,
+    sig,
+    color: isResolve ? '#16a34a' : '#dc2626'
+  })
+  return reportActionResponse(page)
+}
+
+// Feishu card action confirmation page. Old card links also land here and must
+// be explicitly submitted before mutating report state.
+publicRoutes.get('/admin/report/:reportId/confirm', renderReportActionConfirm)
+publicRoutes.get('/admin/report/:reportId/resolve', renderReportActionConfirm)
+
+publicRoutes.post('/admin/report/:reportId/resolve', async (c) => {
+  const reportId = Number(c.req.param('reportId'))
+  if (!Number.isFinite(reportId) || reportId <= 0) {
+    return c.json({ error: 'Invalid report id' }, 400)
+  }
+
+  const form = await c.req.formData().catch(() => null)
+  const action = String(form?.get('action') || '').trim()
+  const deadline = String(form?.get('deadline') || '').trim()
+  const sig = String(form?.get('sig') || '').trim()
+
+  if (!['resolved', 'rejected'].includes(action)) {
+    return c.json({ error: 'Invalid action' }, 400)
+  }
+  if (!deadline || !sig) {
+    return c.json({ error: 'Missing signature params' }, 400)
+  }
+
+  const valid = await verifyActionToken(reportId, action, deadline, sig, c.env.ADMIN_SECRET)
+  if (!valid) {
+    const page = buildReportActionHtml({
+      title: '链接无效或已过期',
+      message: '该操作链接已失效，请从飞书卡片重新操作。',
+      statusCode: 403,
+      color: '#dc2626'
+    })
+    return reportActionResponse(page)
   }
 
   await ensureReviewReportsTable(c.env.DB)
@@ -1414,18 +1560,23 @@ publicRoutes.get('/admin/report/:reportId/resolve', async (c) => {
     .first<{ id: number; review_id: number; status: string }>()
 
   if (!report) {
-    return c.html(
-      `<html><body style="font-family:system-ui;padding:40px;text-align:center"><h1>❌ 举报不存在</h1><p>该举报记录已被删除。</p></body></html>`,
-      404,
-    )
+    const page = buildReportActionHtml({
+      title: '举报不存在',
+      message: '该举报记录已被删除。',
+      statusCode: 404,
+      color: '#dc2626'
+    })
+    return reportActionResponse(page)
   }
 
   if (report.status !== 'open') {
     const label = report.status === 'resolved' ? '已处理（通过）' : '已处理（驳回）'
-    return c.html(
-      `<html><body style="font-family:system-ui;padding:40px;text-align:center"><h1>⚠️ 举报已处理</h1><p>该举报已被标记为：${label}</p></body></html>`,
-      200,
-    )
+    const page = buildReportActionHtml({
+      title: '举报已处理',
+      message: `该举报已被标记为：${label}`,
+      color: '#ca8a04'
+    })
+    return reportActionResponse(page)
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -1438,17 +1589,14 @@ publicRoutes.get('/admin/report/:reportId/resolve', async (c) => {
     .bind(action, now, now, reportId)
     .run()
 
-  const label = action === 'resolved' ? '✅ 已通过（评价保持显示）' : '❌ 已驳回'
+  const label = action === 'resolved' ? '已通过（评价保持显示）' : '已驳回'
   const color = action === 'resolved' ? '#16a34a' : '#dc2626'
-
-  return c.html(
-    `<html><body style="font-family:system-ui;padding:40px;text-align:center">
-      <h1 style="color:${color}">${action === 'resolved' ? '✅' : '❌'} 操作完成</h1>
-      <p>举报 #${reportId} 已标记为：${label}</p>
-      <p style="color:#6b7280;font-size:14px">您可以关闭此页面。</p>
-    </body></html>`,
-    200,
-  )
+  const page = buildReportActionHtml({
+    title: '操作完成',
+    message: `举报 #${reportId} 已标记为：${label}`,
+    color
+  })
+  return reportActionResponse(page)
 })
 
 export default publicRoutes
