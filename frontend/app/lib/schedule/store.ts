@@ -146,9 +146,9 @@ export const useSchedulerStore = create<SchedulerState>()(
         const { getGradesByCalendar } = await import("./api");
         try {
           const grades = await getGradesByCalendar(id);
-          set({ grades });
+          set({ grades: Array.isArray(grades) ? grades : [] });
         } catch {
-          // grades remain empty on error
+          set({ grades: [] });
         }
       },
 
@@ -159,9 +159,9 @@ export const useSchedulerStore = create<SchedulerState>()(
           const { getMajorsByGrade } = await import("./api");
           try {
             const majors = await getMajorsByGrade(calendarId, grade);
-            set({ majors });
+            set({ majors: Array.isArray(majors) ? majors : [] });
           } catch {
-            // majors remain empty on error
+            set({ majors: [] });
           }
         }
       },
