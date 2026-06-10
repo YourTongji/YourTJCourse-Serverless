@@ -104,80 +104,82 @@ jobs:
       - name: Ensure backend secrets
         run: |
           set -euo pipefail
+
+          # ADMIN_SECRET is required (Bindings type). Fail fast before anything else.
+          if [ -z "$ADMIN_SECRET" ]; then
+            echo "Missing secrets.JCOURSE_ADMIN_SECRET (used as backend ADMIN_SECRET)" >&2
+            exit 1
+          fi
+          echo "$ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET --env ""
+          echo "admin secret: set"
+
           BASE="${CREDIT_API_BASE:-${VITE_CREDIT_API_BASE:-}}"
           SECRET="${CREDIT_JCOURSE_SECRET:-${JCOURSE_INTEGRATION_SECRET:-}}"
 
           if [ -n "${BASE:-}" ]; then
-            echo "$BASE" | npx wrangler versions secret put CREDIT_API_BASE --env ""
-            echo "$BASE" | npx wrangler versions secret put VITE_CREDIT_API_BASE --env ""
+            echo "$BASE" | npx wrangler secret put CREDIT_API_BASE --env ""
+            echo "$BASE" | npx wrangler secret put VITE_CREDIT_API_BASE --env ""
             echo "credit base: set"
           else
             echo "credit base: missing (CREDIT_API_BASE / VITE_CREDIT_API_BASE)"
           fi
 
           if [ -n "${SECRET:-}" ]; then
-            echo "$SECRET" | npx wrangler versions secret put CREDIT_JCOURSE_SECRET --env ""
-            echo "$SECRET" | npx wrangler versions secret put JCOURSE_INTEGRATION_SECRET --env ""
+            echo "$SECRET" | npx wrangler secret put CREDIT_JCOURSE_SECRET --env ""
+            echo "$SECRET" | npx wrangler secret put JCOURSE_INTEGRATION_SECRET --env ""
             echo "credit secret: set"
           else
             echo "credit secret: missing (CREDIT_JCOURSE_SECRET / JCOURSE_INTEGRATION_SECRET)"
           fi
 
           if [ -n "${TURNSTILE_SECRET_KEY:-}" ]; then
-            echo "$TURNSTILE_SECRET_KEY" | npx wrangler versions secret put TURNSTILE_SECRET_KEY --env ""
+            echo "$TURNSTILE_SECRET_KEY" | npx wrangler secret put TURNSTILE_SECRET_KEY --env ""
             echo "turnstile secret: set"
           else
             echo "turnstile secret: missing (TURNSTILE_SECRET_KEY)"
           fi
 
           if [ -n "${TURNSTILE_SITEVERIFY_URL:-}" ]; then
-            echo "$TURNSTILE_SITEVERIFY_URL" | npx wrangler versions secret put TURNSTILE_SITEVERIFY_URL --env ""
+            echo "$TURNSTILE_SITEVERIFY_URL" | npx wrangler secret put TURNSTILE_SITEVERIFY_URL --env ""
             echo "turnstile siteverify url: set"
           else
             echo "turnstile siteverify url: default"
           fi
 
           if [ -n "${AI_SUMMARY_KEY:-}" ]; then
-            echo "$AI_SUMMARY_KEY" | npx wrangler versions secret put AI_SUMMARY_KEY --env ""
+            echo "$AI_SUMMARY_KEY" | npx wrangler secret put AI_SUMMARY_KEY --env ""
             echo "ai summary key: set"
           else
             echo "ai summary key: missing"
           fi
 
           if [ -n "${AI_SUMMARY_MODEL:-}" ]; then
-            echo "$AI_SUMMARY_MODEL" | npx wrangler versions secret put AI_SUMMARY_MODEL --env ""
+            echo "$AI_SUMMARY_MODEL" | npx wrangler secret put AI_SUMMARY_MODEL --env ""
             echo "ai summary model: set"
           else
             echo "ai summary model: missing"
           fi
 
           if [ -n "${AI_SUMMARY_BASE_URL:-}" ]; then
-            echo "$AI_SUMMARY_BASE_URL" | npx wrangler versions secret put AI_SUMMARY_BASE_URL --env ""
+            echo "$AI_SUMMARY_BASE_URL" | npx wrangler secret put AI_SUMMARY_BASE_URL --env ""
             echo "ai summary base url: set"
           else
             echo "ai summary base url: missing"
           fi
 
           if [ -n "${FEISHU_REPORT_WEBHOOK_URL:-}" ]; then
-            echo "$FEISHU_REPORT_WEBHOOK_URL" | npx wrangler versions secret put FEISHU_REPORT_WEBHOOK_URL --env ""
+            echo "$FEISHU_REPORT_WEBHOOK_URL" | npx wrangler secret put FEISHU_REPORT_WEBHOOK_URL --env ""
             echo "feishu webhook url: set"
           else
             echo "feishu webhook url: missing"
           fi
 
           if [ -n "${FEISHU_REPORT_WEBHOOK_SECRET:-}" ]; then
-            echo "$FEISHU_REPORT_WEBHOOK_SECRET" | npx wrangler versions secret put FEISHU_REPORT_WEBHOOK_SECRET --env ""
+            echo "$FEISHU_REPORT_WEBHOOK_SECRET" | npx wrangler secret put FEISHU_REPORT_WEBHOOK_SECRET --env ""
             echo "feishu webhook secret: set"
           else
             echo "feishu webhook secret: missing"
           fi
-
-          if [ -z "$ADMIN_SECRET" ]; then
-            echo "Missing secrets.JCOURSE_ADMIN_SECRET (used as backend ADMIN_SECRET)" >&2
-            exit 1
-          fi
-          echo "$ADMIN_SECRET" | npx wrangler versions secret put ADMIN_SECRET --env ""
-          echo "admin secret: set"
 
       - name: Deploy Worker
         run: npx wrangler deploy

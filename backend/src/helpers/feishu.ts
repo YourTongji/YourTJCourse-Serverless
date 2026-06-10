@@ -58,17 +58,23 @@ async function buildActionUrl(
   return `${origin}/api/admin/report/${reportId}/confirm?action=${action}&deadline=${deadline}&sig=${sig}`
 }
 
-/** Feishu webhook signing (HMAC-SHA256 → base64). */
+/** Feishu webhook signing (HMAC-SHA256 → base64).
+ *
+ * Per Feishu docs: the HMAC key is `${timestamp}\n${secret}` and signs
+ * an **empty** message. Returns the Base64-encoded signature.
+ */
 async function signFeishuWebhook(timestampSec: string, secret: string): Promise<string> {
   const encoder = new TextEncoder()
+  const hmacKey = encoder.encode(`${timestampSec}\n${secret}`)
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(secret),
+    hmacKey,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   )
-  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(`${timestampSec}\n${secret}`))
+  // Sign an empty message (Feishu spec: doFinal(new byte[]{}))
+  const sig = await crypto.subtle.sign('HMAC', key, new Uint8Array())
   return btoa(String.fromCharCode(...new Uint8Array(sig)))
 }
 
@@ -245,6 +251,16 @@ export async function notifyReportToFeishu(
 
     if (!res.ok) {
       console.warn(`[feishu] webhook HTTP ${res.status}`)
+    } else {
+      // Feishu returns HTTP 200 even on business errors (e.g. sign mismatch).
+      // Must parse the response body to detect silent failures.
+      const contentType = res.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        const result: any = await res.json().catch(() => ({}))
+        if (result && result.code !== undefined && result.code !== 0) {
+          console.warn(`[feishu] webhook business error: code=${result.code} msg=${result.msg || '-'}`)
+        }
+      }
     }
   } catch (e) {
     console.warn('[feishu] failed to send report notification:', e)
