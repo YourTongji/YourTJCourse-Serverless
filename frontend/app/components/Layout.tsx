@@ -16,6 +16,7 @@ import {
 } from "~/components/ui/sheet";
 import AnnouncementBar from "~/components/AnnouncementBar";
 import AnnouncementBell from "~/components/AnnouncementBell";
+import TourGuide from "~/components/TourGuide";
 import MaintenanceBar from "~/components/MaintenanceBar";
 
 const NAV_ITEMS = [
@@ -118,6 +119,8 @@ export default function Layout() {
       <main className="mx-auto max-w-7xl px-4 py-6">
         <Outlet />
       </main>
+      {/* ─── Tour Guide ─── */}
+      <TourGuide />
 
       {/* ─── Footer ─── */}
       <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-400">
