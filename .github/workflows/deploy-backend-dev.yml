@@ -26,6 +26,8 @@ jobs:
       JCOURSE_INTEGRATION_SECRET: ${{ secrets.JCOURSE_INTEGRATION_SECRET }}
       TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
       TURNSTILE_SITEVERIFY_URL: ${{ secrets.TURNSTILE_SITEVERIFY_URL }}
+      FEISHU_REPORT_WEBHOOK_URL: ${{ secrets.FEISHU_REPORT_WEBHOOK_URL }}
+      FEISHU_REPORT_WEBHOOK_SECRET: ${{ secrets.FEISHU_REPORT_WEBHOOK_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,6 +65,20 @@ jobs:
 
           if [ -n "${TURNSTILE_SITEVERIFY_URL:-}" ]; then
             echo "$TURNSTILE_SITEVERIFY_URL" | npx wrangler versions secret put TURNSTILE_SITEVERIFY_URL --env dev
+          fi
+
+          if [ -n "${FEISHU_REPORT_WEBHOOK_URL:-}" ]; then
+            echo "$FEISHU_REPORT_WEBHOOK_URL" | npx wrangler versions secret put FEISHU_REPORT_WEBHOOK_URL --env dev
+            echo "feishu webhook url: set (dev)"
+          else
+            echo "feishu webhook url: missing (dev)"
+          fi
+
+          if [ -n "${FEISHU_REPORT_WEBHOOK_SECRET:-}" ]; then
+            echo "$FEISHU_REPORT_WEBHOOK_SECRET" | npx wrangler versions secret put FEISHU_REPORT_WEBHOOK_SECRET --env dev
+            echo "feishu webhook secret: set (dev)"
+          else
+            echo "feishu webhook secret: missing (dev)"
           fi
 
       - name: Deploy Worker (env.dev)
