@@ -229,7 +229,6 @@ async function getMiniSearch(db: D1Database, showIcu: boolean, kv?: KVNamespace)
         return cache
       }
     }
-    return null
   }
 
   const documents = await loadMiniSearchDocuments(db, showIcu)
