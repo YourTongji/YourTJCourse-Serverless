@@ -387,7 +387,32 @@ publicRoutes.get('/courses', async (c) => {
       baseParams.push(likeCode, likeCode)
     }
 
-    const needPkFilter = Boolean(courseName || teacherName || teacherCode || campus || faculty)
+    // Teacher filters resolve precisely through the main `teachers` table. Each `courses`
+    // row is a (course, teacher) section via teacher_id, so this matches exactly the sections
+    // the teacher actually teaches — and the displayed teacher (t.name) then matches the course
+    // detail page. The aggregated CTE already joins `teachers t ON c.teacher_id = t.id`, so we
+    // filter that alias directly. The PK coursedetail/teacher tables can only be joined to main
+    // courses by shared course code, which is NOT teacher-specific: short shared codes (e.g. the
+    // 形势与政策 / 思修 family) link one teacher's section to many other teachers' sections, so a
+    // PK-based teacher match returns the wrong teachers' courses (filtering 弓昭民 surfaced 陈双珠
+    // etc. in issue #86). Teacher filters therefore must not go through the PK code join.
+    if (teacherName) {
+      baseWhere += " AND t.name LIKE ? ESCAPE '\\'"
+      baseParams.push(containsLikePattern(teacherName))
+    }
+    if (teacherCode) {
+      baseWhere += " AND t.tid LIKE ? ESCAPE '\\'"
+      baseParams.push(containsLikePattern(teacherCode))
+    }
+
+    // courseName / campus / faculty live in the PK coursedetail table. campus & faculty are
+    // PK-only; courseName also exists as courses.name in the main table, so it additionally
+    // matches there (the search index draws course name from the main table). The main-table
+    // branch only applies when no PK-only column is requested, since a main course without a
+    // coursedetail section cannot satisfy campus/faculty. This code-level join is correct for
+    // courseName/campus/faculty because those are properties of the course, not of a specific
+    // teacher's section.
+    const needPkFilter = Boolean(courseName || campus || faculty)
     if (needPkFilter) {
       const pkWhere: string[] = []
       const pkParams: any[] = []
@@ -404,40 +429,38 @@ publicRoutes.get('/courses', async (c) => {
         pkWhere.push('cd.faculty = ?')
         pkParams.push(faculty)
       }
-      if (teacherName) {
-        pkWhere.push("EXISTS (SELECT 1 FROM teacher tt WHERE tt.teachingClassId = cd.id AND tt.teacherName LIKE ? ESCAPE '\\')")
-        pkParams.push(containsLikePattern(teacherName))
-      }
-      if (teacherCode) {
-        pkWhere.push("EXISTS (SELECT 1 FROM teacher tt WHERE tt.teachingClassId = cd.id AND tt.teacherCode LIKE ? ESCAPE '\\')")
-        pkParams.push(containsLikePattern(teacherCode))
-      }
 
-      const pkExtraWhere = pkWhere.length > 0 ? ` AND ${pkWhere.join(' AND ')}` : ''
+      const pkExtraWhere = ` AND ${pkWhere.join(' AND ')}`
+
+      const mainCourseNameBranch = courseName && !campus && !faculty
+        ? `
+          UNION
+          SELECT DISTINCT c2.id AS id
+          FROM courses c2
+          WHERE c2.name LIKE ? ESCAPE '\\'`
+        : ''
 
       ctes.push(`
         pk_match AS (
-          SELECT DISTINCT c2.id AS id, TRIM(tt.teacherName) AS matched_teacher_name
+          SELECT DISTINCT c2.id AS id
           FROM courses c2
           JOIN coursedetail cd ON (
             cd.courseCode = c2.code OR cd.code = c2.code OR cd.newCourseCode = c2.code OR cd.newCode = c2.code
           )
-          LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
           WHERE 1=1${pkExtraWhere}
           UNION
-          SELECT DISTINCT a.course_id AS id, TRIM(tt.teacherName) AS matched_teacher_name
+          SELECT DISTINCT a.course_id AS id
           FROM course_aliases a
           JOIN coursedetail cd ON (
             a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
           )
-          LEFT JOIN teacher tt ON tt.teachingClassId = cd.id
-          WHERE a.system = 'onesystem'${pkExtraWhere}
+          WHERE a.system = 'onesystem'${pkExtraWhere}${mainCourseNameBranch}
         )
       `)
 
       baseWhere += ` AND c.id IN (SELECT id FROM pk_match)`
 
-      cteParams.push(...pkParams, ...pkParams)
+      cteParams.push(...pkParams, ...pkParams, ...(mainCourseNameBranch ? [containsLikePattern(courseName)] : []))
     }
 
     if (departments) {
@@ -454,9 +477,6 @@ publicRoutes.get('/courses', async (c) => {
     const matchedTeacherExprs: string[] = []
     if (keyword && buildStructuredKeywordTerms(keyword).length >= 2) {
       matchedTeacherExprs.push("(SELECT GROUP_CONCAT(DISTINCT matched_teacher_name) FROM pk_keyword_match pkm WHERE pkm.id = c.id AND TRIM(COALESCE(matched_teacher_name, '')) != '')")
-    }
-    if (teacherName || teacherCode) {
-      matchedTeacherExprs.push("(SELECT GROUP_CONCAT(DISTINCT matched_teacher_name) FROM pk_match pm WHERE pm.id = c.id AND TRIM(COALESCE(matched_teacher_name, '')) != '')")
     }
     const displayTeacherExpr = matchedTeacherExprs.length > 0
       ? `COALESCE(${matchedTeacherExprs.join(', ')}, t.name, '')`
