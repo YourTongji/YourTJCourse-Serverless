@@ -4,6 +4,8 @@ set -euo pipefail
 DB_NAME="${1:-}"
 SQL_DIR="${2:-}"
 SKIP_SEARCH_INDEXES="${3:-}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 if [ -z "$DB_NAME" ]; then
   echo "Usage: $0 <database-name> <sql-dir> [--skip-search-indexes]" >&2
@@ -39,16 +41,25 @@ IFS=$'\n' sync_files=($(printf '%s\n' "${sync_files[@]}" | sort))
 unset IFS
 
 migrations=(
-  "./migrations/001_pk_schema.sql"
-  "./migrations/002_pk_schema_patch.sql"
-  "./migrations/011_maintenance_settings.sql"
+  "$BACKEND_DIR/migrations/001_pk_schema.sql"
+  "$BACKEND_DIR/migrations/002_pk_schema_patch.sql"
+  "$BACKEND_DIR/migrations/011_maintenance_settings.sql"
 )
 
 if [ "$SKIP_SEARCH_INDEXES" != "--skip-search-indexes" ]; then
-  migrations+=("./migrations/012_search_indexes.sql")
+  migrations+=("$BACKEND_DIR/migrations/012_search_indexes.sql")
 fi
 
-migrations+=("./migrations/013_fetchlog_pk.sql")
+migrations+=("$BACKEND_DIR/migrations/013_fetchlog_pk.sql")
+
+if [ "$SKIP_SEARCH_INDEXES" = "--skip-search-indexes" ]; then
+  for migration in "${migrations[@]}"; do
+    if grep -Eiq 'CREATE[[:space:]]+VIRTUAL[[:space:]]+TABLE|fts5|course_search' "$migration"; then
+      echo "[$DB_NAME] migration may create search/FTS objects and is blocked for backup D1: $migration" >&2
+      exit 1
+    fi
+  done
+fi
 
 echo "[$DB_NAME] ensuring PK schema"
 for migration in "${migrations[@]}"; do

@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       calendarId:
-        description: "一系统学期ID (例如 121)"
+        description: "一系统学期ID (例如 121；本 Login 流程替代旧 Cookie 同步)"
         required: true
         type: string
       depth:
-        description: "同步深度 (从 calendarId 往前同步多少学期，默认 1)"
+        description: "同步深度 (从 calendarId 往前同步多少学期，默认 1；会同步写入备份 D1)"
         required: false
         default: "1"
         type: string
@@ -56,8 +56,17 @@ jobs:
           set -euo pipefail
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            depth="${INPUT_DEPTH:-1}"
+            if ! [[ "$INPUT_CALENDAR_ID" =~ ^[0-9]+$ ]]; then
+              echo "calendarId must be numeric" >&2
+              exit 1
+            fi
+            if ! [[ "$depth" =~ ^[0-9]+$ ]]; then
+              echo "depth must be numeric" >&2
+              exit 1
+            fi
             echo "calendarId=$INPUT_CALENDAR_ID" >> "$GITHUB_OUTPUT"
-            echo "depth=$INPUT_DEPTH" >> "$GITHUB_OUTPUT"
+            echo "depth=$depth" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -153,9 +162,15 @@ jobs:
           wait "$primary_pid" || primary_status=$?
           wait "$backup_pid" || backup_status=$?
 
-          if [ "$primary_status" -ne 0 ] || [ "$backup_status" -ne 0 ]; then
-            echo "D1 apply failed: primary=$primary_status backup=$backup_status" >&2
+          echo "BACKUP_D1_APPLY_STATUS=$backup_status" >> "$GITHUB_ENV"
+
+          if [ "$primary_status" -ne 0 ]; then
+            echo "Primary D1 apply failed: primary=$primary_status backup=$backup_status" >&2
             exit 1
+          fi
+
+          if [ "$backup_status" -ne 0 ]; then
+            echo "Backup D1 apply failed with status $backup_status; primary refresh will still run before the job fails." >&2
           fi
 
       - name: Materialize pk courses to review site tables (remote)
@@ -172,6 +187,11 @@ jobs:
           CALENDAR_ID: ${{ steps.resolve.outputs.calendarId }}
         run: |
           set -euo pipefail
+
+          if [ "${BACKUP_D1_APPLY_STATUS:-0}" != "0" ]; then
+            echo "Backup D1 apply failed earlier with status $BACKUP_D1_APPLY_STATUS. Rerun this workflow with the same calendarId/depth after fixing the backup path." >&2
+            exit 1
+          fi
 
           query_single() {
             local database="$1"
@@ -206,6 +226,7 @@ jobs:
           }
 
           compare_count "calendar" "SELECT COUNT(*) AS count FROM calendar WHERE calendarId = $CALENDAR_ID;"
+          compare_count "coursenature_by_calendar" "SELECT COUNT(*) AS count FROM coursenature_by_calendar WHERE calendarId = $CALENDAR_ID;"
           compare_count "coursedetail" "SELECT COUNT(*) AS count FROM coursedetail WHERE calendarId = $CALENDAR_ID;"
           compare_count "teacher" "SELECT COUNT(*) AS count FROM teacher t JOIN coursedetail cd ON cd.id = t.teachingClassId WHERE cd.calendarId = $CALENDAR_ID;"
           compare_count "teacher_timeslots" "SELECT COUNT(*) AS count FROM teacher_timeslots WHERE calendar_id = $CALENDAR_ID;"

@@ -115,7 +115,7 @@ cd backend
 npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
 ```
 
-`jcourse-db-backup` 不是完整生产业务灾备库，不保证包含评论、举报、AI 摘要等业务数据。
+`jcourse-db-backup` 不是完整生产业务灾备库，不可作为线上业务库恢复目标，也不保证包含评论、举报、AI 摘要等业务数据；完整灾备仍需要单独的生产快照或备用库策略。若同步失败导致主备可能分叉，请使用同一组 `calendarId` / `depth` 重新运行同步，直到主备计数校验通过后再基于备份库导出或分析。
 
 ## 开发流程
 
