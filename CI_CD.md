@@ -48,7 +48,27 @@ wrangler secret put ADMIN_SECRET
 
 - `.github/workflows/deploy-cloudflare.yml`
 
-## 5) 自定义域名（xk.yourtj.de）为什么没更新？
+## 5) 一系统同步与 D1 导出规范
+
+一系统/PK 数据同步统一使用 `.github/workflows/sync-onesystem-login.yml`。该流程会将生成的 SQL 同时写入：
+
+- `jcourse-db`：生产查询库，会刷新评课站检索索引，可能包含 `course_search` FTS5 虚拟表。
+- `jcourse-db-backup`：PK 数据镜像库，仅用于导出、ETL 和分析，不应创建 `course_search` FTS5 虚拟表。
+
+旧的 `.github/workflows/sync-onesystem.yml` Cookie 同步流程已停用，执行时会立即失败并提示使用 Login 同步流程，因为它会绕过备份库双写链路。
+
+初始化 `jcourse-db-backup` 时，通过 Cloudflare Dashboard 或 `npx wrangler d1 create jcourse-db-backup` 创建 D1 数据库；如果本地 Wrangler 登录了多个 Cloudflare 账号，请只在本地环境变量或 Wrangler 本地配置中选择账号，不要把具体账号 ID 或备份库 database_id 写入公开仓库。创建后可通过 Login 同步 workflow 初始化并填充 PK 表；备份库路径会跳过搜索索引迁移，并在写入后校验不存在 `course_search%` 对象。
+
+请不要对生产库执行 `wrangler d1 export`。需要导出一系统/PK 数据时，只导出备份库：
+
+```bash
+cd backend
+npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
+```
+
+`jcourse-db-backup` 不是完整生产业务灾备库，不可作为线上业务库恢复目标，也不保证包含评论、举报、AI 摘要等业务数据；完整灾备仍需要单独的生产快照或备用库策略。若同步失败导致主备可能分叉，必须使用同一组 `calendarId` / `depth` 重新运行同步，直到主备计数校验通过；在校验通过前不要基于 `jcourse-db-backup` 做导出、ETL 或分析。
+
+## 6) 自定义域名（xk.yourtj.de）为什么没更新？
 
 GitHub Actions 里 `wrangler pages deploy` 打印出来的 `*.pages.dev` 只是 Pages 的默认访问地址。
 要让生产域名 `https://xk.yourtj.de` 指向本仓库的 Pages 项目，需要在 Cloudflare 侧绑定域名：

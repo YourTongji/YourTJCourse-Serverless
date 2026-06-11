@@ -1,4 +1,4 @@
-﻿name: Sync Onesystem (Cookie) To D1
+name: Sync Onesystem (Cookie) To D1
 
 on:
   workflow_dispatch:
@@ -12,7 +12,6 @@ on:
         required: false
         default: "1"
         type: string
-  # 便于在 dev 分支上“测试到可用”为止：通过 push 触发（需要提交信息包含 [pk-sync]）
   push:
     branches: ["dev"]
 
@@ -26,128 +25,9 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[pk-sync-cookie]'))
     steps:
-      - name: Resolve calendarId/depth
-        id: resolve
-        shell: bash
+      - name: Deprecated workflow
         run: |
           set -euo pipefail
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "calendarId=${{ inputs.calendarId }}" >> "$GITHUB_OUTPUT"
-            echo "depth=${{ inputs.depth }}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          msg="${{ github.event.head_commit.message }}"
-          calendarId="$(echo "$msg" | sed -nE 's/.*calendarId=([0-9]+).*/\1/p' | head -n1)"
-          depth="$(echo "$msg" | sed -nE 's/.*depth=([0-9]+).*/\1/p' | head -n1)"
-
-          if [ -z "$calendarId" ]; then
-            echo "Missing calendarId in commit message. Example: [pk-sync-cookie] calendarId=121 depth=1" >&2
-            exit 1
-          fi
-
-          if [ -z "$depth" ]; then depth="1"; fi
-          echo "calendarId=$calendarId" >> "$GITHUB_OUTPUT"
-          echo "depth=$depth" >> "$GITHUB_OUTPUT"
-
-      - name: Validate inputs
-        run: |
-          echo "calendarId=${{ steps.resolve.outputs.calendarId }}"
-          echo "depth=${{ steps.resolve.outputs.depth }}"
-
-      - name: Trigger backend sync
-        env:
-          # Prefer BACKEND_URL (explicit backend base), fallback to VITE_API_URL (frontend uses it as API base)
-          BACKEND_URL: ${{ (github.ref_name == 'dev' && secrets.BACKEND_URL_DEV) || secrets.BACKEND_URL || secrets.VITE_API_URL }}
-          ADMIN_SECRET: ${{ secrets.JCOURSE_ADMIN_SECRET }}
-          ONESYSTEM_COOKIE: ${{ secrets.ONESYSTEM_COOKIE }}
-          CALENDAR_ID: ${{ steps.resolve.outputs.calendarId }}
-          DEPTH: ${{ steps.resolve.outputs.depth }}
-        run: |
-          set -euo pipefail
-          BACKEND_URL="${BACKEND_URL%/}"
-          if [[ "$BACKEND_URL" == */api ]]; then BACKEND_URL="${BACKEND_URL%/api}"; fi
-
-          if [ -z "$BACKEND_URL" ]; then
-            echo "Missing secrets.BACKEND_URL (or secrets.VITE_API_URL) (backend base url)" >&2
-            exit 1
-          fi
-          if [ -z "$ADMIN_SECRET" ]; then
-            echo "Missing secrets.JCOURSE_ADMIN_SECRET (x-admin-secret)" >&2
-            exit 1
-          fi
-
-          code="$(curl -sS -o /dev/null -w '%{http_code}' -X OPTIONS "$BACKEND_URL/api/admin/pk/sync" || true)"
-          if [ "$code" = "404" ]; then
-            echo "Backend endpoint not found: $BACKEND_URL/api/admin/pk/sync" >&2
-            echo "This usually means the backend Worker at BACKEND_URL is not deployed with pk sync route yet (or BACKEND_URL points to frontend Pages)." >&2
-            exit 1
-          fi
-
-          payload=$(python3 -c 'import json, os; payload={"calendarId": int(os.environ["CALENDAR_ID"]), "depth": int(os.environ.get("DEPTH", "1"))}; cookie=os.environ.get("ONESYSTEM_COOKIE","").strip(); payload.update({"onesystemCookie": cookie} if cookie else {}); print(json.dumps(payload, ensure_ascii=False))')
-
-          curl -sS -X POST "$BACKEND_URL/api/admin/pk/sync" \
-            -H "Content-Type: application/json" \
-            -H "x-admin-secret: $ADMIN_SECRET" \
-            --data "$payload" \
-            | tee sync-result.json
-
-          python3 -c 'import json,sys; data=json.load(open("sync-result.json","r",encoding="utf-8")); ok=bool(data.get("success")); print("success=",ok,"calendarIds=",data.get("calendarIds"),"teachingClassInserted=",data.get("teachingClassInserted")); sys.exit(0 if ok else 1)'
-
-          node - <<'NODE'
-          const baseUrl = process.env.BACKEND_URL.replace(/\/+$/, '').replace(/\/api$/, '')
-          const calendarId = Number(process.env.CALENDAR_ID)
-
-          async function post(path, body) {
-            const res = await fetch(`${baseUrl}${path}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body)
-            })
-            if (!res.ok) throw new Error(`${path} HTTP ${res.status}`)
-            const json = await res.json()
-            if (json.code !== 200) throw new Error(`${path} returned ${JSON.stringify(json).slice(0, 200)}`)
-            return json.data
-          }
-
-          const calendarsRes = await fetch(`${baseUrl}/api/getAllCalendar`)
-          if (!calendarsRes.ok) throw new Error(`/api/getAllCalendar HTTP ${calendarsRes.status}`)
-          const calendars = await calendarsRes.json()
-          if (calendars.code !== 200 || !Array.isArray(calendars.data) || calendars.data.length === 0) {
-            throw new Error('getAllCalendar returned invalid payload')
-          }
-
-          const gradeData = await post('/api/findGradeByCalendarId', { calendarId })
-          const grades = Array.isArray(gradeData?.gradeList) ? gradeData.gradeList : []
-          if (grades.length === 0) throw new Error('findGradeByCalendarId returned empty gradeList')
-
-          const grade = grades[0]
-          const majors = await post('/api/findMajorByGrade', { calendarId, grade })
-          if (!Array.isArray(majors) || majors.length === 0) throw new Error('findMajorByGrade returned empty list')
-
-          const major = majors.find((item) => item?.code) || majors[0]
-          if (!major?.code) throw new Error('findMajorByGrade returned no usable major code')
-
-          const courses = await post('/api/findCourseByMajor', { calendarId, grade, code: major.code })
-          if (!Array.isArray(courses) || courses.length === 0) throw new Error('findCourseByMajor returned empty list')
-
-          const optionalTypes = await post('/api/findOptionalCourseType', { calendarId })
-          if (!Array.isArray(optionalTypes)) throw new Error('findOptionalCourseType returned non-list')
-
-          const search = await post('/api/findCourseBySearch', { calendarId, courseName: courses[0].courseName || '' })
-          if (!Array.isArray(search?.courses)) throw new Error('findCourseBySearch returned invalid payload')
-
-          const time = await post('/api/findCourseByTime', { calendarId, day: 1, section: 1 })
-          if (!Array.isArray(time)) throw new Error('findCourseByTime returned invalid payload')
-
-          console.log(JSON.stringify({
-            calendarId,
-            grade,
-            majors: majors.length,
-            courses: courses.length,
-            optionalTypes: optionalTypes.length,
-            searchCourses: search.courses.length,
-            timeCourses: time.length
-          }))
-          NODE
+          echo "This workflow is deprecated because it bypasses the backup D1 double-write path." >&2
+          echo "Please use \"Sync Onesystem (Login) To D1\" instead." >&2
+          exit 1
