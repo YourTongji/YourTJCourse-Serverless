@@ -1512,21 +1512,35 @@ function buildReportActionHtml(options: {
   const statusCode = options.statusCode || 200
   const color = options.color || '#111827'
   const form = options.action && options.reportId && options.deadline && options.sig
-    ? `<form method="post" action="/api/admin/report/${options.reportId}/resolve" style="margin-top:24px">
+    ? `<form method="post" action="/api/admin/report/${options.reportId}/resolve">
         <input type="hidden" name="action" value="${options.action}" />
         <input type="hidden" name="deadline" value="${options.deadline}" />
         <input type="hidden" name="sig" value="${options.sig}" />
-        <button type="submit" style="appearance:none;border:0;border-radius:10px;background:${color};color:white;padding:12px 18px;font-size:16px;cursor:pointer">${options.actionLabel}</button>
+        <button type="submit" class="btn" style="background:${color};color:white">${options.actionLabel}</button>
       </form>`
     : ''
 
   return {
     statusCode,
-    html: `<html><body style="font-family:system-ui;padding:40px;text-align:center">
-      <h1 style="color:${color}">${options.title}</h1>
-      <p>${options.message}</p>
-      ${form}
-      <p style="color:#6b7280;font-size:14px;margin-top:24px">您可以关闭此页面。</p>
+    html: `<html><head><meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;text-align:center;padding:40px 24px;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f8fafc}
+      .card{background:#fff;border-radius:24px;padding:32px 24px;max-width:420px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,.06);border:1px solid rgba(0,0,0,.04)}
+      h1{font-size:22px;font-weight:800;margin-bottom:12px;line-height:1.3;word-break:break-word}
+      .msg{font-size:15px;line-height:1.6;color:#475569;margin-bottom:24px;word-break:break-word}
+      .btn{display:block;width:100%;appearance:none;border:0;border-radius:14px;padding:14px 18px;font-size:16px;font-weight:700;cursor:pointer;text-align:center;transition:opacity .2s}
+      .btn:hover{opacity:.85}
+      .footer{font-size:13px;color:#94a3b8;margin-top:24px}
+      @media(max-width:480px){body{padding:24px 16px}.card{padding:24px 16px;border-radius:20px}h1{font-size:20px}}
+    </style>
+    </head><body>
+      <div class="card">
+        <h1 style="color:${color}">${options.title}</h1>
+        <div class="msg">${options.message}</div>
+        ${form}
+        <div class="footer">您可以关闭此页面。</div>
+      </div>
     </body></html>`
   }
 }
