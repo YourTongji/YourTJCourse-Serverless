@@ -4,6 +4,12 @@
  * When a report is filed, sends an interactive card with "通过" / "驳回" buttons.
  * Buttons use HMAC-signed URLs and open a confirmation page before mutating state.
  * Approving a report hides the reported review. No Feishu app registration required.
+ *
+ * Aligned with YourTJ-Credit-Serverless implementation:
+ * - Config hot update: read from DB settings first, fallback to env vars
+ * - Error handling: parse response body for Feishu error codes
+ * - Return value: FeishuSendResult with detailed status for debugging
+ * - Text normalization: HTML entity decoding, long text truncation
  */
 import type { Bindings } from './types'
 
@@ -20,6 +26,54 @@ export interface ReportNotificationPayload {
   semester: string
   /** True when a previously processed report was reopened by a repeat report. */
   reopened?: boolean
+}
+
+// ─── Feishu config & result types (aligned with Credit) ─────────
+
+type FeishuConfig = { webhookUrl: string; secret?: string }
+
+export type FeishuSendResult = {
+  enabled: boolean
+  ok?: boolean
+  status?: number
+  responseSnippet?: string
+  error?: string
+}
+
+const FEISHU_SETTINGS_WEBHOOK_URL_KEY = 'feishu_report_webhook_url'
+const FEISHU_SETTINGS_WEBHOOK_SECRET_KEY = 'feishu_report_webhook_secret'
+
+// ─── Text normalization helpers (aligned with Credit) ───────────
+
+function decodeHtmlEntities(input: string): string {
+  const text = String(input ?? '')
+  return text.replace(/&(?:lt|gt|amp|quot|nbsp);|&#39;|&#x?[0-9a-fA-F]+;/g, (m) => {
+    switch (m) {
+      case '&lt;': return '<'
+      case '&gt;': return '>'
+      case '&amp;': return '&'
+      case '&quot;': return '"'
+      case '&#39;': return "'"
+      case '&nbsp;': return ' '
+      default: {
+        const hex = m.startsWith('&#x') || m.startsWith('&#X')
+        const num = hex ? m.slice(3, -1) : m.slice(2, -1)
+        const codePoint = parseInt(num, hex ? 16 : 10)
+        if (!Number.isFinite(codePoint)) return m
+        try { return String.fromCodePoint(codePoint) } catch { return m }
+      }
+    }
+  })
+}
+
+function normalizeFeishuText(input: string): string {
+  let decoded = String(input ?? '')
+  for (let i = 0; i < 3; i++) {
+    const next = decodeHtmlEntities(decoded)
+    if (next === decoded) break
+    decoded = next
+  }
+  return decoded.replace(/<\s*br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')
 }
 
 // ─── HMAC helpers ───────────────────────────────────────────────
@@ -72,18 +126,52 @@ async function signFeishuWebhook(timestampSec: string, secret: string): Promise<
   return btoa(String.fromCharCode(...new Uint8Array(sig)))
 }
 
+// ─── Config hot update (aligned with Credit) ───────────────────
+
+/**
+ * Get Feishu webhook config with hot-update support.
+ * Priority: DB settings table > env vars (fallback).
+ */
+async function getFeishuConfig(db: D1Database): Promise<FeishuConfig | null> {
+  // Try DB settings first (supports runtime hot update without redeploy)
+  try {
+    const rowUrl = await db
+      .prepare('SELECT value FROM settings WHERE key = ? LIMIT 1')
+      .bind(FEISHU_SETTINGS_WEBHOOK_URL_KEY)
+      .first<{ value: string }>()
+    const dbUrl = rowUrl?.value ? String(rowUrl.value).trim() : ''
+    if (dbUrl) {
+      const rowSecret = await db
+        .prepare('SELECT value FROM settings WHERE key = ? LIMIT 1')
+        .bind(FEISHU_SETTINGS_WEBHOOK_SECRET_KEY)
+        .first<{ value: string }>()
+      const dbSecret = rowSecret?.value ? String(rowSecret.value).trim() : ''
+      return dbSecret ? { webhookUrl: dbUrl, secret: dbSecret } : { webhookUrl: dbUrl }
+    }
+  } catch {
+    // ignore: DB may be unavailable, or settings table missing
+  }
+
+  // Fallback: env vars (requires redeploy to change)
+  return null
+}
+
 // ─── Public API ─────────────────────────────────────────────────
 
 export async function notifyReportToFeishu(
   payload: ReportNotificationPayload,
   env: Bindings,
   origin: string,
-): Promise<void> {
-  const webhookUrl = env.FEISHU_REPORT_WEBHOOK_URL
+): Promise<FeishuSendResult> {
   const adminSecret = env.ADMIN_SECRET
+  if (!adminSecret) return { enabled: false, error: 'ADMIN_SECRET not set' }
 
-  if (!webhookUrl) return
-  if (!adminSecret) return
+  // Config: try DB first, then env vars
+  const dbConfig = await getFeishuConfig(env.DB)
+  const webhookUrl = dbConfig?.webhookUrl || env.FEISHU_REPORT_WEBHOOK_URL
+  const feishuSecret = dbConfig?.secret || env.FEISHU_REPORT_WEBHOOK_SECRET
+
+  if (!webhookUrl) return { enabled: false }
 
   const reasonLabel: Record<string, string> = {
     spam: '垃圾广告',
@@ -227,7 +315,6 @@ export async function notifyReportToFeishu(
       },
     }
 
-    const feishuSecret = env.FEISHU_REPORT_WEBHOOK_SECRET
     if (feishuSecret) {
       const timestamp = String(Math.floor(Date.now() / 1000))
       body.timestamp = timestamp
@@ -243,11 +330,29 @@ export async function notifyReportToFeishu(
       signal: controller.signal,
     }).finally(() => clearTimeout(timeout))
 
+    const text = await res.text().catch(() => '')
+    const snippet2 = text.slice(0, 200)
+
     if (!res.ok) {
-      console.warn(`[feishu] webhook HTTP ${res.status}`)
+      console.warn(`[feishu] webhook HTTP ${res.status}: ${snippet2}`)
+      return { enabled: true, ok: false, status: res.status, responseSnippet: snippet2 }
     }
+
+    // Feishu often responds HTTP 200 even when "code" indicates an error (e.g. rate limit).
+    try {
+      const parsed = JSON.parse(text || '{}') as any
+      if (typeof parsed?.code === 'number' && parsed.code !== 0) {
+        console.warn(`[feishu] webhook error code ${parsed.code}: ${String(parsed?.msg || parsed?.message || '').slice(0, 200)}`)
+        return { enabled: true, ok: false, status: res.status, responseSnippet: snippet2 }
+      }
+    } catch {
+      // ignore non-JSON success body
+    }
+
+    return { enabled: true, ok: true, status: res.status, responseSnippet: snippet2 }
   } catch (e) {
     console.warn('[feishu] failed to send report notification:', e)
+    return { enabled: true, ok: false, error: e instanceof Error ? e.message : String(e) }
   }
 }
 
