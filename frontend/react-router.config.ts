@@ -2,5 +2,5 @@ import type { Config } from "@react-router/dev/config";
 
 export default {
   ssr: true,
-  serverBuildFile: "build/server/index.js",
+  serverBuildFile: "index.js",
 } satisfies Config;

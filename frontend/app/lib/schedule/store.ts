@@ -142,11 +142,13 @@ export const useSchedulerStore = create<SchedulerState>()(
           calendarId: id,
           grade: null,
           major: null,
+          grades: [],
           majors: [],
           compulsoryCourses: [],
           optionalTypes: [],
           optionalCourses: [],
           searchCourses: [],
+          stagedCourses: [],
           maxRows: id >= 120 ? 11 : 12,
           gradesLoading: true,
         });

@@ -10,9 +10,8 @@ import { Flag } from "lucide-react";
 
 const REPORT_REASONS = [
   { value: "spam", label: "垃圾广告" },
-  { value: "misleading", label: "误导信息" },
   { value: "harassment", label: "人身攻击" },
-  { value: "low_quality", label: "质量过低" },
+  { value: "misinformation", label: "虚假信息" },
   { value: "other", label: "其他" },
 ];
 

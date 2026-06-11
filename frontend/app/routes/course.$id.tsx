@@ -25,6 +25,7 @@ import { Avatar, AvatarFallback } from "~/components/ui/avatar";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Separator } from "~/components/ui/separator";
 import { getClientId } from "~/lib/clientId";
+import { loadCreditWallet, computeReviewEditToken } from "~/lib/creditWallet";
 import CollapsibleMarkdown from "~/components/CollapsibleMarkdown";
 import { formatSemesterLabel, formatRating } from "~/lib/format";
 import RelatedCourses from "~/components/RelatedCourses";
@@ -354,12 +355,27 @@ export default function CourseDetail() {
   const [shareReview, setShareReview] = useState<Review | null>(null);
 
   // Refetch course data with clientId after SSR hydration to get personalized fields (liked, can_edit)
+  // Also sends editReviewProofs from wallet so the backend can determine can_edit
   const { data: course } = useQuery({
     queryKey: ["course", initialCourse.id] as const,
     queryFn: async () => {
       const cid = getClientId();
-      const params = cid !== "ssr" ? `?clientId=${encodeURIComponent(cid)}` : "";
-      const res = await fetch(`/api/course/${initialCourse.id}${params}`);
+      if (cid === "ssr") {
+        const res = await fetch(`/api/course/${initialCourse.id}`);
+        if (!res.ok) throw new Response("Course not found", { status: 404 });
+        return res.json() as Promise<CourseDetail>;
+      }
+      const wallet = loadCreditWallet();
+      const params = new URLSearchParams({ clientId: cid });
+      if (wallet?.userSecret && initialCourse.reviews?.length > 0) {
+        const proofs: string[] = [];
+        for (const r of initialCourse.reviews) {
+          const proof = await computeReviewEditToken(wallet.userSecret, r.id);
+          proofs.push(`${r.id}:${proof}`);
+        }
+        if (proofs.length > 0) params.set("editReviewProofs", proofs.join(","));
+      }
+      const res = await fetch(`/api/course/${initialCourse.id}?${params.toString()}`);
       if (!res.ok) throw new Response("Course not found", { status: 404 });
       return res.json() as Promise<CourseDetail>;
     },
@@ -367,6 +383,7 @@ export default function CourseDetail() {
     staleTime: 0,
     gcTime: 30_000,
   });
+
   const [reportReviewId, setReportReviewId] = useState<number | null>(null);
 
 
@@ -508,6 +525,7 @@ export default function CourseDetail() {
                     onShare={() => setShareReview(review)}
                     onReport={(review) => setReportReviewId(review.id)}
                     onEdit={(review) => {
+                      sessionStorage.setItem(`edit-review-${course.id}`, JSON.stringify(review));
                       navigate(`/course/${course.id}/write?edit=1`, {
                         state: { editReview: review },
                       });

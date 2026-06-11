@@ -117,7 +117,11 @@ export default function ReviewDrawer({ open, onOpenChange }: ReviewDrawerProps) 
                 )}
                 {(review.createdAt || review.created_at) && (
                   <p className="mt-1 text-[10px] text-slate-400">
-                    {new Date(review.createdAt || review.created_at || "").toLocaleDateString("zh-CN")}
+                    {(() => {
+                      const raw = review.createdAt || review.created_at || "";
+                      const d = typeof raw === "number" ? new Date(raw * 1000) : new Date(raw);
+                      return d.toLocaleDateString("zh-CN");
+                    })()}
                   </p>
                 )}
               </div>

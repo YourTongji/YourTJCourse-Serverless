@@ -79,6 +79,8 @@ export default function Feedback() {
   const walineRef = useRef<HTMLDivElement>(null);
   const walineServerUrl = import.meta.env.VITE_WALINE_SERVER_URL;
   const [walineReady, setWalineReady] = useState(false);
+  const [scriptFailed, setScriptFailed] = useState(false);
+  const scriptLoaded = useRef(false);
 
   useEffect(() => {
     if (!walineServerUrl) return;
@@ -120,11 +122,14 @@ export default function Feedback() {
 
       const scriptTimeout = setTimeout(() => {
         if (cancelled) return;
-        setWalineReady(true);
+        if (walineRef.current && !scriptLoaded.current) {
+          setScriptFailed(true);
+        }
       }, 10000);
 
       script.onload = () => {
         clearTimeout(scriptTimeout);
+        scriptLoaded.current = true;
         if (cancelled) return;
         if (window.Waline && walineRef.current) {
           window.Waline.init({
@@ -139,7 +144,7 @@ export default function Feedback() {
       script.onerror = () => {
         clearTimeout(scriptTimeout);
         if (!cancelled) {
-          setWalineReady(true);
+          setScriptFailed(true);
         }
       };
 
@@ -199,19 +204,31 @@ export default function Feedback() {
 
       {/* Waline comment area */}
       <Card className="p-6 md:p-8">
-        <div className="relative">
-          {!walineReady && (
-            <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500 pointer-events-none">
-              {walineServerUrl ? "正在加载评论区..." : "反馈服务暂未配置，请通过 support@yourtj.de 联系我们"}
-            </div>
-          )}
-          <div
-            ref={walineRef}
-            id="waline-feedback"
-            className="h-[70vh] min-h-[720px] overflow-auto"
-            style={{ visibility: walineReady || !walineServerUrl ? "visible" : "hidden" }}
-          />
-        </div>
+        {scriptFailed ? (
+          <div className="rounded-xl border border-dashed border-muted-foreground/30 p-8 text-center">
+            <p className="text-sm text-muted-foreground mb-2">
+              反馈服务暂不可用
+            </p>
+            <p className="text-xs text-muted-foreground/60 mb-4">
+              你可以通过 email 联系我们:
+              <a href="mailto:support@yourtj.de" className="ml-1 text-primary hover:underline">support@yourtj.de</a>
+            </p>
+          </div>
+        ) : (
+          <div className="relative">
+            {!walineReady && (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500 pointer-events-none">
+                {walineServerUrl ? "正在加载评论区..." : "反馈服务暂未配置，请通过 support@yourtj.de 联系我们"}
+              </div>
+            )}
+            <div
+              ref={walineRef}
+              id="waline-feedback"
+              className="h-[70vh] min-h-[720px] overflow-auto"
+              style={{ visibility: walineReady || !walineServerUrl ? "visible" : "hidden" }}
+            />
+          </div>
+        )}
       </Card>
     </div>
   );

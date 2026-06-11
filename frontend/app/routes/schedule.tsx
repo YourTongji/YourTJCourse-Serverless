@@ -32,6 +32,14 @@ export default function Schedule() {
       } catch (e) {
         console.error("Failed to load calendars", e);
       } finally {
+        // After calendars load, if a calendarId was restored from persist,
+        // re-select it to fetch fresh cascade data (grades, majors).
+        // This clears any stale grade/major values that persist restores
+        // without the corresponding data arrays.
+        const state = useSchedulerStore.getState();
+        if (state.calendarId !== null) {
+          await state.selectCalendar(state.calendarId);
+        }
         setIsInitialized(true);
       }
     };

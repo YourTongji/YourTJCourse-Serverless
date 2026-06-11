@@ -224,5 +224,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy Pages
-        run: npx wrangler pages deploy build/client --project-name jcourse-web
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy

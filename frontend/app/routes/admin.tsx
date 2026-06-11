@@ -87,7 +87,7 @@ function truncate(str: string | null | undefined, maxLen: number): string {
 
 function formatDate(ts: string | number): string {
   if (!ts) return "—";
-  const d = new Date(typeof ts === "number" ? ts : ts);
+  const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
   return d.toLocaleDateString("zh-CN", {
     year: "numeric",
     month: "2-digit",

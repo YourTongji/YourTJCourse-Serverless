@@ -107,7 +107,7 @@ async function mockApi(page: Page) {
       });
     }
     if (path === "/api/findGradeByCalendarId") {
-      return route.fulfill({ json: { code: 0, msg: "ok", data: [2024] } });
+      return route.fulfill({ json: { code: 0, msg: "ok", data: { gradeList: [2024] } } });
     }
     if (path === "/api/findMajorByGrade") {
       return route.fulfill({

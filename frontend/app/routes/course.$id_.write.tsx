@@ -291,6 +291,36 @@ export default function WriteReview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit]);
 
+  /* ── Edit mode recovery from sessionStorage (for direct URL access / refresh) ── */
+  useEffect(() => {
+    if (!isEdit || editReview || !id) return;
+    try {
+      const stored = sessionStorage.getItem(`edit-review-${id}`);
+      if (stored) {
+        const data = JSON.parse(stored) as Record<string, unknown>;
+        setComment(String(data.comment || ""));
+        form.setValue("rating", Number(data.rating ?? 5));
+        form.setValue("semester", String(data.semester || "其他") || "其他");
+        const rName = String(data.reviewer_name || "");
+        const rAvatar = String(data.reviewer_avatar || "");
+        if (rAvatar.includes("qlogo.cn")) {
+          const m = rAvatar.match(/nk=(\d+)/);
+          setReviewer({
+            name: rName,
+            avatar: rAvatar,
+            avatarType: "qq",
+            qqNumber: m?.[1] || "",
+          });
+        } else if (rName || rAvatar) {
+          setReviewer({ name: rName, avatar: rAvatar, avatarType: "random", qqNumber: "" });
+        }
+        sessionStorage.removeItem(`edit-review-${id}`);
+      }
+    } catch {
+      // Ignore corrupt sessionStorage
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isEdit]);
   /* ── Template selection ── */
   const handleTemplateSelect = (template: string, templateId?: string) => {
     setComment(template || DEFAULT_TEMPLATE);
