@@ -1370,7 +1370,9 @@ publicRoutes.post('/review/:id/report', async (c) => {
   if ((isNewReport || isReopenedReport) && effectiveReportId) {
     // Fire-and-forget Feishu notification (don't block response)
     const origin = new URL(c.req.url).origin
-    const debugFeishu = String(c.req.header('x-debug-feishu') || '') === '1'
+    // Restrict debug mode to non-production environments (avoid DoS / info leak)
+    const isDevOrTest = String(c.env.APP_ENV || '').trim() !== 'production'
+    const debugFeishu = isDevOrTest && String(c.req.header('x-debug-feishu') || '') === '1'
     const feishuPromise = notifyReportToFeishu(
       {
         reportId: effectiveReportId,
@@ -1390,7 +1392,9 @@ publicRoutes.post('/review/:id/report', async (c) => {
     ).catch((e): any => ({ enabled: true, ok: false, error: e instanceof Error ? e.message : String(e) }))
 
     if (debugFeishu) {
-      feishuResult = await feishuPromise
+      // Sanitize debug output: only expose coarse-grained status, not raw response/full error
+      const raw = await feishuPromise
+      feishuResult = { enabled: raw.enabled, ok: raw.ok, status: raw.status }
     } else {
       c.executionCtx.waitUntil(feishuPromise)
     }

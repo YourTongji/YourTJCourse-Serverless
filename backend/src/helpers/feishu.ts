@@ -112,27 +112,29 @@ async function buildActionUrl(
   return `${origin}/api/admin/report/${reportId}/confirm?action=${action}&deadline=${deadline}&sig=${sig}`
 }
 
-/** Feishu webhook signing (HMAC-SHA256 → base64). */
+/** Feishu webhook signing: HMAC(key=timestamp+"\\n"+secret, msg="") → base64. */
 async function signFeishuWebhook(timestampSec: string, secret: string): Promise<string> {
   const encoder = new TextEncoder()
+  const keyStr = `${timestampSec}\n${secret}`
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(secret),
+    encoder.encode(keyStr),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   )
-  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(`${timestampSec}\n${secret}`))
+  // Message is empty string — key IS the string to sign (aligned with Credit)
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(''))
   return btoa(String.fromCharCode(...new Uint8Array(sig)))
 }
 
 // ─── Config hot update (aligned with Credit) ───────────────────
 
 /**
- * Get Feishu webhook config with hot-update support.
- * Priority: DB settings table > env vars (fallback).
+ * Get Feishu webhook config from D1 settings table with hot-update support.
+ * Source: DB settings table only. Env-var fallback is handled by the caller.
  */
-async function getFeishuConfig(db: D1Database): Promise<FeishuConfig | null> {
+async function getFeishuConfigFromDb(db: D1Database): Promise<FeishuConfig | null> {
   // Try DB settings first (supports runtime hot update without redeploy)
   try {
     const rowUrl = await db
@@ -166,8 +168,8 @@ export async function notifyReportToFeishu(
   const adminSecret = env.ADMIN_SECRET
   if (!adminSecret) return { enabled: false, error: 'ADMIN_SECRET not set' }
 
-  // Config: try DB first, then env vars
-  const dbConfig = await getFeishuConfig(env.DB)
+  // Config: try DB settings first (hot-update), then env vars as fallback
+  const dbConfig = await getFeishuConfigFromDb(env.DB)
   const webhookUrl = dbConfig?.webhookUrl || env.FEISHU_REPORT_WEBHOOK_URL
   const feishuSecret = dbConfig?.secret || env.FEISHU_REPORT_WEBHOOK_SECRET
 
@@ -187,10 +189,11 @@ export async function notifyReportToFeishu(
     ])
 
     const reasonText = reasonLabel[payload.reason] || payload.reason
-    const snippet =
+    const snippet = normalizeFeishuText(
       payload.reviewSnippet.length > 200
         ? `${payload.reviewSnippet.slice(0, 198)}…`
         : payload.reviewSnippet
+    )
     const stars = '★'.repeat(Math.round(payload.rating)) + '☆'.repeat(5 - Math.round(payload.rating))
 
     const body: any = {
@@ -223,7 +226,7 @@ export async function notifyReportToFeishu(
             },
             {
               tag: 'markdown',
-              content: snippet,
+              content: `**评论内容**\n${snippet || '（无文本内容）'}`,
               text_align: 'left' as const,
             },
             { tag: 'hr' },
@@ -294,21 +297,16 @@ export async function notifyReportToFeishu(
               text_align: 'left' as const,
             },
             {
-              tag: 'action',
-              actions: [
-                {
-                  tag: 'button',
-                  type: 'primary',
-                  text: { tag: 'plain_text', content: '✅ 通过 (隐藏评价)' },
-                  url: resolveUrl,
-                },
-                {
-                  tag: 'button',
-                  type: 'danger',
-                  text: { tag: 'plain_text', content: '❌ 驳回 (保留评价)' },
-                  url: rejectUrl,
-                },
-              ],
+              tag: 'button',
+              type: 'primary',
+              text: { tag: 'plain_text', content: '✅ 通过 (隐藏评价)' },
+              url: resolveUrl,
+            },
+            {
+              tag: 'button',
+              type: 'danger',
+              text: { tag: 'plain_text', content: '❌ 驳回 (保留评价)' },
+              url: rejectUrl,
             },
           ],
         },
