@@ -14,6 +14,8 @@ export type Bindings = {
   APP_ENV?: string
   FEISHU_REPORT_WEBHOOK_URL?: string
   FEISHU_REPORT_WEBHOOK_SECRET?: string
+  PUBLIC_URL?: string
+  FEISHU_PUBLIC_URL?: string
   AI_SUMMARY_KEY?: string
   AI_SUMMARY_MODEL?: string
   AI_SUMMARY_BASE_URL?: string
