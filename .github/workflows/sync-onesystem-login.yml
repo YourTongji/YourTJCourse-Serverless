@@ -39,6 +39,8 @@ jobs:
       ONESYSTEM_IMAP_PORT: ${{ secrets.ONESYSTEM_IMAP_PORT }}
       ONESYSTEM_IMAP_EMAIL: ${{ secrets.ONESYSTEM_IMAP_EMAIL }}
       ONESYSTEM_IMAP_GRANTCODE: ${{ secrets.ONESYSTEM_IMAP_GRANTCODE }}
+      D1_PRIMARY_DATABASE_NAME: jcourse-db
+      D1_BACKUP_DATABASE_NAME: jcourse-db-backup
 
     steps:
       - name: Resolve calendarId/depth
@@ -81,6 +83,8 @@ jobs:
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then echo "Missing secrets.CLOUDFLARE_ACCOUNT_ID" >&2; exit 1; fi
           if [ -z "${ONESYSTEM_SNO:-}" ]; then echo "Missing secrets.ONESYSTEM_SNO" >&2; exit 1; fi
           if [ -z "${ONESYSTEM_PASSWORD:-}" ]; then echo "Missing secrets.ONESYSTEM_PASSWORD" >&2; exit 1; fi
+          if [ -z "${D1_PRIMARY_DATABASE_NAME:-}" ]; then echo "Missing D1_PRIMARY_DATABASE_NAME" >&2; exit 1; fi
+          if [ -z "${D1_BACKUP_DATABASE_NAME:-}" ]; then echo "Missing D1_BACKUP_DATABASE_NAME" >&2; exit 1; fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -118,16 +122,6 @@ jobs:
             printf "qq_grantcode=%s\n" "$ONESYSTEM_IMAP_GRANTCODE" >> backend/config.onesystem.ini
           fi
 
-      - name: Ensure pk tables on D1 (remote)
-        working-directory: backend
-        run: |
-          set -euo pipefail
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/001_pk_schema.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/002_pk_schema_patch.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/011_maintenance_settings.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/012_search_indexes.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/013_fetchlog_pk.sql"
-
       - name: Login & export SQL
         working-directory: backend
         shell: bash
@@ -140,23 +134,73 @@ jobs:
             --config "./config.onesystem.ini" \
             2>&1 | tee pk-sync-summary.log
 
-      - name: Apply SQL to D1 (remote)
+      - name: Apply SQL to primary and backup D1 (remote)
         working-directory: backend
         shell: bash
         run: |
           set -euo pipefail
           ls -la .tmp/pk-sync
-          for f in .tmp/pk-sync/pk-sync-*.sql; do
-            echo "Applying $f" | tee -a pk-apply.log
-            npx wrangler d1 execute jcourse-db --remote --file="$f" 2>&1 | tee -a pk-apply.log
-          done
+          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_PRIMARY_DATABASE_NAME" ".tmp/pk-sync" 2>&1 | tee -a pk-apply-primary.log
+          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_BACKUP_DATABASE_NAME" ".tmp/pk-sync" 2>&1 | tee -a pk-apply-backup.log
 
       - name: Materialize pk courses to review site tables (remote)
         working-directory: backend
         shell: bash
         run: |
           set -euo pipefail
-          bash ./scripts/refresh-review-index-remote.sh
+          D1_DATABASE_NAME="$D1_PRIMARY_DATABASE_NAME" bash ./scripts/refresh-review-index-remote.sh
+
+      - name: Verify backup D1 mirror safety
+        working-directory: backend
+        shell: bash
+        env:
+          CALENDAR_ID: ${{ steps.resolve.outputs.calendarId }}
+        run: |
+          set -euo pipefail
+
+          query_single() {
+            local database="$1"
+            local sql="$2"
+            local field="$3"
+            local payload
+
+            payload="$(npx wrangler d1 execute "$database" --remote --json --command "$sql")"
+            node -e "
+const payload = JSON.parse(process.argv[1]);
+const field = process.argv[2];
+const row = payload?.[0]?.results?.[0] || {};
+const value = row[field];
+console.log(value == null ? '' : value);
+" "$payload" "$field"
+          }
+
+          backup_fts_count="$(query_single "$D1_BACKUP_DATABASE_NAME" "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%';" "count")"
+          if [ "${backup_fts_count:-0}" != "0" ]; then
+            echo "Backup D1 must not contain course_search/FTS5 tables; found $backup_fts_count matching object(s)." >&2
+            exit 1
+          fi
+
+          compare_count() {
+            local label="$1"
+            local sql="$2"
+            local primary_count
+            local backup_count
+
+            primary_count="$(query_single "$D1_PRIMARY_DATABASE_NAME" "$sql" "count")"
+            backup_count="$(query_single "$D1_BACKUP_DATABASE_NAME" "$sql" "count")"
+
+            echo "$label primary=$primary_count backup=$backup_count"
+            if [ "$primary_count" != "$backup_count" ]; then
+              echo "Backup D1 count mismatch for $label: primary=$primary_count backup=$backup_count" >&2
+              exit 1
+            fi
+          }
+
+          compare_count "calendar" "SELECT COUNT(*) AS count FROM calendar WHERE calendarId = $CALENDAR_ID;"
+          compare_count "coursedetail" "SELECT COUNT(*) AS count FROM coursedetail WHERE calendarId = $CALENDAR_ID;"
+          compare_count "teacher" "SELECT COUNT(*) AS count FROM teacher WHERE teachingClassId IN (SELECT id FROM coursedetail WHERE calendarId = $CALENDAR_ID);"
+          compare_count "teacher_timeslots" "SELECT COUNT(*) AS count FROM teacher_timeslots WHERE calendar_id = $CALENDAR_ID;"
+          compare_count "majorandcourse" "SELECT COUNT(*) AS count FROM majorandcourse WHERE courseId IN (SELECT id FROM coursedetail WHERE calendarId = $CALENDAR_ID);"
 
       - name: Post-check via backend API
         shell: bash
