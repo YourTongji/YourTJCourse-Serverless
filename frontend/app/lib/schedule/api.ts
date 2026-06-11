@@ -134,7 +134,8 @@ export async function getAllCalendars(): Promise<Calendar[]> {
 
 // 2. Grades for a calendar
 export async function getGradesByCalendar(calendarId: number): Promise<number[]> {
-  return pkPost<number[]>("/api/findGradeByCalendarId", { calendarId });
+  const data = await pkPost<{ gradeList: number[] }>("/api/findGradeByCalendarId", { calendarId });
+  return data.gradeList;
 }
 
 // 3. Majors for a calendar + grade

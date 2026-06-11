@@ -36,6 +36,8 @@ function filterDraftCount(draft: FilterDraft): number {
     (draft.courseName.trim() ? 1 : 0) +
     (draft.courseCode.trim() ? 1 : 0) +
     (draft.teacherName.trim() ? 1 : 0) +
+    (draft.teacherCode.trim() ? 1 : 0) +
+    (draft.faculty.trim() ? 1 : 0) +
     (draft.campus.trim() ? 1 : 0)
   );
 }
@@ -52,10 +54,11 @@ function buildLoadMoreUrl(
   if (q.trim()) qp.set("q", q.trim());
   if (filters.departments?.length)
     qp.set("departments", filters.departments.join(","));
-  if (filters.onlyWithReviews) qp.set("onlyWithReviews", "true");
   if (filters.courseName) qp.set("courseName", filters.courseName);
   if (filters.courseCode) qp.set("courseCode", filters.courseCode);
   if (filters.teacherName) qp.set("teacherName", filters.teacherName);
+  if (filters.teacherCode) qp.set("teacherCode", filters.teacherCode);
+  if (filters.faculty) qp.set("faculty", filters.faculty);
   if (filters.campus) qp.set("campus", filters.campus);
   return `/api/courses?${qp}`;
 }
@@ -74,6 +77,8 @@ export default function CoursesPage() {
   const courseName = searchParams.get("courseName") || "";
   const courseCode = searchParams.get("courseCode") || "";
   const teacherName = searchParams.get("teacherName") || "";
+  const teacherCode = searchParams.get("teacherCode") || "";
+  const faculty = searchParams.get("faculty") || "";
   const campus = searchParams.get("campus") || "";
 
   const filters: CourseFilters = {
@@ -82,8 +87,11 @@ export default function CoursesPage() {
     courseName: courseName || undefined,
     courseCode: courseCode || undefined,
     teacherName: teacherName || undefined,
+    teacherCode: teacherCode || undefined,
+    faculty: faculty || undefined,
     campus: campus || undefined,
   };
+
 
   const hasFilters = !!(
     q ||
@@ -92,6 +100,8 @@ export default function CoursesPage() {
     courseName ||
     courseCode ||
     teacherName ||
+    teacherCode ||
+    faculty ||
     campus
   );
 
@@ -144,7 +154,6 @@ export default function CoursesPage() {
   // ── Local search input ──────────────────────────────────────────────────
   const [searchValue, setSearchValue] = useState(q);
 
-  // ── Filter sheet state ──────────────────────────────────────────────────
   const [sheetOpen, setSheetOpen] = useState(false);
   const [filterDraft, setFilterDraft] = useState<FilterDraft>({
     departments,
@@ -152,6 +161,8 @@ export default function CoursesPage() {
     courseName,
     courseCode,
     teacherName,
+    teacherCode,
+    faculty,
     campus,
   });
 
@@ -166,6 +177,8 @@ export default function CoursesPage() {
         courseName,
         courseCode,
         teacherName,
+        teacherCode,
+        faculty,
         campus,
       });
     }
@@ -202,6 +215,16 @@ export default function CoursesPage() {
     } else {
       next.delete("teacherName");
     }
+    if (filterDraft.teacherCode) {
+      next.set("teacherCode", filterDraft.teacherCode);
+    } else {
+      next.delete("teacherCode");
+    }
+    if (filterDraft.faculty) {
+      next.set("faculty", filterDraft.faculty);
+    } else {
+      next.delete("faculty");
+    }
     if (filterDraft.campus) {
       next.set("campus", filterDraft.campus);
     } else {
@@ -219,6 +242,8 @@ export default function CoursesPage() {
       courseName: "",
       courseCode: "",
       teacherName: "",
+      teacherCode: "",
+      faculty: "",
       campus: "",
     });
   }, []);
@@ -308,6 +333,15 @@ export default function CoursesPage() {
       key: "teacherName",
       label: `教师: ${teacherName}`,
     });
+  }
+  if (teacherCode) {
+    activeBadges.push({
+      key: "teacherCode",
+      label: `工号: ${teacherCode}`,
+    });
+  }
+  if (faculty) {
+    activeBadges.push({ key: "faculty", label: `院系: ${faculty}` });
   }
   if (campus) {
     activeBadges.push({ key: "campus", label: `校区: ${campus}` });

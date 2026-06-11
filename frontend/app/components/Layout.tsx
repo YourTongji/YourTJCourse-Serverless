@@ -1,5 +1,7 @@
 import { Outlet } from "react-router";
+import { createPortal } from "react-dom";
 
+import CreditWalletPanel from "~/components/CreditWalletPanel";
 import Navbar from "~/components/Navbar";
 import BottomNavigation from "~/components/BottomNavigation";
 import AnnouncementBar from "~/components/AnnouncementBar";
@@ -28,6 +30,9 @@ export default function Layout() {
       <BottomNavigation />
 
       {/* ─── Footer ─── */}
+
+      {/* ─── Credit Wallet ─── */}
+      {createPortal(<CreditWalletPanel />, document.body)}
       <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-400">
         YOURTJ选课社区 · 不记名、自由、简洁、高效的选课社区
       </footer>

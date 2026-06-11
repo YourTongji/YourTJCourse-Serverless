@@ -29,9 +29,55 @@ declare global {
   }
 }
 
+const WALINE_CONFIG = {
+  lang: "zh-CN",
+  locale: {
+    placeholder: "欢迎留言反馈，说说你的想法吧...",
+    sofa: "来发评论吧~",
+    submit: "提交",
+    comment: "评论",
+    refresh: "刷新",
+    more: "加载更多...",
+    preview: "预览",
+    emoji: "表情",
+    uploadImage: "上传图片",
+    seconds: "秒前",
+    minutes: "分钟前",
+    hours: "小时前",
+    days: "天前",
+    now: "刚刚",
+    uploading: "正在上传",
+    login: "登录",
+    logout: "退出",
+    admin: "管理",
+    sticky: "置顶",
+    word: "字",
+    wordHint:
+      "评论字数应在 $0 到 $1 字之间！\\n当前字数：$2",
+    anonymous: "匿名",
+    approved: "通过",
+    waiting: "待审核",
+    spam: "垃圾",
+    unsticky: "取消置顶",
+    oldest: "按倒序",
+    latest: "按正序",
+    hottest: "按热度",
+    reactionTitle: "你认为这篇文章怎么样？",
+  },
+  emoji: [
+    "https://unpkg.com/@waline/emojis@1.2.0/weibo",
+    "https://unpkg.com/@waline/emojis@1.2.0/bilibili",
+  ],
+  dark: false,
+  meta: ["nick", "mail"],
+  requiredMeta: ["nick"],
+  pageSize: 10,
+  wordLimit: [0, 1000],
+};
+
 export default function Feedback() {
   const walineRef = useRef<HTMLDivElement>(null);
-  const walineServerUrl = import.meta.env.VITE_WALINE_SERVER_URL || "https://waline.yourtj.de";
+  const walineServerUrl = import.meta.env.VITE_WALINE_SERVER_URL;
   const [walineReady, setWalineReady] = useState(false);
 
   useEffect(() => {
@@ -48,49 +94,7 @@ export default function Feedback() {
         window.Waline.init({
           el: walineRef.current,
           serverURL: walineServerUrl,
-          lang: "zh-CN",
-          locale: {
-            placeholder: "欢迎留言反馈，说说你的想法吧...",
-            sofa: "来发评论吧~",
-            submit: "提交",
-            comment: "评论",
-            refresh: "刷新",
-            more: "加载更多...",
-            preview: "预览",
-            emoji: "表情",
-            uploadImage: "上传图片",
-            seconds: "秒前",
-            minutes: "分钟前",
-            hours: "小时前",
-            days: "天前",
-            now: "刚刚",
-            uploading: "正在上传",
-            login: "登录",
-            logout: "退出",
-            admin: "管理",
-            sticky: "置顶",
-            word: "字",
-            wordHint:
-              "评论字数应在 $0 到 $1 字之间！\\n当前字数：$2",
-            anonymous: "匿名",
-            approved: "通过",
-            waiting: "待审核",
-            spam: "垃圾",
-            unsticky: "取消置顶",
-            oldest: "按倒序",
-            latest: "按正序",
-            hottest: "按热度",
-            reactionTitle: "你认为这篇文章怎么样？",
-          },
-          emoji: [
-            "https://unpkg.com/@waline/emojis@1.2.0/weibo",
-            "https://unpkg.com/@waline/emojis@1.2.0/bilibili",
-          ],
-          dark: false,
-          meta: ["nick", "mail"],
-          requiredMeta: ["nick"],
-          pageSize: 10,
-          wordLimit: [0, 1000],
+          ...WALINE_CONFIG,
         });
         setWalineReady(true);
         return;
@@ -113,59 +117,32 @@ export default function Feedback() {
       script.async = true;
       script.crossOrigin = "anonymous";
       script.dataset.walineScript = "true";
+
+      const scriptTimeout = setTimeout(() => {
+        if (cancelled) return;
+        setWalineReady(true);
+      }, 10000);
+
       script.onload = () => {
+        clearTimeout(scriptTimeout);
         if (cancelled) return;
         if (window.Waline && walineRef.current) {
           window.Waline.init({
             el: walineRef.current,
             serverURL: walineServerUrl,
-            lang: "zh-CN",
-            locale: {
-              placeholder: "欢迎留言反馈，说说你的想法吧...",
-              sofa: "来发评论吧~",
-              submit: "提交",
-              comment: "评论",
-              refresh: "刷新",
-              more: "加载更多...",
-              preview: "预览",
-              emoji: "表情",
-              uploadImage: "上传图片",
-              seconds: "秒前",
-              minutes: "分钟前",
-              hours: "小时前",
-              days: "天前",
-              now: "刚刚",
-              uploading: "正在上传",
-              login: "登录",
-              logout: "退出",
-              admin: "管理",
-              sticky: "置顶",
-              word: "字",
-              wordHint:
-                "评论字数应在 $0 到 $1 字之间！\\n当前字数：$2",
-              anonymous: "匿名",
-              approved: "通过",
-              waiting: "待审核",
-              spam: "垃圾",
-              unsticky: "取消置顶",
-              oldest: "按倒序",
-              latest: "按正序",
-              hottest: "按热度",
-              reactionTitle: "你认为这篇文章怎么样？",
-            },
-            emoji: [
-              "https://unpkg.com/@waline/emojis@1.2.0/weibo",
-              "https://unpkg.com/@waline/emojis@1.2.0/bilibili",
-            ],
-            dark: false,
-            meta: ["nick", "mail"],
-            requiredMeta: ["nick"],
-            pageSize: 10,
-            wordLimit: [0, 1000],
+            ...WALINE_CONFIG,
           });
           setWalineReady(true);
         }
       };
+
+      script.onerror = () => {
+        clearTimeout(scriptTimeout);
+        if (!cancelled) {
+          setWalineReady(true);
+        }
+      };
+
       if (!existingScript) document.head.appendChild(script);
     };
 

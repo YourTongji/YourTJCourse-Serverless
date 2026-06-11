@@ -210,13 +210,17 @@ export default function TimetableGrid({ onCellCoursesFound }: TimetableGridProps
       if ((occupied[rowIndex]?.[dayIndex] ?? []).length > 0) return;
 
       const day = dayIndex + 1;
-      const section = rowIndex + 1;
+      const rowToGroupMap: Record<number, number> = maxRows === 11
+        ? { 0: 1, 2: 2, 4: 3, 6: 4, 8: 5, 10: 6 }
+        : { 0: 1, 2: 2, 4: 3, 6: 4, 8: 5, 9: 6 };
+      const section = rowToGroupMap[rowIndex];
+      if (section === undefined) return;
       const courses = await clickTimeCell(day, section);
       if (courses.length > 0 && onCellCoursesFound) {
         onCellCoursesFound(courses);
       }
     },
-    [calendarId, layout.cellOccupied, occupied, clickTimeCell, onCellCoursesFound],
+    [calendarId, layout.cellOccupied, occupied, clickTimeCell, onCellCoursesFound, maxRows],
   );
 
   const sectionLabels =

@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import { Coins } from "lucide-react";
-import { API_BASE } from "~/lib/api";
-import { getClientId } from "~/lib/clientId";
 import {
   Sheet,
   SheetContent,
@@ -12,28 +10,25 @@ import {
 import { Card, CardContent } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 
-interface WalletBalance {
-  credits: number;
-}
 
-export function WalletSheet() {
+export function WalletSheet({ userHash }: { userHash?: string }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    if (!userHash) {
+      setBalance(null);
+      return;
+    }
     setLoading(true);
     setBalance(null);
-    const clientId = getClientId();
-    fetch(
-      `${API_BASE}/api/wallet/balance?clientId=${encodeURIComponent(clientId)}`,
-    )
-      .then((res) => res.json() as Promise<WalletBalance>)
-      .then((data) => setBalance(data.credits))
+    fetchCreditBalance(userHash)
+      .then((data) => setBalance(data.balance))
       .catch(() => setBalance(null))
       .finally(() => setLoading(false));
-  }, [open]);
+  }, [open, userHash]);
 
   return (
     <>

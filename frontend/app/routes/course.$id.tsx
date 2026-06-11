@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo } from "react";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
   useLoaderData,
   Link,
   type LoaderFunctionArgs,
   type MetaFunction,
+  useNavigate,
 } from "react-router";
 import {
   Star,
@@ -25,11 +26,13 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Separator } from "~/components/ui/separator";
 import { getClientId } from "~/lib/clientId";
 import { WalletSheet } from "~/lib/credit";
+import { loadCreditWallet } from "~/lib/creditWallet";
 import { formatSemesterLabel, formatRating } from "~/lib/format";
 import CollapsibleMarkdown from "~/components/CollapsibleMarkdown";
 import RelatedCourses from "~/components/RelatedCourses";
 import AISummaryCard from "~/components/AISummaryCard";
 import SharePreviewModal from "~/components/SharePreviewModal";
+import ReportReviewDialog from "~/components/ReportReviewDialog";
 
 /* ─── Types ─── */
 
@@ -82,6 +85,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   if (!id) throw new Response("Not Found", { status: 404 });
 
   const apiUrl = new URL(`/api/course/${id}`, request.url);
+
+  // Forward clientId from request URL if present (user navigated with clientId in URL)
+  const reqUrl = new URL(request.url);
+  const clientId = reqUrl.searchParams.get("clientId");
+  if (clientId) apiUrl.searchParams.set("clientId", clientId);
   const res = await fetch(apiUrl);
   if (!res.ok) throw new Response("Course not found", { status: 404 });
 
@@ -342,9 +350,28 @@ function CourseDetailSkeleton() {
 /* ─── Main Page ─── */
 
 export default function CourseDetail() {
-  const course = useLoaderData<typeof loader>();
+  const initialCourse = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
   const [showAllReviews, setShowAllReviews] = useState(false);
   const [shareReview, setShareReview] = useState<Review | null>(null);
+
+  // Refetch course data with clientId after SSR hydration to get personalized fields (liked, can_edit)
+  const { data: course } = useQuery({
+    queryKey: ["course", initialCourse.id] as const,
+    queryFn: async () => {
+      const cid = getClientId();
+      const params = cid !== "ssr" ? `?clientId=${encodeURIComponent(cid)}` : "";
+      const res = await fetch(`/api/course/${initialCourse.id}${params}`);
+      if (!res.ok) throw new Response("Course not found", { status: 404 });
+      return res.json() as Promise<CourseDetail>;
+    },
+    initialData: initialCourse,
+    staleTime: 0,
+    gcTime: 30_000,
+  });
+  const [reportReviewId, setReportReviewId] = useState<number | null>(null);
+
+  const creditWallet = useMemo(() => loadCreditWallet(), []);
 
   if (!course) {
     return <CourseDetailSkeleton />;
@@ -435,7 +462,7 @@ export default function CourseDetail() {
               </Button>
 
               <div className="flex">
-                <WalletSheet />
+                <WalletSheet userHash={creditWallet?.userHash} />
               </div>
             </CardContent>
           </Card>
@@ -485,25 +512,11 @@ export default function CourseDetail() {
                     key={review.id}
                     review={review}
                     onShare={() => setShareReview(review)}
-                    onReport={() => {
-                      const reason =
-                        window.prompt("举报原因（可选）") || "";
-                      fetch(`/api/review/${review.id}/report`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          clientId: getClientId(),
-                          reason,
-                        }),
-                      })
-                        .then((res) => {
-                          if (!res.ok) throw new Error("Report failed");
-                          alert("举报已提交");
-                        })
-                        .catch(() => alert("举报失败，请稍后重试"));
-                    }}
-                    onEdit={() => {
-                      window.location.href = `/course/${course.id}/write?edit=1`;
+                    onReport={(review) => setReportReviewId(review.id)}
+                    onEdit={(review) => {
+                      navigate(`/course/${course.id}/write?edit=1`, {
+                        state: { editReview: review },
+                      });
                     }}
                   />
                 ))}
@@ -551,6 +564,12 @@ export default function CourseDetail() {
           onClose={() => setShareReview(null)}
         />
       )}
+      {/* Report Review Dialog */}
+      <ReportReviewDialog
+        open={reportReviewId !== null}
+        onOpenChange={(open) => { if (!open) setReportReviewId(null); }}
+        reviewId={reportReviewId ?? 0}
+      />
     </>
   );
 }

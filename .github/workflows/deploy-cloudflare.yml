@@ -203,6 +203,7 @@ jobs:
       VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
       VITE_CAPTCHA_URL: ${{ secrets.VITE_CAPTCHA_URL }}
       VITE_WALINE_SERVER_URL: ${{ secrets.VITE_WALINE_SERVER_URL }}
+      VITE_API_BASE: ${{ secrets.VITE_API_URL }}
       VITE_CREDIT_API_BASE: ${{ secrets.VITE_CREDIT_API_BASE }}
     steps:
       - name: Checkout
@@ -224,4 +225,4 @@ jobs:
         run: npm run build
 
       - name: Deploy Pages
-        run: npx wrangler pages deploy dist --project-name jcourse-web
+        run: npx wrangler pages deploy build/client --project-name jcourse-web

@@ -25,6 +25,8 @@ export interface FilterDraft {
   courseName: string;
   courseCode: string;
   teacherName: string;
+  teacherCode: string;
+  faculty: string;
   campus: string;
 }
 
@@ -214,6 +216,22 @@ export default function CourseFilterSheet({
                 value={draft.teacherName}
                 onChange={(e) => setField("teacherName", e.target.value)}
                 placeholder="输入教师名"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">教师工号</label>
+              <Input
+                value={draft.teacherCode}
+                onChange={(e) => setField("teacherCode", e.target.value)}
+                placeholder="如：20231234"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">开课院系</label>
+              <Input
+                value={draft.faculty}
+                onChange={(e) => setField("faculty", e.target.value)}
+                placeholder="如：电子与信息工程学院"
               />
             </div>
             <div className="space-y-1.5">

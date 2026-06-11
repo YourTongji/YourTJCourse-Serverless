@@ -1,4 +1,4 @@
-export const API_BASE = "";
+export const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 15000): Promise<Response> {
   const controller = new AbortController();
