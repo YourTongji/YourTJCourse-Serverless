@@ -17,6 +17,7 @@ import { fetchSiteRuntimeState, resolveApiBase, SiteAnnouncement, AnnouncementTy
 import { renderMarkdownHtml } from './components/CollapsibleMarkdown'
 import TourGuide, { TutorialLauncher } from './components/TourGuide'
 import MaintenancePage from './maintenance/MaintenancePage'
+import ToastContainer from './components/Toast'
 import {
   DEFAULT_MAINTENANCE_CONFIG,
   isMaintenanceSnapshotFresh,
@@ -762,6 +763,7 @@ export default function App() {
       />
       <BottomNavigation />
       <Footer />
+      <ToastContainer />
     </div>
   )
 }

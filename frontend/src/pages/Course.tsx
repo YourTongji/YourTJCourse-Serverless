@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import BoringAvatar from 'boring-avatars'
 import { toJpeg, toPng } from 'html-to-image'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
-import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview } from '../services/api'
+import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview, reportReview } from '../services/api'
+import { showToast } from '../components/Toast'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
 import { getOrCreateClientId } from '../utils/clientId'
@@ -525,6 +526,15 @@ export default function Course() {
   )
   const [sharePreview, setSharePreview] = useState<SharePreviewState | null>(null)
   const [shareBusyId, setShareBusyId] = useState<number | null>(null)
+  const [reportTarget, setReportTarget] = useState<Review | null>(null)
+  const [reportBusy, setReportBusy] = useState(false)
+
+  const REPORT_REASONS = [
+    { key: 'spam', label: '垃圾广告' },
+    { key: 'harassment', label: '骚扰/人身攻击' },
+    { key: 'misinformation', label: '虚假信息' },
+    { key: 'other', label: '其他' },
+  ]
   const sharePreviewRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -665,6 +675,25 @@ export default function Course() {
           reviews: prev.reviews.map((r) => (r.id === reviewId ? { ...r, liked: !nextLiked } : r))
         }
       })
+    }
+  }
+
+  const openReport = (review: Review) => {
+    setReportTarget(review)
+  }
+
+  const submitReport = async (reason: string) => {
+    const review = reportTarget
+    if (!review || !review.id || reportBusy) return
+    setReportBusy(true)
+    try {
+      await reportReview(review.id, clientId, reason)
+      showToast('举报已提交，感谢您的反馈', 'success')
+    } catch (e: any) {
+      showToast(e?.message || '提交失败', 'error')
+    } finally {
+      setReportBusy(false)
+      setReportTarget(null)
     }
   }
 
@@ -1087,6 +1116,19 @@ export default function Course() {
                     <span className="text-[10px] font-black opacity-80">{shareBusyId === review.id ? '生成中…' : '分享评论'}</span>
                   </button>
 
+                  <button
+                    type="button"
+                    onClick={() => openReport(review)}
+                    className="inline-flex min-w-fit shrink-0 items-center whitespace-nowrap gap-1.5 px-2.5 py-1.5 rounded-full border bg-white border-slate-200/70 text-xs font-extrabold leading-none text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 hover:-translate-y-0.5 transition-all duration-300 sm:gap-2 sm:px-3"
+                    title="举报此评价"
+                  >
+                    <svg aria-hidden="true" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                      <line x1="4" y1="22" x2="4" y2="15" />
+                    </svg>
+                    <span className="text-[10px] font-black opacity-80">举报</span>
+                  </button>
+
                   {review.can_edit && (
                     <button
                       type="button"
@@ -1184,6 +1226,37 @@ export default function Course() {
             <div className="pointer-events-none fixed -left-[10000px] top-0 opacity-0">
               {renderSharePaper(true)}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report modal */}
+      {reportTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setReportTarget(null)}>
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div className="relative w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="text-lg font-extrabold text-slate-800 mb-1">举报评价</div>
+            <p className="text-sm text-slate-500 mb-4">请选择举报原因：</p>
+            <div className="flex flex-col gap-2">
+              {REPORT_REASONS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  disabled={reportBusy}
+                  onClick={() => submitReport(item.key)}
+                  className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors disabled:opacity-50"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="mt-4 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              onClick={() => setReportTarget(null)}
+            >
+              取消
+            </button>
           </div>
         </div>
       )}
