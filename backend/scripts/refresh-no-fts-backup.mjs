@@ -9,6 +9,7 @@ const DEFAULT_SOURCE = 'jcourse-db'
 const DEFAULT_TARGET = 'jcourse-db-backup'
 const STATE_TABLE = 'backup_refresh_state'
 const MAX_BIND_PARAMS = 90
+const DRY_RUN_COUNT_CHUNK_SIZE = 4
 const TABLE_ORDER = [
   'settings',
   'categories',
@@ -94,6 +95,10 @@ function quoteIdent(name) {
   return `"${String(name).replace(/"/g, '""')}"`
 }
 
+function quoteSqlString(value) {
+  return `'${String(value).replace(/'/g, "''")}'`
+}
+
 function isInternalName(name) {
   const lower = String(name || '').toLowerCase()
   return lower.startsWith('sqlite_') || lower.startsWith('_cf_') || lower === 'd1_migrations' || lower === STATE_TABLE
@@ -147,6 +152,110 @@ function normalizeD1Result(payload) {
   if (!first) return []
   if (first.success === false) throw new Error(first.error || 'D1 query failed')
   return first.results || []
+}
+
+function runCommand(command, args, options = {}) {
+  const commandEnv = {
+    ...process.env,
+    ...(options.env || {})
+  }
+  const result = process.platform === 'win32'
+    ? spawnSync([command, ...args].map(windowsShellQuote).join(' '), {
+        encoding: 'utf8',
+        shell: true,
+        ...options,
+        env: commandEnv
+      })
+    : spawnSync(command, args, {
+        encoding: 'utf8',
+        ...options,
+        env: commandEnv
+      })
+
+  if (result.status !== 0) {
+    const details = [result.stdout, result.stderr].filter(Boolean).join('\n').trim()
+    const errorDetail = result.error ? ` (${result.error.message})` : ''
+    throw new Error(`${command} ${args.join(' ')} failed with status ${result.status}${errorDetail}${details ? `:\n${details}` : ''}`)
+  }
+
+  return result.stdout
+}
+
+function windowsShellQuote(value) {
+  const text = String(value)
+  if (/^[A-Za-z0-9_./:=@-]+$/.test(text)) return text
+  return `"${text.replace(/"/g, '\\"')}"`
+}
+
+function parseWranglerJson(output) {
+  const text = String(output || '').trim()
+  const start = text.search(/[\[{]/)
+  if (start < 0) throw new Error(`Wrangler returned no JSON payload: ${text.slice(0, 300)}`)
+  return JSON.parse(text.slice(start))
+}
+
+function normalizeWranglerD1Result(payload) {
+  const first = Array.isArray(payload) ? payload[0] : payload
+  if (!first) return []
+  if (first.success === false) throw new Error(first.error || 'Wrangler D1 query failed')
+  return first.results || []
+}
+
+function wranglerD1Query(databaseName, sql) {
+  const output = runCommand('npx', ['wrangler', 'd1', 'execute', databaseName, '--remote', '--json', '--command', sql])
+  return normalizeWranglerD1Result(parseWranglerJson(output))
+}
+
+function wranglerD1List() {
+  const output = runCommand('npx', ['wrangler', 'd1', 'list', '--json'])
+  return parseWranglerJson(output)
+}
+
+async function runWranglerDryRun(args) {
+  if (!process.env.CLOUDFLARE_ACCOUNT_ID) {
+    throw new Error('Wrangler dry-run requires CLOUDFLARE_ACCOUNT_ID when multiple accounts are available')
+  }
+
+  const databases = wranglerD1List()
+  for (const name of [args.source, args.target]) {
+    if (!databases.some((database) => database.name === name)) {
+      throw new Error(`D1 database not found via Wrangler: ${name}`)
+    }
+  }
+
+  const sourceSchema = wranglerD1Query(
+    args.source,
+    "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name"
+  )
+  const sourceTables = sourceSchema
+    .filter((row) => row.type === 'table' && !shouldExcludeObject(row))
+    .sort(sortTablesForCopy)
+  const sourceIndexes = sourceSchema
+    .filter((row) => row.type === 'index' && row.sql && !shouldExcludeObject(row) && sourceTables.some((table) => table.name === row.tbl_name))
+  const excludedObjects = sourceSchema.filter(shouldExcludeObject).map((row) => `${row.type}:${row.name}`)
+
+  console.log('[dry-run] using Wrangler OAuth login because CLOUDFLARE_API_TOKEN is not set')
+  console.log(`[plan] copy tables (${sourceTables.length}): ${sourceTables.map((row) => row.name).join(', ')}`)
+  console.log(`[plan] recreate indexes (${sourceIndexes.length}): ${sourceIndexes.map((row) => row.name).join(', ')}`)
+  if (excludedObjects.length > 0) console.log(`[plan] exclude objects: ${excludedObjects.join(', ')}`)
+
+  if (sourceTables.length > 0) {
+    const counts = new Map()
+    for (let i = 0; i < sourceTables.length; i += DRY_RUN_COUNT_CHUNK_SIZE) {
+      const countSql = sourceTables
+        .slice(i, i + DRY_RUN_COUNT_CHUNK_SIZE)
+        .map((table) => `SELECT ${quoteSqlString(table.name)} AS name, COUNT(*) AS count FROM ${quoteIdent(table.name)}`)
+        .join(' UNION ALL ')
+      const countRows = wranglerD1Query(args.source, countSql)
+      for (const row of countRows) counts.set(row.name, Number(row.count || 0))
+    }
+    for (const table of sourceTables) {
+      console.log(`[dry-run] ${table.name}: ${counts.get(table.name) || 0} row(s)`)
+    }
+  }
+
+  const targetFts = wranglerD1Query(args.target, "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%'")
+  console.log(`[dry-run] backup course_search object count: ${Number(targetFts[0]?.count || 0)}`)
 }
 
 async function cfFetch(path, init = {}) {
@@ -338,6 +447,11 @@ async function main() {
   }
 
   console.log(`[plan] source=${args.source} target=${args.target} dryRun=${args.dryRun}`)
+  if (args.dryRun && !process.env.CLOUDFLARE_API_TOKEN) {
+    await runWranglerDryRun(args)
+    return
+  }
+
   const [sourceId, targetId] = await Promise.all([
     resolveDatabaseId(accountId, args.source),
     resolveDatabaseId(accountId, args.target)
