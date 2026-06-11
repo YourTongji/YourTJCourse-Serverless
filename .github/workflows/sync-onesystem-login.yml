@@ -145,7 +145,7 @@ jobs:
           bash ./scripts/apply-pk-sync-to-d1.sh "$D1_PRIMARY_DATABASE_NAME" ".tmp/pk-sync" > >(tee -a pk-apply-primary.log) 2>&1 &
           primary_pid=$!
 
-          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_BACKUP_DATABASE_NAME" ".tmp/pk-sync" > >(tee -a pk-apply-backup.log) 2>&1 &
+          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_BACKUP_DATABASE_NAME" ".tmp/pk-sync" --skip-search-indexes > >(tee -a pk-apply-backup.log) 2>&1 &
           backup_pid=$!
 
           primary_status=0
@@ -207,9 +207,9 @@ jobs:
 
           compare_count "calendar" "SELECT COUNT(*) AS count FROM calendar WHERE calendarId = $CALENDAR_ID;"
           compare_count "coursedetail" "SELECT COUNT(*) AS count FROM coursedetail WHERE calendarId = $CALENDAR_ID;"
-          compare_count "teacher" "SELECT COUNT(*) AS count FROM teacher WHERE teachingClassId IN (SELECT id FROM coursedetail WHERE calendarId = $CALENDAR_ID);"
+          compare_count "teacher" "SELECT COUNT(*) AS count FROM teacher t JOIN coursedetail cd ON cd.id = t.teachingClassId WHERE cd.calendarId = $CALENDAR_ID;"
           compare_count "teacher_timeslots" "SELECT COUNT(*) AS count FROM teacher_timeslots WHERE calendar_id = $CALENDAR_ID;"
-          compare_count "majorandcourse" "SELECT COUNT(*) AS count FROM majorandcourse WHERE courseId IN (SELECT id FROM coursedetail WHERE calendarId = $CALENDAR_ID);"
+          compare_count "majorandcourse" "SELECT COUNT(*) AS count FROM majorandcourse mac JOIN coursedetail cd ON cd.id = mac.courseId WHERE cd.calendarId = $CALENDAR_ID;"
 
       - name: Post-check via backend API
         shell: bash

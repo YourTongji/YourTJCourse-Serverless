@@ -3,14 +3,21 @@ set -euo pipefail
 
 DB_NAME="${1:-}"
 SQL_DIR="${2:-}"
+SKIP_SEARCH_INDEXES="${3:-}"
 
 if [ -z "$DB_NAME" ]; then
-  echo "Usage: $0 <database-name> <sql-dir>" >&2
+  echo "Usage: $0 <database-name> <sql-dir> [--skip-search-indexes]" >&2
   exit 1
 fi
 
 if [ -z "$SQL_DIR" ]; then
-  echo "Usage: $0 <database-name> <sql-dir>" >&2
+  echo "Usage: $0 <database-name> <sql-dir> [--skip-search-indexes]" >&2
+  exit 1
+fi
+
+if [ -n "$SKIP_SEARCH_INDEXES" ] && [ "$SKIP_SEARCH_INDEXES" != "--skip-search-indexes" ]; then
+  echo "Unknown option: $SKIP_SEARCH_INDEXES" >&2
+  echo "Usage: $0 <database-name> <sql-dir> [--skip-search-indexes]" >&2
   exit 1
 fi
 
@@ -35,9 +42,13 @@ migrations=(
   "./migrations/001_pk_schema.sql"
   "./migrations/002_pk_schema_patch.sql"
   "./migrations/011_maintenance_settings.sql"
-  "./migrations/012_search_indexes.sql"
-  "./migrations/013_fetchlog_pk.sql"
 )
+
+if [ "$SKIP_SEARCH_INDEXES" != "--skip-search-indexes" ]; then
+  migrations+=("./migrations/012_search_indexes.sql")
+fi
+
+migrations+=("./migrations/013_fetchlog_pk.sql")
 
 echo "[$DB_NAME] ensuring PK schema"
 for migration in "${migrations[@]}"; do
