@@ -139,8 +139,8 @@ export default function CreditWalletPanel() {
                 {loading ? "处理中..." : "打开积分站注册 / 绑定钱包"}
               </Button>
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="sm" className="w-full" render={<a href="https://credit.yourtj.de" target="_blank" rel="noopener noreferrer" />}>访问积分站</Button>
-                <Button variant="outline" size="sm" className="w-full" render={<a href="https://credit.yourtj.de/#/dashboard/history" target="_blank" rel="noopener noreferrer" />}>查看流水</Button>
+                <Button variant="outline" size="sm" className="w-full" render={<a href="https://credit.yourtj.de" target="_blank" rel="noopener noreferrer" />} nativeButton={false}>访问积分站</Button>
+                <Button variant="outline" size="sm" className="w-full" render={<a href="https://credit.yourtj.de/#/dashboard/history" target="_blank" rel="noopener noreferrer" />} nativeButton={false}>查看流水</Button>
               </div>
             </div>
           ) : (
@@ -159,8 +159,8 @@ export default function CreditWalletPanel() {
           {wallet && (
             <div className="mt-3 space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="sm" className="w-full" render={<a href="https://credit.yourtj.de/#/dashboard/marketplace" target="_blank" rel="noopener noreferrer" />}>广场交易积分</Button>
-                <Button variant="outline" size="sm" className="w-full" render={<a href="https://credit.yourtj.de/#/dashboard/history" target="_blank" rel="noopener noreferrer" />}>查看流水</Button>
+                <Button variant="outline" size="sm" className="w-full" render={<a href="https://credit.yourtj.de/#/dashboard/marketplace" target="_blank" rel="noopener noreferrer" />} nativeButton={false}>广场交易积分</Button>
+                <Button variant="outline" size="sm" className="w-full" render={<a href="https://credit.yourtj.de/#/dashboard/history" target="_blank" rel="noopener noreferrer" />} nativeButton={false}>查看流水</Button>
               </div>
               <Button type="button" variant="outline" onClick={logout} className="w-full border-rose-200 text-rose-700 hover:bg-rose-50" size="sm"><LogOut className="mr-1 size-3" />退出登录</Button>
             </div>

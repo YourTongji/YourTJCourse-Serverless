@@ -31,7 +31,7 @@ declare global {
 
 export default function Feedback() {
   const walineRef = useRef<HTMLDivElement>(null);
-  const walineServerUrl = import.meta.env.VITE_WALINE_SERVER_URL || "";
+  const walineServerUrl = import.meta.env.VITE_WALINE_SERVER_URL || "https://waline.yourtj.de";
   const [walineReady, setWalineReady] = useState(false);
 
   useEffect(() => {
@@ -99,7 +99,7 @@ export default function Feedback() {
       if (!document.querySelector('link[data-waline-style="true"]')) {
         const cssLink = document.createElement("link");
         cssLink.rel = "stylesheet";
-        cssLink.href = "https://unpkg.com/@waline/client@v3/dist/waline.css";
+        cssLink.href = "https://unpkg.com/@waline/client/dist/waline.css";
         cssLink.dataset.walineStyle = "true";
         document.head.appendChild(cssLink);
       }
@@ -109,7 +109,7 @@ export default function Feedback() {
         'script[data-waline-script="true"]',
       );
       const script = existingScript || document.createElement("script");
-      script.src = "https://unpkg.com/@waline/client@v3/dist/waline.js";
+      script.src = "https://unpkg.com/@waline/client/dist/waline.js";
       script.async = true;
       script.crossOrigin = "anonymous";
       script.dataset.walineScript = "true";

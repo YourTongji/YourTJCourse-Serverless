@@ -117,7 +117,7 @@ export default function AnnouncementBell() {
             <Button
               variant="ghost"
               size="icon"
-              className="relative"
+              className="relative touch-target"
               aria-label="公告"
             />
           }

@@ -1,0 +1,1 @@
+function e(e){switch(e){case 0:return`未选`;case 1:return`备选`;case 2:return`已选`;default:return`未知`}}function t(e){switch(e){case 0:return`text-gray-400`;case 1:return`text-yellow-300`;case 2:return`text-green-400`;default:return`text-gray-400`}}export{e as n,t};

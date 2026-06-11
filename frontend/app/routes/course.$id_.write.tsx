@@ -684,6 +684,7 @@ export default function WriteReview() {
               type="button"
               variant="outline"
               render={<Link to={`/course/${course.id}`} />}
+              nativeButton={false}
             >
               取消
             </Button>

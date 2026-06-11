@@ -18,9 +18,26 @@ export default function Schedule() {
   const [timeCellCourses, setTimeCellCourses] = useState<CourseInfo[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
 
-  // ── Cascade loading state: show spinner while calendars are being fetched
-  const calendars = useSchedulerStore((s) => s.calendars);
-  const cascadeLoading = calendars.length === 0;
+  // ── Initialize: load calendars on mount
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const { getAllCalendars } = await import("~/lib/schedule/api");
+        const data = await getAllCalendars();
+        if (data.length > 0) {
+          useSchedulerStore.setState({ calendars: data });
+        }
+      } catch (e) {
+        console.error("Failed to load calendars", e);
+      } finally {
+        setIsInitialized(true);
+      }
+    };
+    init();
+  }, []);
+
 
   // ── Persistence restoration: when cascade values are restored from
   //     localStorage by Zustand persist middleware, trigger compulsory
@@ -47,7 +64,7 @@ export default function Schedule() {
     setTimeCellOpen(true);
   }, []);
 
-  if (cascadeLoading) {
+  if (!isInitialized) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-slate-500">

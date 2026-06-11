@@ -1,6 +1,8 @@
 import { useState } from "react";
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
+import { ChevronDown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
 
 interface CollapsibleMarkdownProps {
   content: string;
@@ -177,28 +179,39 @@ export default function CollapsibleMarkdown({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const shouldCollapse = content.length > maxLength;
-  const displayContent =
-    shouldCollapse && !isExpanded
-      ? content.substring(0, maxLength) + "..."
-      : content;
 
-  return (
-    <div>
+  if (!shouldCollapse) {
+    return (
       <div
         className={markdownContentClassName}
         dangerouslySetInnerHTML={{
-          __html: renderMarkdownHtml(displayContent),
+          __html: renderMarkdownHtml(content),
         }}
       />
-      {shouldCollapse && (
-        <button
-          type="button"
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="mt-2 px-4 py-1.5 bg-cyan-500 text-white text-xs font-semibold rounded-lg hover:bg-cyan-600 transition-all shadow-sm"
-        >
-          {isExpanded ? "收起 ▲" : "展开 ▼"}
-        </button>
-      )}
-    </div>
+    );
+  }
+
+  return (
+    <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+      <div
+        className={markdownContentClassName}
+        dangerouslySetInnerHTML={{
+          __html: renderMarkdownHtml(content.substring(0, maxLength)),
+        }}
+      />
+      {!isExpanded && <span className="text-slate-400 select-none">...</span>}
+      <CollapsibleContent>
+        <div
+          className={markdownContentClassName}
+          dangerouslySetInnerHTML={{
+            __html: renderMarkdownHtml(content.substring(maxLength)),
+          }}
+        />
+      </CollapsibleContent>
+      <CollapsibleTrigger className="mt-2 inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted group">
+        {isExpanded ? "收起" : "展开"}
+        <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[panel-open]:rotate-180" />
+      </CollapsibleTrigger>
+    </Collapsible>
   );
 }

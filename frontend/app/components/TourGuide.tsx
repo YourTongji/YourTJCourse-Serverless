@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { useTourStore } from "~/lib/stores";
 import { Button } from "~/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "~/components/ui/dialog";
 import { cn } from "~/lib/utils";
-import { HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { HelpCircle, ChevronLeft, ChevronRight } from "lucide-react";
 
 // ─── Tour Steps ──────────────────────────────────────────────────────────────
 
@@ -140,15 +141,14 @@ export default function TourGuide() {
   // ── Floating help button ─────────────────────────────────────────────────
   if (!isActive && !isCompleted) {
     return (
-      <button
-        type="button"
+      <Button
         onClick={startTour}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl active:scale-95"
+        className="fixed bottom-6 right-6 z-40 rounded-full shadow-lg"
         aria-label="打开功能导览"
       >
         <HelpCircle className="size-4" />
         <span className="hidden sm:inline">功能导览</span>
-      </button>
+      </Button>
     );
   }
 
@@ -158,12 +158,6 @@ export default function TourGuide() {
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs"
-        aria-hidden="true"
-      />
-
       {/* Spotlight ring around target element */}
       {spotlightRect && (
         <div
@@ -180,72 +174,59 @@ export default function TourGuide() {
         />
       )}
 
-      {/* Tour card */}
-      <div
-        className={
-          "fixed inset-x-0 bottom-0 z-[52] mx-auto max-w-lg px-4 pb-8 pt-4 " +
-          "sm:inset-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:px-0 sm:pb-0 sm:pt-0"
-        }
-      >
-        <div className="rounded-2xl border bg-card p-6 shadow-2xl ring-1 ring-foreground/10">
-          {/* Step dots + close */}
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              {Array.from({ length: totalSteps }).map((_, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    "h-1.5 rounded-full transition-all",
-                    prefersReducedMotion ? "" : "duration-200",
-                    i === currentStep
-                      ? "w-5 bg-primary"
-                      : i < currentStep
-                        ? "w-1.5 bg-primary/40"
-                        : "w-1.5 bg-muted-foreground/20",
-                  )}
-                />
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={skipTour}
-              className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label="跳过导览"
-            >
-              <X className="size-4" />
-            </button>
+      <Dialog open={isActive} onOpenChange={(open) => { if (!open) skipTour(); }} modal>
+        <DialogContent showCloseButton={false} className="sm:max-w-md">
+          {/* Step dots */}
+          <div className="flex items-center gap-1.5">
+            {Array.from({ length: totalSteps }).map((_, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "h-1.5 rounded-full transition-all",
+                  prefersReducedMotion ? "" : "duration-200",
+                  i === currentStep
+                    ? "w-5 bg-primary"
+                    : i < currentStep
+                      ? "w-1.5 bg-primary/40"
+                      : "w-1.5 bg-muted-foreground/20",
+                )}
+              />
+            ))}
           </div>
 
-          {/* Step content */}
-          <div className="mb-6">
-            <h3 className="mb-2 text-lg font-semibold text-foreground">
-              {TOUR_STEPS[currentStep].title}
-            </h3>
-            <p className="text-sm leading-relaxed text-muted-foreground">
+          <DialogHeader>
+            <DialogTitle>{TOUR_STEPS[currentStep].title}</DialogTitle>
+            <DialogDescription>
               {TOUR_STEPS[currentStep].description}
-            </p>
-          </div>
+            </DialogDescription>
+          </DialogHeader>
 
           {/* Progress counter */}
-          <p className="mb-4 text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {currentStep + 1} / {totalSteps}
           </p>
 
-          {/* Navigation */}
-          <div className="flex items-center gap-2">
-            {!isFirstStep && (
-              <Button variant="outline" size="default" onClick={prevStep}>
-                <ChevronLeft className="size-4" />
-                上一步
+          <DialogFooter>
+            <div className="flex w-full items-center gap-2">
+              <Button variant="outline" size="default" onClick={skipTour}>
+                跳过
               </Button>
-            )}
-            <Button onClick={handleNext} className="flex-1" size="default">
-              <span>{isLastStep ? "完成" : "下一步"}</span>
-              {!isLastStep && <ChevronRight className="size-4" />}
-            </Button>
-          </div>
-        </div>
-      </div>
+              <div className="flex flex-1 items-center justify-end gap-2">
+                {!isFirstStep && (
+                  <Button variant="outline" size="default" onClick={prevStep}>
+                    <ChevronLeft className="size-4" />
+                    上一步
+                  </Button>
+                )}
+                <Button onClick={handleNext} size="default">
+                  <span>{isLastStep ? "完成" : "下一步"}</span>
+                  {!isLastStep && <ChevronRight className="size-4" />}
+                </Button>
+              </div>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

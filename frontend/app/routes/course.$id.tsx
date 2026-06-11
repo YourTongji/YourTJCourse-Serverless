@@ -428,6 +428,7 @@ export default function CourseDetail() {
               <Button
                 className="w-full gap-2"
                 render={<Link to={`/course/${course.id}/write`} />}
+                nativeButton={false}
               >
                 <Star className="size-4" />
                 撰写评价
@@ -469,6 +470,7 @@ export default function CourseDetail() {
                   className="mt-4 gap-2"
                   size="sm"
                   render={<Link to={`/course/${course.id}/write`} />}
+                  nativeButton={false}
                 >
                   <Star className="size-3.5" />
                   撰写评价

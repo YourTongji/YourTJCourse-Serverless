@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="../favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preload" as="image" href="/sim/assets/myLogo-DMXXunsW.png" fetchpriority="high" />
+    <script>
+      document.documentElement.classList.add('yourtj-sim-loading')
+    </script>
+    <style>
+      html,
+      body {
+        height: 100%;
+      }
+
+      /* Lightweight loading overlay to get an early FCP/LCP without blocking render. */
+      #yourtj-sim-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        z-index: 9999;
+        background-color: #f0f9ff;
+        background-image:
+          radial-gradient(at 0% 0%, rgba(186, 230, 253, 0.5) 0px, transparent 50%),
+          radial-gradient(at 100% 0%, rgba(165, 243, 252, 0.5) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(224, 242, 254, 0.5) 0px, transparent 50%),
+          radial-gradient(at 0% 100%, rgba(204, 251, 241, 0.5) 0px, transparent 50%);
+      }
+      #yourtj-sim-loader .card {
+        width: min(520px, 92vw);
+        border-radius: 18px;
+        padding: 18px 18px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow: 0 18px 50px rgba(2, 132, 199, 0.14);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+      #yourtj-sim-loader .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      #yourtj-sim-loader img {
+        width: 44px;
+        height: 44px;
+      }
+      #yourtj-sim-loader .title {
+        font-size: 18px;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.25;
+        letter-spacing: 0.2px;
+      }
+      #yourtj-sim-loader .desc {
+        margin-top: 6px;
+        color: rgba(15, 23, 42, 0.72);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      #yourtj-sim-loader .bar {
+        margin-top: 12px;
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(2, 132, 199, 0.12);
+      }
+      #yourtj-sim-loader .bar::before {
+        content: '';
+        display: block;
+        height: 100%;
+        width: 40%;
+        border-radius: 999px;
+        background: linear-gradient(
+          90deg,
+          rgba(249, 115, 22, 0.35),
+          rgba(249, 115, 22, 0.85),
+          rgba(249, 115, 22, 0.35)
+        );
+        animation: yourtj-sim-loader-wave 1.25s ease-in-out infinite;
+      }
+      @keyframes yourtj-sim-loader-wave {
+        0% {
+          transform: translateX(-30%);
+          opacity: 0.7;
+        }
+        50% {
+          transform: translateX(120%);
+          opacity: 1;
+        }
+        100% {
+          transform: translateX(260%);
+          opacity: 0.7;
+        }
+      }
+
+      html.yourtj-sim-loading #app {
+        visibility: hidden;
+      }
+
+      html:not(.yourtj-sim-loading) #yourtj-sim-loader {
+        display: none;
+      }
+      #yourtj-sim-loader.yourtj-sim-loader-hide {
+        opacity: 0;
+        transition: opacity 200ms ease;
+      }
+    </style>
+    <title>YOURTJ选课社区 - 排课模拟器</title>
+    <link rel="stylesheet" crossorigin href="/sim/assets/index-CGv3qZHJ.css">
+    <script type="module" crossorigin src="/sim/assets/index-C4wvopll.js"></script>
+    
+  </head>
+  <body>
+    <div id="yourtj-sim-loader" role="status" aria-live="polite">
+      <div class="card">
+        <div class="row">
+          <img src="../favicon.svg" alt="YOURTJ" loading="eager" decoding="async" />
+          <div>
+            <div class="title">排课模拟器加载中…</div>
+            <div class="desc">首次打开可能需要几秒，加载完成后即可开始筛选与导出。</div>
+          </div>
+        </div>
+        <div class="bar"></div>
+      </div>
+    </div>
+    <div id="app"></div>
+  </body>
+</html>

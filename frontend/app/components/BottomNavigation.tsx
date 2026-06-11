@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router";
 import { BookOpen, CalendarDays, MessageSquareText, BarChart3, PenLine } from "lucide-react";
 
+import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 
 type NavItem = {
@@ -80,23 +81,18 @@ export default function BottomNavigation() {
           // Handle external links
           if (item.external) {
             return (
-              <Button
+              <a
                 key={item.path}
-                variant="ghost"
-                className="flex-1 flex-col h-full px-1 py-2"
-                render={
-                  <a
-                    href={item.path}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  />
-                }
+                href={item.path}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 flex-col items-center justify-center h-full px-1 py-2 rounded-lg text-sm font-medium transition-colors inline-flex hover:bg-muted hover:text-foreground"
               >
                 <div className="mb-0.5">{item.icon}</div>
                 <span className="text-[10px] font-semibold leading-none">
                   {item.label}
                 </span>
-              </Button>
+              </a>
             );
           }
 
@@ -107,17 +103,16 @@ export default function BottomNavigation() {
 
             if (courseId) {
               return (
-                <Button
+                <Link
                   key={item.path}
-                  variant="ghost"
-                  className="flex-1 flex-col h-full px-1 py-2"
-                  render={<Link to={`/write-review/${courseId}`} />}
+                  to={`/write-review/${courseId}`}
+                  className="flex-1 flex-col items-center justify-center h-full px-1 py-2 rounded-lg text-sm font-medium transition-colors inline-flex hover:bg-muted hover:text-foreground"
                 >
                   <div className="mb-0.5">{item.icon}</div>
                   <span className="text-[10px] font-semibold leading-none">
                     {item.label}
                   </span>
-                </Button>
+                </Link>
               );
             }
 
@@ -141,17 +136,21 @@ export default function BottomNavigation() {
           const isActive = location.pathname === item.path;
 
           return (
-            <Button
+            <Link
               key={item.path}
-              variant={isActive ? "default" : "ghost"}
-              className="flex-1 flex-col h-full px-1 py-2"
-              render={<Link to={item.path} />}
+              to={item.path}
+              className={cn(
+                "flex-1 flex-col items-center justify-center h-full px-1 py-2 rounded-lg text-sm font-medium transition-colors inline-flex",
+                isActive
+                  ? "bg-primary text-primary-foreground"
+                  : "hover:bg-muted hover:text-foreground",
+              )}
             >
               <div className="mb-0.5">{item.icon}</div>
               <span className="text-[10px] font-semibold leading-none">
                 {item.label}
               </span>
-            </Button>
+            </Link>
           );
         })}
       </div>

@@ -1,0 +1,9 @@
+import{v as l,o as i,c as s,a2 as n}from"./chunks/framework.DYVbrX1A.js";const m=JSON.parse('{"title":"","description":"","frontmatter":{"layout":"home","hero":{"name":"乌龙茶","text":"同济大学课程评价"},"features":[{"title":"📚 必修课","details":"高等数学、线性代数、概率论、物理、英语、程序设计等必修课程评价","link":"/courses/required/all-courses","linkText":"查看必修课 →"},{"title":"📖 选修课","details":"通识选修、精品课程、核心课程等选修课程评价","link":"/courses/elective/all-courses","linkText":"查看选修课 →"},{"title":"🔍 快速搜索","details":"使用搜索功能快速找到目标课程或教师评价","link":"/courses/introduction","linkText":"搜索技巧 →"}]},"headers":[],"relativePath":"index.md","filePath":"index.md","lastUpdated":1769259918000}'),c={name:"index.md"},p=Object.assign(c,{setup(d){return l(()=>{setTimeout(()=>{document.querySelectorAll(".hero-search-box").forEach(e=>e.remove());const o=setInterval(()=>{const e=document.querySelector(".DocSearch-Button, .VPNavSearch .search-box");if(e){clearInterval(o);const a=document.querySelector(".VPHero");if(a){const r=a.querySelector(".main");if(r){const t=document.createElement("div");t.className="hero-search-box",t.innerHTML=`
+              <button class="hero-search-button" aria-label="搜索课程或教师">
+                <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>搜索课程或教师</span>
+                <kbd>Ctrl K</kbd>
+              </button>
+            `,t.querySelector(".hero-search-button").addEventListener("click",()=>{e.click()}),r.appendChild(t)}}}},100);setTimeout(()=>clearInterval(o),1e4)})}),(o,e)=>(i(),s("div",null,[...e[0]||(e[0]=[n("",7)])]))}});export{m as __pageData,p as default};
