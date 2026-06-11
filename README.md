@@ -106,6 +106,17 @@ npx wrangler pages deploy dist --project-name=jcourse-web
 2. 输入 `calendarId`（一系统学期 ID）和 `depth`（同步深度，默认 1）
 3. 运行
 
+同步流程会将一系统/PK 原始数据同时写入生产 D1 `jcourse-db` 和备份镜像 D1 `jcourse-db-backup`。生产库用于线上查询，并会刷新评课站检索索引；备份库仅用于 PK 数据镜像、导出、ETL 和分析，不创建 `course_search` FTS5 虚拟表。
+
+请不要对生产库 `jcourse-db` 执行 `wrangler d1 export`。如需导出一系统/PK 数据，请只导出备份库：
+
+```bash
+cd backend
+npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
+```
+
+`jcourse-db-backup` 不是完整生产业务灾备库，不保证包含评论、举报、AI 摘要等业务数据。
+
 ## 开发流程
 
 ```

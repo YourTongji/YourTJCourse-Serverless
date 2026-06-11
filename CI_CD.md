@@ -48,7 +48,25 @@ wrangler secret put ADMIN_SECRET
 
 - `.github/workflows/deploy-cloudflare.yml`
 
-## 5) 自定义域名（xk.yourtj.de）为什么没更新？
+## 5) 一系统同步与 D1 导出规范
+
+一系统/PK 数据同步统一使用 `.github/workflows/sync-onesystem-login.yml`。该流程会将生成的 SQL 同时写入：
+
+- `jcourse-db`：生产查询库，会刷新评课站检索索引，可能包含 `course_search` FTS5 虚拟表。
+- `jcourse-db-backup`：PK 数据镜像库，仅用于导出、ETL 和分析，不应创建 `course_search` FTS5 虚拟表。
+
+旧的 `.github/workflows/sync-onesystem.yml` Cookie 同步流程已停用，因为它会绕过备份库双写链路。
+
+请不要对生产库执行 `wrangler d1 export`。需要导出一系统/PK 数据时，只导出备份库：
+
+```bash
+cd backend
+npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
+```
+
+如果本地 Wrangler 登录了多个 Cloudflare 账号，请在本地环境变量或 Wrangler 本地配置中选择账号；不要把具体账号 ID 或备份库 database_id 写入公开仓库。`jcourse-db-backup` 不是完整生产业务灾备库，不保证包含评论、举报、AI 摘要等业务数据。
+
+## 6) 自定义域名（xk.yourtj.de）为什么没更新？
 
 GitHub Actions 里 `wrangler pages deploy` 打印出来的 `*.pages.dev` 只是 Pages 的默认访问地址。
 要让生产域名 `https://xk.yourtj.de` 指向本仓库的 Pages 项目，需要在 Cloudflare 侧绑定域名：
