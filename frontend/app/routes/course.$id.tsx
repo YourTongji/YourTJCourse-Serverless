@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import {
   useLoaderData,
@@ -25,10 +25,8 @@ import { Avatar, AvatarFallback } from "~/components/ui/avatar";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Separator } from "~/components/ui/separator";
 import { getClientId } from "~/lib/clientId";
-import { WalletSheet } from "~/lib/credit";
-import { loadCreditWallet } from "~/lib/creditWallet";
-import { formatSemesterLabel, formatRating } from "~/lib/format";
 import CollapsibleMarkdown from "~/components/CollapsibleMarkdown";
+import { formatSemesterLabel, formatRating } from "~/lib/format";
 import RelatedCourses from "~/components/RelatedCourses";
 import AISummaryCard from "~/components/AISummaryCard";
 import SharePreviewModal from "~/components/SharePreviewModal";
@@ -371,7 +369,6 @@ export default function CourseDetail() {
   });
   const [reportReviewId, setReportReviewId] = useState<number | null>(null);
 
-  const creditWallet = useMemo(() => loadCreditWallet(), []);
 
   if (!course) {
     return <CourseDetailSkeleton />;
@@ -461,9 +458,6 @@ export default function CourseDetail() {
                 撰写评价
               </Button>
 
-              <div className="flex">
-                <WalletSheet userHash={creditWallet?.userHash} />
-              </div>
             </CardContent>
           </Card>
 

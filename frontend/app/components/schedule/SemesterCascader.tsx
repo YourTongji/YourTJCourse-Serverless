@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { useSchedulerStore } from "~/lib/schedule/store";
 import { getAllCalendars } from "~/lib/schedule/api";
 
@@ -15,6 +16,8 @@ export default function SemesterCascader() {
   const calendars = useSchedulerStore((s) => s.calendars);
   const grades = useSchedulerStore((s) => s.grades);
   const majors = useSchedulerStore((s) => s.majors);
+  const gradesLoading = useSchedulerStore((s) => s.gradesLoading);
+  const majorsLoading = useSchedulerStore((s) => s.majorsLoading);
   const selectCalendar = useSchedulerStore((s) => s.selectCalendar);
   const selectGrade = useSchedulerStore((s) => s.selectGrade);
   const selectMajor = useSchedulerStore((s) => s.selectMajor);
@@ -69,7 +72,10 @@ export default function SemesterCascader() {
 
       {/* Grade */}
       <div className="flex flex-col">
-        <span className={LABEL_CLASS}>年级</span>
+        <span className={`${LABEL_CLASS} inline-flex items-center gap-1`}>
+          年级
+          {gradesLoading && <Loader2 className="size-3 animate-spin" />}
+        </span>
         <select
           className={SELECT_CLASS}
           value={grade ?? ""}
@@ -80,7 +86,7 @@ export default function SemesterCascader() {
           }}
         >
           <option value="" disabled>
-            {!calendarId ? "请先选择学期" : "请选择年级"}
+            {!calendarId ? "请先选择学期" : gradesLoading && grades.length === 0 ? "加载中..." : "请选择年级"}
           </option>
           {grades.map((g) => (
             <option key={g} value={g}>
@@ -92,7 +98,10 @@ export default function SemesterCascader() {
 
       {/* Major */}
       <div className="flex flex-col min-w-[120px] flex-1">
-        <span className={LABEL_CLASS}>专业</span>
+        <span className={`${LABEL_CLASS} inline-flex items-center gap-1`}>
+          专业
+          {majorsLoading && <Loader2 className="size-3 animate-spin" />}
+        </span>
         <select
           className={SELECT_CLASS}
           value={major ?? ""}
@@ -103,7 +112,7 @@ export default function SemesterCascader() {
           }}
         >
           <option value="" disabled>
-            {!grade ? "请先选择年级" : "请选择专业"}
+            {!grade ? "请先选择年级" : majorsLoading && majors.length === 0 ? "加载中..." : "请选择专业"}
           </option>
           {majors.map((m) => (
             <option key={m.code} value={m.code}>

@@ -34,7 +34,6 @@ export interface SchedulerState {
   calendarId: number | null;
   grade: number | null;
   major: string | null;
-
   // ── Reference Data ─────────────────────────────────────────────────────────
   calendars: Calendar[];
   grades: number[];
@@ -45,6 +44,11 @@ export interface SchedulerState {
   searchCourses: CourseInfo[];
   campuses: CampusOption[];
   faculties: FacultyOption[];
+
+  // ── Loading Flags ──────────────────────────────────────────────────────────
+  gradesLoading: boolean;
+  majorsLoading: boolean;
+  compulsoryLoading: boolean;
 
   // ── User Selections ────────────────────────────────────────────────────────
   stagedCourses: StagedCourse[];
@@ -127,6 +131,9 @@ export const useSchedulerStore = create<SchedulerState>()(
       updateTime: "",
       latestUpdateTime: "",
       isDataOutdated: false,
+      gradesLoading: false,
+      majorsLoading: false,
+      compulsoryLoading: false,
 
       // ── Cascade Actions ────────────────────────────────────────────────────
 
@@ -135,34 +142,36 @@ export const useSchedulerStore = create<SchedulerState>()(
           calendarId: id,
           grade: null,
           major: null,
-          grades: [],
           majors: [],
           compulsoryCourses: [],
           optionalTypes: [],
           optionalCourses: [],
           searchCourses: [],
           maxRows: id >= 120 ? 11 : 12,
+          gradesLoading: true,
         });
         const { getGradesByCalendar } = await import("./api");
         try {
           const grades = await getGradesByCalendar(id);
-          set({ grades: Array.isArray(grades) ? grades : [] });
+          set({ grades: Array.isArray(grades) ? grades : [], gradesLoading: false });
         } catch {
-          set({ grades: [] });
+          set({ grades: [], gradesLoading: false });
         }
       },
 
       async selectGrade(grade: number) {
-        set({ grade, major: null, majors: [], compulsoryCourses: [] });
+        set({ grade, major: null, compulsoryCourses: [], majorsLoading: true });
         const { calendarId } = get();
         if (calendarId !== null) {
           const { getMajorsByGrade } = await import("./api");
           try {
             const majors = await getMajorsByGrade(calendarId, grade);
-            set({ majors: Array.isArray(majors) ? majors : [] });
+            set({ majors: Array.isArray(majors) ? majors : [], majorsLoading: false });
           } catch {
-            set({ majors: [] });
+            set({ majors: [], majorsLoading: false });
           }
+        } else {
+          set({ majorsLoading: false });
         }
       },
 
@@ -173,12 +182,13 @@ export const useSchedulerStore = create<SchedulerState>()(
       async loadCompulsoryCourses() {
         const { calendarId, grade, major } = get();
         if (calendarId === null || grade === null || major === null) return;
+        set({ compulsoryLoading: true });
         const { getCompulsoryCourses } = await import("./api");
         try {
           const courses = await getCompulsoryCourses(calendarId, grade, major);
-          set({ compulsoryCourses: courses });
+          set({ compulsoryCourses: courses, compulsoryLoading: false });
         } catch {
-          // noop
+          set({ compulsoryLoading: false });
         }
       },
 

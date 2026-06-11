@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, type MetaFunction } from "react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
   Search,
   Filter,
@@ -17,7 +17,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "~/components/ui/sheet";
-import { useCourseListQuery, useDepartments } from "~/lib/queries";
+import { useDepartments } from "~/lib/queries";
 import type { CourseFilters, Course, Department } from "~/lib/queries";
 import CourseFilterSheet, {
   type FilterDraft,
@@ -42,25 +42,95 @@ function filterDraftCount(draft: FilterDraft): number {
   );
 }
 
-/* ─── Helpers: build URL params for load-more fetch ─── */
-function buildLoadMoreUrl(
-  q: string,
+/* ─── Helpers: build URL params for course query ─── */
+function buildCourseParams(
+  keyword: string,
   filters: CourseFilters,
   page: number,
-): string {
-  const qp = new URLSearchParams();
-  qp.set("page", String(page));
-  qp.set("limit", "20");
-  if (q.trim()) qp.set("q", q.trim());
-  if (filters.departments?.length)
-    qp.set("departments", filters.departments.join(","));
-  if (filters.courseName) qp.set("courseName", filters.courseName);
-  if (filters.courseCode) qp.set("courseCode", filters.courseCode);
-  if (filters.teacherName) qp.set("teacherName", filters.teacherName);
-  if (filters.teacherCode) qp.set("teacherCode", filters.teacherCode);
-  if (filters.faculty) qp.set("faculty", filters.faculty);
-  if (filters.campus) qp.set("campus", filters.campus);
-  return `/api/courses?${qp}`;
+  limit = 20,
+): URLSearchParams {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (keyword.trim()) params.set("q", keyword.trim());
+  if (filters.departments?.length) params.set("departments", filters.departments.join(","));
+  if (filters.onlyWithReviews) params.set("onlyWithReviews", "true");
+  if (filters.courseName) params.set("courseName", filters.courseName);
+  if (filters.courseCode) params.set("courseCode", filters.courseCode);
+  if (filters.teacherName) params.set("teacherName", filters.teacherName);
+  if (filters.teacherCode) params.set("teacherCode", filters.teacherCode);
+  if (filters.faculty) params.set("faculty", filters.faculty);
+  if (filters.campus) params.set("campus", filters.campus);
+  params.set("includeTotal", "true");
+  return params;
+}
+
+/* ─── Page response type ─── */
+interface PaginatedCoursesResponse {
+  data: Course[];
+  hasMore: boolean;
+  total?: number;
+  totalPages?: number;
+}
+
+/* ─── Pagination controls ─── */
+function PaginationControls({
+  currentPage,
+  total,
+  totalPages,
+  onPageChange,
+}: {
+  currentPage: number;
+  total: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  const pages: (number | "...")[] = [];
+  const startPage = Math.max(1, currentPage - 2);
+  const endPage = Math.min(totalPages, currentPage + 2);
+  if (startPage > 1) {
+    pages.push(1);
+    if (startPage > 2) pages.push("...");
+  }
+  for (let i = startPage; i <= endPage; i++) pages.push(i);
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) pages.push("...");
+    pages.push(totalPages);
+  }
+
+  return (
+    <div className="flex items-center justify-center gap-2 pt-4">
+      <Button variant="outline" size="sm" onClick={() => onPageChange(1)} disabled={currentPage <= 1}>
+        首页
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage <= 1}>
+        上一页
+      </Button>
+      {pages.map((p, i) =>
+        p === "..." ? (
+          <span key={`e${i}`} className="px-1 text-sm text-muted-foreground">…</span>
+        ) : (
+          <Button
+            key={p}
+            variant={currentPage === p ? "default" : "outline"}
+            size="icon-sm"
+            onClick={() => onPageChange(p as number)}
+          >
+            {p}
+          </Button>
+        ),
+      )}
+      <Button variant="outline" size="sm" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= totalPages}>
+        下一页
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => onPageChange(totalPages)} disabled={currentPage >= totalPages}>
+        末页
+      </Button>
+      <span className="ml-2 text-xs text-muted-foreground">
+        共 {total} 门课程
+      </span>
+    </div>
+  );
 }
 
 /* ─── Main page ─── */
@@ -69,6 +139,7 @@ export default function CoursesPage() {
 
   // ── Read state from URL ────────────────────────────────────────────────
   const q = searchParams.get("q") || "";
+  const currentPage = parseInt(searchParams.get("page") || "1", 10);
   const departmentsRaw = searchParams.get("departments") || "";
   const departments = departmentsRaw
     ? departmentsRaw.split(",").filter(Boolean)
@@ -92,7 +163,6 @@ export default function CoursesPage() {
     campus: campus || undefined,
   };
 
-
   const hasFilters = !!(
     q ||
     departments.length > 0 ||
@@ -111,48 +181,41 @@ export default function CoursesPage() {
     (d: Department) => d.name,
   );
 
-  // ── Course query (page 1) ───────────────────────────────────────────────
-  const queryOptions = useCourseListQuery(q, filters);
+  // ── Course query (paginated) ────────────────────────────────────────────
   const {
-    data: page1Data,
+    data,
     isLoading,
     isError,
     error,
     refetch,
-  } = useQuery(queryOptions);
+  } = useQuery({
+    queryKey: ["courses", "paginated", currentPage, q, filters] as const,
+    queryFn: async ({ queryKey: [, , page, kw, fl] }: {
+      queryKey: readonly [string, string, number, string, CourseFilters];
+    }): Promise<PaginatedCoursesResponse> => {
+      const params = buildCourseParams(kw, fl, page);
+      const res = await fetch(`/api/courses?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+  });
 
-  // ── Pagination state ────────────────────────────────────────────────────
-  const [page, setPage] = useState(1);
-  const [allCourses, setAllCourses] = useState<Course[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const courses: Course[] = data?.data ?? [];
+  const total = data?.total;
+  const totalPages = data?.totalPages ?? 1;
 
-  // Filter identity for reset detection
-  const filterIdentity = JSON.stringify({ q, ...filters });
-  const prevFilterRef = useRef(filterIdentity);
-
-  // Reset pagination when filters change
-  useEffect(() => {
-    if (prevFilterRef.current !== filterIdentity) {
-      prevFilterRef.current = filterIdentity;
-      setPage(1);
-      setAllCourses([]);
-      setHasMore(false);
-    }
-  }, [filterIdentity]);
-
-  // Accumulate page 1 results
-  useEffect(() => {
-    if (page1Data) {
-      setAllCourses(page1Data.data);
-      setHasMore(page1Data.hasMore);
-    }
-  }, [page1Data]);
-
-  const total = page1Data?.total;
+  const totalDisplay = total ?? (courses.length > 0 ? undefined : 0);
 
   // ── Local search input ──────────────────────────────────────────────────
   const [searchValue, setSearchValue] = useState(q);
+
+  // Sync searchValue when URL q changes
+  useEffect(() => {
+    setSearchValue(q);
+  }, [q]);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [filterDraft, setFilterDraft] = useState<FilterDraft>({
@@ -165,6 +228,20 @@ export default function CoursesPage() {
     faculty,
     campus,
   });
+
+  // Reset filterDraft when URL filters change
+  useEffect(() => {
+    setFilterDraft({
+      departments,
+      onlyWithReviews,
+      courseName,
+      courseCode,
+      teacherName,
+      teacherCode,
+      faculty,
+      campus,
+    });
+  }, [departments.join(","), onlyWithReviews, courseName, courseCode, teacherName, teacherCode, faculty, campus]);
 
   const activeFilterCount = filterDraftCount(filterDraft);
 
@@ -187,6 +264,7 @@ export default function CoursesPage() {
   // ── Apply / Reset filters ───────────────────────────────────────────────
   const applyFilters = useCallback(() => {
     const next = new URLSearchParams(searchParams);
+    next.delete("page"); // Reset to page 1 on filter change
     if (q) next.set("q", q);
     else next.delete("q");
 
@@ -253,6 +331,7 @@ export default function CoursesPage() {
     (e: React.FormEvent) => {
       e.preventDefault();
       const next = new URLSearchParams(searchParams);
+      next.delete("page"); // Reset to page 1 on search
       if (searchValue.trim()) {
         next.set("q", searchValue.trim());
       } else {
@@ -267,6 +346,7 @@ export default function CoursesPage() {
   const removeFilter = useCallback(
     (key: string, value?: string) => {
       const next = new URLSearchParams(searchParams);
+      next.delete("page"); // Reset to page 1 on filter removal
       if (key === "q") {
         next.delete("q");
         setSearchValue("");
@@ -285,28 +365,16 @@ export default function CoursesPage() {
     [searchParams, setSearchParams, departments],
   );
 
-  // ── Load More ───────────────────────────────────────────────────────────
-  const handleLoadMore = useCallback(async () => {
-    setLoadingMore(true);
-    const nextPage = page + 1;
-    try {
-      const url = buildLoadMoreUrl(q, filters, nextPage);
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Load more failed");
-      const json = (await res.json()) as {
-        data?: Course[];
-        hasMore?: boolean;
-      };
-      const newCourses: Course[] = Array.isArray(json.data) ? json.data : [];
-      setAllCourses((prev) => [...prev, ...newCourses]);
-      setPage(nextPage);
-      setHasMore(json.hasMore ?? false);
-    } catch (e) {
-      console.error("Load more error:", e);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [page, q, filters]);
+  // ── Pagination handler ──────────────────────────────────────────────────
+  const handlePageChange = useCallback(
+    (page: number) => {
+      const next = new URLSearchParams(searchParams);
+      next.set("page", String(page));
+      setSearchParams(next, { replace: true });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [searchParams, setSearchParams],
+  );
 
   // ── Active filter badges ────────────────────────────────────────────────
   const activeBadges: { key: string; label: string; value?: string }[] = [];
@@ -361,9 +429,9 @@ export default function CoursesPage() {
                 搜索课程、课号或教师，按评价与开课信息筛选
               </p>
             </div>
-            {!isLoading && !isError && (
+            {!isLoading && !isError && totalDisplay != null && (
               <div className="text-sm text-slate-500">
-                {total ? `共 ${total} 门课程` : `${allCourses.length} 门课程`}
+                共 {totalDisplay} 门课程
               </div>
             )}
           </div>
@@ -456,16 +524,21 @@ export default function CoursesPage() {
 
       {/* ─── Course grid ─── */}
       <CourseGridView
-        courses={allCourses}
+        courses={courses}
         isLoading={isLoading}
         isError={isError}
         error={error as Error | null}
-        hasMore={hasMore}
-        loadingMore={loadingMore}
         onRetry={() => refetch()}
-        onLoadMore={handleLoadMore}
         hasFilters={hasFilters}
         total={total}
+      />
+
+      {/* ─── Pagination controls ─── */}
+      <PaginationControls
+        currentPage={currentPage}
+        total={total ?? 0}
+        totalPages={totalPages}
+        onPageChange={handlePageChange}
       />
     </div>
   );

@@ -31,10 +31,10 @@ interface CourseGridViewProps {
   isLoading: boolean;
   isError: boolean;
   error: Error | null;
-  hasMore: boolean;
-  loadingMore: boolean;
+  hasMore?: boolean;
+  loadingMore?: boolean;
   onRetry: () => void;
-  onLoadMore: () => void;
+  onLoadMore?: () => void;
   hasFilters: boolean;
   total?: number;
 }
@@ -112,7 +112,13 @@ function CourseCard({ course }: { course: Course }) {
   const hasRating = course.rating > 0;
 
   return (
-    <Link to={`/course/${course.id}`} className="group block h-full">
+    <Link
+      to={`/course/${course.id}`}
+      className="group block h-full"
+      onClick={() => {
+        try { sessionStorage.setItem("course-list-scroll", String(window.scrollY)); } catch {}
+      }}
+    >
       <Card className="flex h-full min-h-[218px] flex-col overflow-hidden border-slate-200 bg-white transition-all duration-200 hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
@@ -260,7 +266,7 @@ export default function CourseGridView({
         ))}
       </div>
 
-      {hasMore && (
+      {hasMore && onLoadMore && (
         <div className="mt-8 flex justify-center">
           <Button
             variant="outline"
