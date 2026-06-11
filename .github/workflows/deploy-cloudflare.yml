@@ -183,7 +183,7 @@ jobs:
           fi
 
           if [ -n "${PUBLIC_URL:-}" ]; then
-            echo "$PUBLIC_URL" | npx wrangler secret put PUBLIC_URL --env ""
+            echo "$PUBLIC_URL" | npx wrangler versions secret put PUBLIC_URL --env ""
             echo "public url: set ($PUBLIC_URL)"
           else
             echo "public url: missing (default: https://jcourse.yourtj.de)"
