@@ -1366,31 +1366,41 @@ publicRoutes.post('/review/:id/report', async (c) => {
     effectiveReportId = Number(existing?.id || 0) || null
   }
 
+  let feishuResult: any = undefined
   if ((isNewReport || isReopenedReport) && effectiveReportId) {
     // Fire-and-forget Feishu notification (don't block response)
     const origin = new URL(c.req.url).origin
-    c.executionCtx.waitUntil(
-      notifyReportToFeishu(
-        {
-          reportId: effectiveReportId,
-          reviewId: id,
-          reviewSqid: encodeReviewId(id),
-          courseName: String(reviewRow.course_name || ''),
-          courseId: Number(reviewRow.course_id),
-          reason,
-          reporterClientId: clientId,
-          reviewSnippet: String(reviewRow.comment || '').trim(),
-          rating: Number(reviewRow.rating || 0),
-          semester: String(reviewRow.semester || ''),
-          reopened: isReopenedReport,
-        },
-        c.env,
-        origin,
-      ).catch(() => void 0)
-    )
+    // Restrict debug mode to non-production environments (avoid DoS / info leak)
+    const isDevOrTest = String(c.env.APP_ENV || '').trim() !== 'production'
+    const debugFeishu = isDevOrTest && String(c.req.header('x-debug-feishu') || '') === '1'
+    const feishuPromise = notifyReportToFeishu(
+      {
+        reportId: effectiveReportId,
+        reviewId: id,
+        reviewSqid: encodeReviewId(id),
+        courseName: String(reviewRow.course_name || ''),
+        courseId: Number(reviewRow.course_id),
+        reason,
+        reporterClientId: clientId,
+        reviewSnippet: String(reviewRow.comment || '').trim(),
+        rating: Number(reviewRow.rating || 0),
+        semester: String(reviewRow.semester || ''),
+        reopened: isReopenedReport,
+      },
+      c.env,
+      origin,
+    ).catch((e): any => ({ enabled: true, ok: false, error: e instanceof Error ? e.message : String(e) }))
+
+    if (debugFeishu) {
+      // Sanitize debug output: only expose coarse-grained status, not raw response/full error
+      const raw = await feishuPromise
+      feishuResult = { enabled: raw.enabled, ok: raw.ok, status: raw.status }
+    } else {
+      c.executionCtx.waitUntil(feishuPromise)
+    }
   }
 
-  return c.json({ success: true, reportId: effectiveReportId })
+  return c.json({ success: true, reportId: effectiveReportId, ...(feishuResult ? { debug: { feishu: feishuResult } } : {}) })
 })
 
 publicRoutes.post('/review/:id/like', async (c) => {
