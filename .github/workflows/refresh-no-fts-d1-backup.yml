@@ -1,0 +1,81 @@
+name: Refresh No-FTS D1 Backup
+
+on:
+  schedule:
+    # 04:00 Asia/Shanghai
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Only inspect tables/counts without mutating backup"
+        required: false
+        default: false
+        type: boolean
+      batchSize:
+        description: "Rows to read from primary per page"
+        required: false
+        default: "500"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-no-fts-d1-backup
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_PRIMARY_DATABASE_NAME: jcourse-db
+      D1_BACKUP_DATABASE_NAME: jcourse-db-backup
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate inputs and secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then echo "Missing secrets.CLOUDFLARE_API_TOKEN" >&2; exit 1; fi
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then echo "Missing secrets.CLOUDFLARE_ACCOUNT_ID" >&2; exit 1; fi
+          if [ -z "${D1_PRIMARY_DATABASE_NAME:-}" ]; then echo "Missing D1_PRIMARY_DATABASE_NAME" >&2; exit 1; fi
+          if [ -z "${D1_BACKUP_DATABASE_NAME:-}" ]; then echo "Missing D1_BACKUP_DATABASE_NAME" >&2; exit 1; fi
+          if [ "$D1_PRIMARY_DATABASE_NAME" = "$D1_BACKUP_DATABASE_NAME" ]; then echo "Primary and backup database names must differ" >&2; exit 1; fi
+
+          batch_size="${{ github.event.inputs.batchSize || '500' }}"
+          if ! [[ "$batch_size" =~ ^[0-9]+$ ]]; then
+            echo "batchSize must be numeric" >&2
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Refresh backup snapshot
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --source "$D1_PRIMARY_DATABASE_NAME"
+            --target "$D1_BACKUP_DATABASE_NAME"
+            --batch-size "${{ github.event.inputs.batchSize || '500' }}"
+          )
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.dryRun }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+
+          node ./scripts/refresh-no-fts-backup.mjs "${args[@]}"

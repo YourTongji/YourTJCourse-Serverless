@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       depth:
-        description: "同步深度 (从 calendarId 往前同步多少学期，默认 1；会同步写入备份 D1)"
+        description: "同步深度 (从 calendarId 往前同步多少学期，默认 1)"
         required: false
         default: "1"
         type: string
@@ -41,7 +41,6 @@ jobs:
       ONESYSTEM_IMAP_EMAIL: ${{ secrets.ONESYSTEM_IMAP_EMAIL }}
       ONESYSTEM_IMAP_GRANTCODE: ${{ secrets.ONESYSTEM_IMAP_GRANTCODE }}
       D1_PRIMARY_DATABASE_NAME: jcourse-db
-      D1_BACKUP_DATABASE_NAME: jcourse-db-backup
 
     steps:
       - name: Resolve calendarId/depth
@@ -94,7 +93,6 @@ jobs:
           if [ -z "${ONESYSTEM_SNO:-}" ]; then echo "Missing secrets.ONESYSTEM_SNO" >&2; exit 1; fi
           if [ -z "${ONESYSTEM_PASSWORD:-}" ]; then echo "Missing secrets.ONESYSTEM_PASSWORD" >&2; exit 1; fi
           if [ -z "${D1_PRIMARY_DATABASE_NAME:-}" ]; then echo "Missing D1_PRIMARY_DATABASE_NAME" >&2; exit 1; fi
-          if [ -z "${D1_BACKUP_DATABASE_NAME:-}" ]; then echo "Missing D1_BACKUP_DATABASE_NAME" >&2; exit 1; fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -144,34 +142,13 @@ jobs:
             --config "./config.onesystem.ini" \
             2>&1 | tee pk-sync-summary.log
 
-      - name: Apply SQL to primary and backup D1 (remote)
+      - name: Apply SQL to primary D1 (remote)
         working-directory: backend
         shell: bash
         run: |
           set -euo pipefail
           ls -la .tmp/pk-sync
-
-          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_PRIMARY_DATABASE_NAME" ".tmp/pk-sync" > >(tee -a pk-apply-primary.log) 2>&1 &
-          primary_pid=$!
-
-          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_BACKUP_DATABASE_NAME" ".tmp/pk-sync" --skip-search-indexes > >(tee -a pk-apply-backup.log) 2>&1 &
-          backup_pid=$!
-
-          primary_status=0
-          backup_status=0
-          wait "$primary_pid" || primary_status=$?
-          wait "$backup_pid" || backup_status=$?
-
-          echo "BACKUP_D1_APPLY_STATUS=$backup_status" >> "$GITHUB_ENV"
-
-          if [ "$primary_status" -ne 0 ]; then
-            echo "Primary D1 apply failed: primary=$primary_status backup=$backup_status" >&2
-            exit 1
-          fi
-
-          if [ "$backup_status" -ne 0 ]; then
-            echo "Backup D1 apply failed with status $backup_status; primary refresh will still run before the job fails." >&2
-          fi
+          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_PRIMARY_DATABASE_NAME" ".tmp/pk-sync" | tee -a pk-apply-primary.log
 
       - name: Materialize pk courses to review site tables (remote)
         working-directory: backend
@@ -179,58 +156,6 @@ jobs:
         run: |
           set -euo pipefail
           D1_DATABASE_NAME="$D1_PRIMARY_DATABASE_NAME" bash ./scripts/refresh-review-index-remote.sh
-
-      - name: Verify backup D1 mirror safety
-        working-directory: backend
-        shell: bash
-        env:
-          CALENDAR_ID: ${{ steps.resolve.outputs.calendarId }}
-        run: |
-          set -euo pipefail
-
-          if [ "${BACKUP_D1_APPLY_STATUS:-0}" != "0" ]; then
-            echo "Backup D1 apply failed earlier with status $BACKUP_D1_APPLY_STATUS. Rerun this workflow with the same calendarId/depth after fixing the backup path." >&2
-            exit 1
-          fi
-
-          query_single() {
-            local database="$1"
-            local sql="$2"
-            local field="$3"
-            local payload
-
-            payload="$(npx wrangler d1 execute "$database" --remote --json --command "$sql")"
-            node -e "const payload = JSON.parse(process.argv[1]); const field = process.argv[2]; const row = payload?.[0]?.results?.[0] || {}; const value = row[field]; console.log(value == null ? '' : value);" "$payload" "$field"
-          }
-
-          backup_fts_count="$(query_single "$D1_BACKUP_DATABASE_NAME" "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%';" "count")"
-          if [ "${backup_fts_count:-0}" != "0" ]; then
-            echo "Backup D1 must not contain course_search/FTS5 tables; found $backup_fts_count matching object(s)." >&2
-            exit 1
-          fi
-
-          compare_count() {
-            local label="$1"
-            local sql="$2"
-            local primary_count
-            local backup_count
-
-            primary_count="$(query_single "$D1_PRIMARY_DATABASE_NAME" "$sql" "count")"
-            backup_count="$(query_single "$D1_BACKUP_DATABASE_NAME" "$sql" "count")"
-
-            echo "$label primary=$primary_count backup=$backup_count"
-            if [ "$primary_count" != "$backup_count" ]; then
-              echo "Backup D1 count mismatch for $label: primary=$primary_count backup=$backup_count" >&2
-              exit 1
-            fi
-          }
-
-          compare_count "calendar" "SELECT COUNT(*) AS count FROM calendar WHERE calendarId = $CALENDAR_ID;"
-          compare_count "coursenature_by_calendar" "SELECT COUNT(*) AS count FROM coursenature_by_calendar WHERE calendarId = $CALENDAR_ID;"
-          compare_count "coursedetail" "SELECT COUNT(*) AS count FROM coursedetail WHERE calendarId = $CALENDAR_ID;"
-          compare_count "teacher" "SELECT COUNT(*) AS count FROM teacher t JOIN coursedetail cd ON cd.id = t.teachingClassId WHERE cd.calendarId = $CALENDAR_ID;"
-          compare_count "teacher_timeslots" "SELECT COUNT(*) AS count FROM teacher_timeslots WHERE calendar_id = $CALENDAR_ID;"
-          compare_count "majorandcourse" "SELECT COUNT(*) AS count FROM majorandcourse mac JOIN coursedetail cd ON cd.id = mac.courseId WHERE cd.calendarId = $CALENDAR_ID;"
 
       - name: Post-check via backend API
         shell: bash
