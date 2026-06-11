@@ -4,6 +4,7 @@ import BoringAvatar from 'boring-avatars'
 import { toJpeg, toPng } from 'html-to-image'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview, reportReview } from '../services/api'
+import { showToast } from '../components/Toast'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
 import { getOrCreateClientId } from '../utils/clientId'
@@ -687,9 +688,9 @@ export default function Course() {
     setReportBusy(true)
     try {
       await reportReview(review.id, clientId, reason)
-      window.alert('举报已提交，感谢您的反馈')
+      showToast('举报已提交，感谢您的反馈', 'success')
     } catch (e: any) {
-      window.alert(e?.message || '提交失败')
+      showToast(e?.message || '提交失败', 'error')
     } finally {
       setReportBusy(false)
       setReportTarget(null)

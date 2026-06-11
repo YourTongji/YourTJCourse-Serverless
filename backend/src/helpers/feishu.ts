@@ -168,6 +168,10 @@ export async function notifyReportToFeishu(
   const adminSecret = env.ADMIN_SECRET
   if (!adminSecret) return { enabled: false, error: 'ADMIN_SECRET not set' }
 
+  // Use PUBLIC_URL as the canonical base for action links instead of request origin
+  const publicUrl = (env.PUBLIC_URL || env.FEISHU_PUBLIC_URL || '').replace(/\/+$/, '')
+  const actionOrigin = publicUrl || origin
+
   // Config: try DB settings first (hot-update), then env vars as fallback
   const dbConfig = await getFeishuConfigFromDb(env.DB)
   const webhookUrl = dbConfig?.webhookUrl || env.FEISHU_REPORT_WEBHOOK_URL
@@ -184,8 +188,8 @@ export async function notifyReportToFeishu(
 
   try {
     const [resolveUrl, rejectUrl] = await Promise.all([
-      buildActionUrl(origin, payload.reportId, 'resolved', adminSecret),
-      buildActionUrl(origin, payload.reportId, 'rejected', adminSecret),
+      buildActionUrl(actionOrigin, payload.reportId, 'resolved', adminSecret),
+      buildActionUrl(actionOrigin, payload.reportId, 'rejected', adminSecret),
     ])
 
     const reasonText = reasonLabel[payload.reason] || payload.reason
