@@ -22,6 +22,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[pk-sync]'))
@@ -140,8 +141,22 @@ jobs:
         run: |
           set -euo pipefail
           ls -la .tmp/pk-sync
-          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_PRIMARY_DATABASE_NAME" ".tmp/pk-sync" 2>&1 | tee -a pk-apply-primary.log
-          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_BACKUP_DATABASE_NAME" ".tmp/pk-sync" 2>&1 | tee -a pk-apply-backup.log
+
+          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_PRIMARY_DATABASE_NAME" ".tmp/pk-sync" > >(tee -a pk-apply-primary.log) 2>&1 &
+          primary_pid=$!
+
+          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_BACKUP_DATABASE_NAME" ".tmp/pk-sync" > >(tee -a pk-apply-backup.log) 2>&1 &
+          backup_pid=$!
+
+          primary_status=0
+          backup_status=0
+          wait "$primary_pid" || primary_status=$?
+          wait "$backup_pid" || backup_status=$?
+
+          if [ "$primary_status" -ne 0 ] || [ "$backup_status" -ne 0 ]; then
+            echo "D1 apply failed: primary=$primary_status backup=$backup_status" >&2
+            exit 1
+          fi
 
       - name: Materialize pk courses to review site tables (remote)
         working-directory: backend
