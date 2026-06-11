@@ -45,7 +45,7 @@
                   <div class="fan-center-wrap">
                     <transition :name="fanTransitionName" mode="out-in">
                       <div class="fan-card fan-center" :key="currentKey">
-                        <ReviewFanCard :review="currentReview" :enableLike="true" :likeLoading="likeBusy" :onToggleLike="toggleLike" />
+                        <ReviewFanCard :review="currentReview" :enableLike="true" :likeLoading="likeBusy" :onToggleLike="toggleLike" :enableReport="true" :onReportReview="openReportModal" />
                       </div>
                     </transition>
 
@@ -139,6 +139,15 @@
                   </svg>
                   <span>{{ Number(r.like_count || 0) }}</span>
                 </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 text-[11px] font-extrabold text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+                  @click.stop.prevent="openReportModal(r)"
+                  aria-label="举报"
+                  title="举报此评价"
+                >
+                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                </button>
               </div>
             </div>
             <div class="review-markdown text-sm break-words" v-html="renderComment(r.comment || '')"></div>
@@ -151,15 +160,47 @@
       <a-button block @click="emitClose">关闭</a-button>
     </div>
   </a-drawer>
+
+  <!-- Report reason modal -->
+  <a-modal
+    :visible="reportModalVisible"
+    :title="'举报评价'"
+    :footer="null"
+    :closable="true"
+    @cancel="closeReportModal"
+    :width="380"
+  >
+    <div class="text-sm text-slate-600 mb-3">请选择举报原因：</div>
+    <div class="flex flex-col gap-2">
+      <button
+        v-for="item in reportReasons"
+        :key="item.key"
+        type="button"
+        class="w-full text-left px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors"
+        :disabled="reportBusy"
+        @click="submitReport(item.key)"
+      >
+        {{ item.label }}
+      </button>
+    </div>
+  </a-modal>
 </template>
 
 <script lang="ts">
 import axios from 'axios'
-import { Drawer } from 'ant-design-vue'
+import { Drawer, Modal } from 'ant-design-vue'
 import ReviewFanCard from './ReviewFanCard.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { getOrCreateClientId } from '@/utils/clientId'
 import { isMobile as getIsMobile, onMobileChange } from '@/utils/responsive'
+import { successNotify, errorNotify } from '@/utils/notify'
+
+const REPORT_REASONS: Array<{ key: string; label: string }> = [
+  { key: 'spam', label: '垃圾广告' },
+  { key: 'harassment', label: '骚扰/人身攻击' },
+  { key: 'misinformation', label: '虚假信息' },
+  { key: 'other', label: '其他' },
+]
 
 type Review = {
   id?: number
@@ -196,6 +237,9 @@ export default {
       navLockUntil: 0,
       clientId: '' as string,
       likeBusy: false,
+      reportBusy: false,
+      reportModalVisible: false,
+      reportTargetReview: null as any,
     }
   },
   computed: {
@@ -221,7 +265,10 @@ export default {
     },
     fanTransitionName() {
       return this.lastDir === 'next' ? 'fan-next' : 'fan-prev'
-    }
+    },
+    reportReasons(): Array<{ key: string; label: string }> {
+      return REPORT_REASONS
+    },
   },
   watch: {
     open: {
@@ -306,6 +353,34 @@ export default {
         this.loading = false
       }
     },
+    openReportModal(r: any) {
+      this.reportTargetReview = r
+      this.reportModalVisible = true
+    },
+    closeReportModal() {
+      this.reportModalVisible = false
+      this.reportTargetReview = null
+    },
+    async submitReport(reason: string) {
+      const r = this.reportTargetReview
+      if (!r || !r.id) return
+      if (!this.clientId) this.clientId = getOrCreateClientId()
+      if (this.reportBusy) return
+      this.reportBusy = true
+      try {
+        await axios.post(`/api/review/${Number(r.id)}/report`, {
+          clientId: this.clientId,
+          reason,
+        })
+        successNotify('举报已提交，感谢您的反馈')
+        this.closeReportModal()
+      } catch (e: any) {
+        const msg = e?.response?.data?.error || e?.message || '提交失败'
+        errorNotify(msg)
+      } finally {
+        this.reportBusy = false
+      }
+    },
     async toggleLike(r: any) {
       if (!r || !r.id) return
       if (!this.clientId) this.clientId = getOrCreateClientId()
@@ -335,7 +410,7 @@ export default {
       }
     }
   },
-  components: { ReviewFanCard, ADrawer: Drawer }
+  components: { ReviewFanCard, ADrawer: Drawer, AModal: Modal }
 }
 </script>
 
