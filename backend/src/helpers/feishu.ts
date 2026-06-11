@@ -4,6 +4,12 @@
  * When a report is filed, sends an interactive card with "通过" / "驳回" buttons.
  * Buttons use HMAC-signed URLs and open a confirmation page before mutating state.
  * Approving a report hides the reported review. No Feishu app registration required.
+ *
+ * Aligned with YourTJ-Credit-Serverless implementation:
+ * - Config hot update: read from DB settings first, fallback to env vars
+ * - Error handling: parse response body for Feishu error codes
+ * - Return value: FeishuSendResult with detailed status for debugging
+ * - Text normalization: HTML entity decoding, long text truncation
  */
 import type { Bindings } from './types'
 
@@ -20,6 +26,54 @@ export interface ReportNotificationPayload {
   semester: string
   /** True when a previously processed report was reopened by a repeat report. */
   reopened?: boolean
+}
+
+// ─── Feishu config & result types (aligned with Credit) ─────────
+
+type FeishuConfig = { webhookUrl: string; secret?: string }
+
+export type FeishuSendResult = {
+  enabled: boolean
+  ok?: boolean
+  status?: number
+  responseSnippet?: string
+  error?: string
+}
+
+const FEISHU_SETTINGS_WEBHOOK_URL_KEY = 'feishu_report_webhook_url'
+const FEISHU_SETTINGS_WEBHOOK_SECRET_KEY = 'feishu_report_webhook_secret'
+
+// ─── Text normalization helpers (aligned with Credit) ───────────
+
+function decodeHtmlEntities(input: string): string {
+  const text = String(input ?? '')
+  return text.replace(/&(?:lt|gt|amp|quot|nbsp);|&#39;|&#x?[0-9a-fA-F]+;/g, (m) => {
+    switch (m) {
+      case '&lt;': return '<'
+      case '&gt;': return '>'
+      case '&amp;': return '&'
+      case '&quot;': return '"'
+      case '&#39;': return "'"
+      case '&nbsp;': return ' '
+      default: {
+        const hex = m.startsWith('&#x') || m.startsWith('&#X')
+        const num = hex ? m.slice(3, -1) : m.slice(2, -1)
+        const codePoint = parseInt(num, hex ? 16 : 10)
+        if (!Number.isFinite(codePoint)) return m
+        try { return String.fromCodePoint(codePoint) } catch { return m }
+      }
+    }
+  })
+}
+
+function normalizeFeishuText(input: string): string {
+  let decoded = String(input ?? '')
+  for (let i = 0; i < 3; i++) {
+    const next = decodeHtmlEntities(decoded)
+    if (next === decoded) break
+    decoded = next
+  }
+  return decoded.replace(/<\s*br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')
 }
 
 // ─── HMAC helpers ───────────────────────────────────────────────
@@ -58,24 +112,50 @@ async function buildActionUrl(
   return `${origin}/api/admin/report/${reportId}/confirm?action=${action}&deadline=${deadline}&sig=${sig}`
 }
 
-/** Feishu webhook signing (HMAC-SHA256 → base64).
- *
- * Per Feishu docs: the HMAC key is `${timestamp}\n${secret}` and signs
- * an **empty** message. Returns the Base64-encoded signature.
- */
+/** Feishu webhook signing: HMAC(key=timestamp+"\\n"+secret, msg="") → base64. */
 async function signFeishuWebhook(timestampSec: string, secret: string): Promise<string> {
   const encoder = new TextEncoder()
-  const hmacKey = encoder.encode(`${timestampSec}\n${secret}`)
+  const keyStr = `${timestampSec}\n${secret}`
   const key = await crypto.subtle.importKey(
     'raw',
-    hmacKey,
+    encoder.encode(keyStr),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   )
-  // Sign an empty message (Feishu spec: doFinal(new byte[]{}))
-  const sig = await crypto.subtle.sign('HMAC', key, new Uint8Array())
+  // Message is empty string — key IS the string to sign (aligned with Credit)
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(''))
   return btoa(String.fromCharCode(...new Uint8Array(sig)))
+}
+
+// ─── Config hot update (aligned with Credit) ───────────────────
+
+/**
+ * Get Feishu webhook config from D1 settings table with hot-update support.
+ * Source: DB settings table only. Env-var fallback is handled by the caller.
+ */
+async function getFeishuConfigFromDb(db: D1Database): Promise<FeishuConfig | null> {
+  // Try DB settings first (supports runtime hot update without redeploy)
+  try {
+    const rowUrl = await db
+      .prepare('SELECT value FROM settings WHERE key = ? LIMIT 1')
+      .bind(FEISHU_SETTINGS_WEBHOOK_URL_KEY)
+      .first<{ value: string }>()
+    const dbUrl = rowUrl?.value ? String(rowUrl.value).trim() : ''
+    if (dbUrl) {
+      const rowSecret = await db
+        .prepare('SELECT value FROM settings WHERE key = ? LIMIT 1')
+        .bind(FEISHU_SETTINGS_WEBHOOK_SECRET_KEY)
+        .first<{ value: string }>()
+      const dbSecret = rowSecret?.value ? String(rowSecret.value).trim() : ''
+      return dbSecret ? { webhookUrl: dbUrl, secret: dbSecret } : { webhookUrl: dbUrl }
+    }
+  } catch {
+    // ignore: DB may be unavailable, or settings table missing
+  }
+
+  // Fallback: env vars (requires redeploy to change)
+  return null
 }
 
 // ─── Public API ─────────────────────────────────────────────────
@@ -84,12 +164,16 @@ export async function notifyReportToFeishu(
   payload: ReportNotificationPayload,
   env: Bindings,
   origin: string,
-): Promise<void> {
-  const webhookUrl = env.FEISHU_REPORT_WEBHOOK_URL
+): Promise<FeishuSendResult> {
   const adminSecret = env.ADMIN_SECRET
+  if (!adminSecret) return { enabled: false, error: 'ADMIN_SECRET not set' }
 
-  if (!webhookUrl) return
-  if (!adminSecret) return
+  // Config: try DB settings first (hot-update), then env vars as fallback
+  const dbConfig = await getFeishuConfigFromDb(env.DB)
+  const webhookUrl = dbConfig?.webhookUrl || env.FEISHU_REPORT_WEBHOOK_URL
+  const feishuSecret = dbConfig?.secret || env.FEISHU_REPORT_WEBHOOK_SECRET
+
+  if (!webhookUrl) return { enabled: false }
 
   const reasonLabel: Record<string, string> = {
     spam: '垃圾广告',
@@ -105,10 +189,11 @@ export async function notifyReportToFeishu(
     ])
 
     const reasonText = reasonLabel[payload.reason] || payload.reason
-    const snippet =
+    const snippet = normalizeFeishuText(
       payload.reviewSnippet.length > 200
         ? `${payload.reviewSnippet.slice(0, 198)}…`
         : payload.reviewSnippet
+    )
     const stars = '★'.repeat(Math.round(payload.rating)) + '☆'.repeat(5 - Math.round(payload.rating))
 
     const body: any = {
@@ -141,7 +226,7 @@ export async function notifyReportToFeishu(
             },
             {
               tag: 'markdown',
-              content: snippet,
+              content: `**评论内容**\n${snippet || '（无文本内容）'}`,
               text_align: 'left' as const,
             },
             { tag: 'hr' },
@@ -212,28 +297,22 @@ export async function notifyReportToFeishu(
               text_align: 'left' as const,
             },
             {
-              tag: 'action',
-              actions: [
-                {
-                  tag: 'button',
-                  type: 'primary',
-                  text: { tag: 'plain_text', content: '✅ 通过 (隐藏评价)' },
-                  url: resolveUrl,
-                },
-                {
-                  tag: 'button',
-                  type: 'danger',
-                  text: { tag: 'plain_text', content: '❌ 驳回 (保留评价)' },
-                  url: rejectUrl,
-                },
-              ],
+              tag: 'button',
+              type: 'primary',
+              text: { tag: 'plain_text', content: '✅ 通过 (隐藏评价)' },
+              url: resolveUrl,
+            },
+            {
+              tag: 'button',
+              type: 'danger',
+              text: { tag: 'plain_text', content: '❌ 驳回 (保留评价)' },
+              url: rejectUrl,
             },
           ],
         },
       },
     }
 
-    const feishuSecret = env.FEISHU_REPORT_WEBHOOK_SECRET
     if (feishuSecret) {
       const timestamp = String(Math.floor(Date.now() / 1000))
       body.timestamp = timestamp
@@ -249,21 +328,29 @@ export async function notifyReportToFeishu(
       signal: controller.signal,
     }).finally(() => clearTimeout(timeout))
 
+    const text = await res.text().catch(() => '')
+    const snippet2 = text.slice(0, 200)
+
     if (!res.ok) {
-      console.warn(`[feishu] webhook HTTP ${res.status}`)
-    } else {
-      // Feishu returns HTTP 200 even on business errors (e.g. sign mismatch).
-      // Must parse the response body to detect silent failures.
-      const contentType = res.headers.get('content-type') || ''
-      if (contentType.includes('application/json')) {
-        const result: any = await res.json().catch(() => ({}))
-        if (result && result.code !== undefined && result.code !== 0) {
-          console.warn(`[feishu] webhook business error: code=${result.code} msg=${result.msg || '-'}`)
-        }
-      }
+      console.warn(`[feishu] webhook HTTP ${res.status}: ${snippet2}`)
+      return { enabled: true, ok: false, status: res.status, responseSnippet: snippet2 }
     }
+
+    // Feishu often responds HTTP 200 even when "code" indicates an error (e.g. rate limit).
+    try {
+      const parsed = JSON.parse(text || '{}') as any
+      if (typeof parsed?.code === 'number' && parsed.code !== 0) {
+        console.warn(`[feishu] webhook error code ${parsed.code}: ${String(parsed?.msg || parsed?.message || '').slice(0, 200)}`)
+        return { enabled: true, ok: false, status: res.status, responseSnippet: snippet2 }
+      }
+    } catch {
+      // ignore non-JSON success body
+    }
+
+    return { enabled: true, ok: true, status: res.status, responseSnippet: snippet2 }
   } catch (e) {
     console.warn('[feishu] failed to send report notification:', e)
+    return { enabled: true, ok: false, error: e instanceof Error ? e.message : String(e) }
   }
 }
 
