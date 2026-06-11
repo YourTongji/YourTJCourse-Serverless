@@ -103,6 +103,15 @@ jobs:
       - name: Ensure backend secrets
         run: |
           set -euo pipefail
+
+          # ADMIN_SECRET is required (Bindings type). Fail fast before touching anything.
+          if [ -z "$ADMIN_SECRET" ]; then
+            echo "Missing secrets.JCOURSE_ADMIN_SECRET (used as backend ADMIN_SECRET)" >&2
+            exit 1
+          fi
+          echo "$ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET --env ""
+          echo "admin secret: set"
+
           BASE="${CREDIT_API_BASE:-${VITE_CREDIT_API_BASE:-}}"
           SECRET="${CREDIT_JCOURSE_SECRET:-${JCOURSE_INTEGRATION_SECRET:-}}"
 

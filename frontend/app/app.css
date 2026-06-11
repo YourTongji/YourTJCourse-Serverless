@@ -1,0 +1,219 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ─── Brand Fonts (subset via glyphhanger in M4) ─── */
+@font-face {
+  font-family: "KKT";
+  src: url("/fonts/kkt.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "YuFanLixing";
+  src: url("/fonts/YuFanLixing.woff2") format("woff2");
+  font-display: swap;
+}
+
+/* ─── Brand Utilities ─── */
+@utility font-brand {
+  font-family: "KKT", ui-sans-serif, system-ui, sans-serif;
+}
+
+@utility font-slogan {
+  font-family: "YuFanLixing", "LXGW WenKai", "KaiTi", serif;
+}
+
+/* ─── CSS Variables ─── */
+:root {
+  --color-brand: oklch(0.62 0.118 180);
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.005 240);
+  --foreground: oklch(0.18 0.018 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.018 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.018 250);
+  --primary: oklch(0.52 0.105 180);
+  --primary-foreground: oklch(0.985 0.005 180);
+  --secondary: oklch(0.955 0.008 250);
+  --secondary-foreground: oklch(0.26 0.024 250);
+  --muted: oklch(0.955 0.008 250);
+  --muted-foreground: oklch(0.49 0.025 250);
+  --accent: oklch(0.94 0.028 180);
+  --accent-foreground: oklch(0.28 0.052 180);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.9 0.01 250);
+  --input: oklch(0.9 0.01 250);
+  --ring: oklch(0.62 0.118 180);
+  --chart-1: oklch(0.62 0.118 180);
+  --chart-2: oklch(0.58 0.12 255);
+  --chart-3: oklch(0.68 0.14 75);
+  --chart-4: oklch(0.62 0.16 25);
+  --chart-5: oklch(0.48 0.08 300);
+  --sidebar: oklch(0.98 0.005 250);
+  --sidebar-foreground: oklch(0.18 0.018 250);
+  --sidebar-primary: oklch(0.52 0.105 180);
+  --sidebar-primary-foreground: oklch(0.985 0.005 180);
+  --sidebar-accent: oklch(0.955 0.008 250);
+  --sidebar-accent-foreground: oklch(0.26 0.024 250);
+  --sidebar-border: oklch(0.9 0.01 250);
+  --sidebar-ring: oklch(0.62 0.118 180);
+}
+
+/* ─── Glassmorphism ─── */
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-shadow: 0 4px 24px -8px rgba(6, 182, 212, 0.12);
+  --glass-shadow-hover: 0 12px 48px -12px rgba(6, 182, 212, 0.22);
+  --transition-spring: 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.glass-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--glass-shadow);
+  transition: box-shadow var(--transition-default, 0.25s ease);
+}
+.glass-card:hover {
+  box-shadow: var(--glass-shadow-hover);
+}
+
+/* ─── Accessibility ─── */
+@media (pointer: coarse) {
+  .touch-target { min-height: 44px; min-width: 44px; }
+}
+
+/* ─── Reduced Motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─── Announcement Bar Carousel ─── */
+@keyframes slide-in-next {
+  from { opacity: 0; transform: translateX(2rem); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slide-in-prev {
+  from { opacity: 0; transform: translateX(-2rem); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@utility animate-slide-in-next { animation: slide-in-next 520ms ease-out both; }
+@utility animate-slide-in-prev { animation: slide-in-prev 520ms ease-out both; }
+
+/* ─── AI Summary Shimmer ─── */
+@keyframes summary-dot {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes summary-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@utility animate-summary-dot { animation: summary-dot 1.2s ease-in-out infinite; }
+@utility animate-summary-shimmer { background-size: 200% 100%; animation: summary-shimmer 1.8s ease-in-out infinite; }
+
+/* ─── Theme tokens ─── */
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ─── Dark mode ─── */
+.dark {
+  --color-brand: oklch(0.72 0.118 180);
+  --background: oklch(0.145 0.015 250);
+  --foreground: oklch(0.985 0.005 240);
+  --card: oklch(0.18 0.018 250);
+  --card-foreground: oklch(0.985 0.005 240);
+  --popover: oklch(0.18 0.018 250);
+  --popover-foreground: oklch(0.985 0.005 240);
+  --primary: oklch(0.62 0.118 180);
+  --primary-foreground: oklch(0.985 0.005 180);
+  --secondary: oklch(0.26 0.024 250);
+  --secondary-foreground: oklch(0.985 0.005 240);
+  --muted: oklch(0.26 0.024 250);
+  --muted-foreground: oklch(0.64 0.02 250);
+  --accent: oklch(0.28 0.052 180);
+  --accent-foreground: oklch(0.985 0.005 240);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.26 0.024 250);
+  --input: oklch(0.26 0.024 250);
+  --ring: oklch(0.62 0.118 180);
+  --sidebar: oklch(0.18 0.018 250);
+  --sidebar-foreground: oklch(0.985 0.005 240);
+  --sidebar-primary: oklch(0.62 0.118 180);
+  --sidebar-primary-foreground: oklch(0.985 0.005 180);
+  --sidebar-accent: oklch(0.26 0.024 250);
+  --sidebar-accent-foreground: oklch(0.985 0.005 240);
+  --sidebar-border: oklch(0.26 0.024 250);
+  --sidebar-ring: oklch(0.62 0.118 180);
+}
+.dark .glass-card {
+  --glass-bg: rgba(30, 41, 59, 0.72);
+  --glass-border: rgba(51, 65, 85, 0.55);
+}
+
+/* ─── Base layer ─── */
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; }
+  html { @apply font-sans; }
+}
+
+/* ─── Markdown table wrap ─── */
+.yourtj-md-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.9rem 0;
+  border: 1px solid oklch(0.9 0.01 250);
+  border-radius: 0.9rem;
+  background: rgba(248, 250, 252, 0.75);
+}

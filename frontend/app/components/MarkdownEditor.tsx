@@ -1,0 +1,364 @@
+import { useState, useRef, useMemo } from "react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "~/components/ui/tabs";
+import { renderMarkdownHtml, markdownContentClassName } from "~/components/CollapsibleMarkdown";
+
+export interface TemplateHints {
+  [key: string]: string;
+}
+
+interface MarkdownEditorProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  hints?: TemplateHints;
+}
+
+type ViewMode = "edit" | "preview" | "help";
+
+export default function MarkdownEditor({
+  value,
+  onChange,
+  placeholder,
+  hints,
+}: MarkdownEditorProps) {
+  const [viewMode, setViewMode] = useState<ViewMode>("edit");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (overlayRef.current) {
+      overlayRef.current.scrollTop = e.currentTarget.scrollTop;
+      overlayRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    }
+  };
+
+  const generateOverlayContent = useMemo(() => {
+    if (!hints || Object.keys(hints).length === 0) return null;
+
+    const lines = value.split("\n");
+    const result: React.ReactNode[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmedLine = line.trim();
+
+      let matchedHint: string | null = null;
+      for (const [header, hint] of Object.entries(hints)) {
+        if (trimmedLine === header || trimmedLine.startsWith(header)) {
+          const nextLine = lines[i + 1];
+          if (
+            nextLine === undefined ||
+            nextLine.trim() === "" ||
+            nextLine.trim() === "-"
+          ) {
+            matchedHint = hint;
+          }
+          break;
+        }
+      }
+
+      if (matchedHint && i + 1 < lines.length) {
+        result.push(
+          <div key={i} className="font-mono text-sm leading-relaxed text-slate-700 whitespace-pre-wrap break-words">
+            {line || "\u00A0"}
+          </div>,
+        );
+        i++;
+        result.push(
+          <div key={i} className="font-mono text-sm leading-relaxed text-slate-400 italic whitespace-pre-wrap break-words">
+            {matchedHint}
+          </div>,
+        );
+      } else {
+        const isEmpty = trimmedLine.length === 0;
+        result.push(
+          <div
+            key={i}
+            className={`font-mono text-sm leading-relaxed whitespace-pre-wrap break-words ${isEmpty ? "text-transparent" : "text-slate-700"}`}
+          >
+            {isEmpty ? "\u00A0" : line}
+          </div>,
+        );
+      }
+    }
+
+    return result;
+  }, [value, hints]);
+
+  const mirrorMode = Boolean(generateOverlayContent);
+
+  const mirrorTextareaClasses = mirrorMode
+    ? "text-transparent caret-slate-700 selection:bg-cyan-100/80 placeholder:text-slate-400"
+    : "text-slate-700 placeholder:text-slate-400";
+
+  return (
+    <div className="space-y-3">
+      {/* Mobile: tab switcher | Desktop: hidden */}
+      <div className="md:hidden flex justify-center">
+        <Tabs
+          value={viewMode}
+          onValueChange={(v) => setViewMode(v as ViewMode)}
+        >
+          <TabsList>
+            <TabsTrigger value="edit">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                />
+              </svg>
+              编辑
+            </TabsTrigger>
+            <TabsTrigger value="preview">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                />
+              </svg>
+              预览
+            </TabsTrigger>
+            <TabsTrigger value="help">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              帮助
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {/* Editor container */}
+      <div className="border-2 border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
+        {/* Desktop: split pane */}
+        <div className="hidden md:grid md:grid-cols-2 gap-px bg-slate-200">
+          {/* Left: edit */}
+          <div className="bg-white flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+              <span className="text-sm font-semibold text-slate-600">编辑</span>
+            </div>
+            <div className="relative flex-1">
+              {generateOverlayContent && (
+                <div
+                  ref={overlayRef}
+                  className="absolute inset-0 z-10 p-4 pointer-events-none overflow-auto"
+                >
+                  {generateOverlayContent}
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onScroll={handleScroll}
+                placeholder={placeholder}
+                className={`relative z-20 w-full h-full p-4 border-none bg-transparent resize-none font-mono text-sm leading-relaxed outline-none min-h-[400px] ${mirrorTextareaClasses}`}
+              />
+            </div>
+          </div>
+
+          {/* Right: preview */}
+          <div className="bg-white flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+              <span className="text-sm font-semibold text-slate-600">预览</span>
+            </div>
+            <div
+              className={`flex-1 overflow-y-auto p-4 text-sm min-h-[400px] ${markdownContentClassName}`}
+              dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(value) }}
+            />
+          </div>
+        </div>
+
+        {/* Mobile: single pane */}
+        <div className="md:hidden">
+          {/* Edit mode */}
+          {viewMode === "edit" && (
+            <div className="flex flex-col">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                <span className="text-sm font-semibold text-slate-600">
+                  编辑评论
+                </span>
+              </div>
+              <div className="relative">
+                {generateOverlayContent && (
+                  <div
+                    ref={overlayRef}
+                    className="absolute inset-0 z-10 p-4 pointer-events-none overflow-auto"
+                  >
+                    {generateOverlayContent}
+                  </div>
+                )}
+                <textarea
+                  ref={textareaRef}
+                  value={value}
+                  onChange={(e) => onChange(e.target.value)}
+                  onScroll={handleScroll}
+                  placeholder={placeholder}
+                  className={`relative z-20 w-full p-4 border-none bg-transparent resize-none font-mono text-sm leading-relaxed outline-none min-h-[300px] ${mirrorTextareaClasses}`}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Preview mode */}
+          {viewMode === "preview" && (
+            <div className="flex flex-col">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                <span className="text-sm font-semibold text-slate-600">
+                  预览效果
+                </span>
+              </div>
+              <div
+                className={`min-h-[300px] overflow-y-auto p-4 text-sm ${markdownContentClassName}`}
+                dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(value) }}
+              />
+            </div>
+          )}
+
+          {/* Help mode */}
+          {viewMode === "help" && (
+            <div className="flex flex-col">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                <span className="text-sm font-semibold text-slate-600">
+                  Markdown 语法帮助
+                </span>
+              </div>
+              <div className="p-4 text-sm text-slate-600 space-y-3 min-h-[300px]">
+                <div>
+                  <h4 className="font-bold text-slate-800 mb-2">
+                    📝 基础语法
+                  </h4>
+                  <ul className="space-y-1 text-xs">
+                    <li>
+                      <code className="bg-slate-100 px-1 rounded">
+                        **粗体**
+                      </code>{" "}
+                      → <strong>粗体</strong>
+                    </li>
+                    <li>
+                      <code className="bg-slate-100 px-1 rounded">
+                        *斜体*
+                      </code>{" "}
+                      → <em>斜体</em>
+                    </li>
+                    <li>
+                      <code className="bg-slate-100 px-1 rounded">
+                        `代码`
+                      </code>{" "}
+                      →{" "}
+                      <code className="bg-slate-100 px-1 rounded">代码</code>
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-800 mb-2">
+                    🔗 链接与图片
+                  </h4>
+                  <ul className="space-y-1 text-xs">
+                    <li>
+                      <code className="bg-slate-100 px-1 rounded">
+                        [链接文字](网址)
+                      </code>
+                    </li>
+                    <li>
+                      <code className="bg-slate-100 px-1 rounded">
+                        ![图片描述](图片网址)
+                      </code>
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-800 mb-2">
+                    📋 标题与列表
+                  </h4>
+                  <ul className="space-y-1 text-xs">
+                    <li>
+                      <code className="bg-slate-100 px-1 rounded">
+                        # 一级标题
+                      </code>
+                    </li>
+                    <li>
+                      <code className="bg-slate-100 px-1 rounded">
+                        ## 二级标题
+                      </code>
+                    </li>
+                    <li>
+                      <code className="bg-slate-100 px-1 rounded">
+                        - 列表项
+                      </code>
+                    </li>
+                  </ul>
+                </div>
+                <div className="pt-2 border-t border-slate-200">
+                  <p className="text-xs text-slate-500">
+                    💡 提示：点击底部工具栏按钮可快速插入格式
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Utility for inserting text at cursor position in the textarea. */
+export function useMarkdownInsert(
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>,
+  value: string,
+  onChange: (value: string) => void,
+) {
+  return (before: string, after: string = "") => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = value.substring(start, end);
+    const newText =
+      value.substring(0, start) +
+      before +
+      selectedText +
+      after +
+      value.substring(end);
+
+    onChange(newText);
+
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + before.length + selectedText.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+}
