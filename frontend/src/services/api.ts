@@ -179,6 +179,16 @@ export async function unlikeReview(reviewId: number, clientId: string) {
   return res.json()
 }
 
+export async function reportReview(reviewId: number, clientId: string, reason: string) {
+  const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId, reason })
+  }, 15000)
+  if (!res.ok) throw new Error('Failed to report review')
+  return res.json()
+}
+
 export async function patchReviewEditToken(reviewId: number, editToken: string, walletUserHash: string) {
   const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/edit-token`, {
     method: 'PATCH',
