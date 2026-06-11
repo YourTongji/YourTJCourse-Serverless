@@ -24,7 +24,7 @@ export default function CreditWalletPanel() {
   const [balance, setBalance] = useState<number | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState("");
   const [embedOpen, setEmbedOpen] = useState(false);
   const drag = useDraggableDesktop("yourtj_floating_wallet_pos", { x: 0, y: 0 });
 
@@ -183,6 +183,7 @@ export default function CreditWalletPanel() {
 
   return (
     <>
+      {/* ── Embed iframe (wallet binding overlay) ── */}
       {embedOpen && (
         <>
           <div className="fixed inset-0 z-[90] bg-black/35 backdrop-blur-sm" onClick={() => setEmbedOpen(false)} />
@@ -195,32 +196,39 @@ export default function CreditWalletPanel() {
           </div>
         </>
       )}
-      <div className="hidden md:block fixed right-6 top-44 z-40">
-        <div className={`bg-popover/90 backdrop-blur-xl border shadow-xl rounded-2xl transition-all duration-300 ${isOpen ? "w-[380px]" : "w-14"}`} style={drag.style}>
-          <button type="button" data-tour="tour-wallet-floating" {...drag.dragHandleProps}
-            onClick={() => { if (drag.consumeDragFlag()) return; if (isOpen) setIsOpen(false); else openPanel(); }}
-            className="relative h-14 w-full flex items-center justify-center hover:bg-muted/50 rounded-2xl transition-colors"
-            title={isOpen ? "收起钱包" : "打开钱包"}
-          >
+
+      {/* ── Single floating trigger button ── */}
+      <div className="fixed right-4 bottom-40 md:right-6 md:top-44 z-50">
+        {/* Desktop: draggable panel with inline content */}
+        <div className="hidden md:block">
+          <div className={`bg-popover/90 backdrop-blur-xl border shadow-xl rounded-2xl transition-all duration-300 ${isOpen ? "w-[380px]" : "w-14"}`} style={drag.style}>
+            <button type="button" data-tour="tour-wallet-floating" {...drag.dragHandleProps}
+              onClick={() => { if (drag.consumeDragFlag()) return; if (isOpen) setIsOpen(false); else openPanel(); }}
+              className="relative h-14 w-full flex items-center justify-center hover:bg-muted/50 rounded-2xl transition-colors"
+              title={isOpen ? "收起钱包" : "打开钱包"}
+            >
+              <Coins className="size-6 text-muted-foreground" />
+              <span className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] leading-none text-cyan-600 font-brand">积分</span>
+              {summary && todayEstimated !== 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center">{todayEstimated > 0 ? `+${todayEstimated}` : todayEstimated}</span>}
+            </button>
+            {isOpen && <div className="border-t">{content}</div>}
+          </div>
+        </div>
+
+        {/* Mobile: floating button → opens Sheet */}
+        <div className="md:hidden">
+          <Button type="button" data-tour="tour-wallet-floating" onClick={openPanel} variant="outline" className="relative h-14 w-14 rounded-2xl bg-popover/90 backdrop-blur-xl shadow-xl active:scale-95 transition-transform p-0" aria-label="打开积分钱包">
             <Coins className="size-6 text-muted-foreground" />
             <span className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] leading-none text-cyan-600 font-brand">积分</span>
             {summary && todayEstimated !== 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center">{todayEstimated > 0 ? `+${todayEstimated}` : todayEstimated}</span>}
-          </button>
-          {isOpen && <div className="border-t">{content}</div>}
+          </Button>
+          <Sheet open={isOpen} onOpenChange={setIsOpen}>
+            <SheetContent side="bottom">
+              <SheetHeader><SheetTitle>积分钱包</SheetTitle></SheetHeader>
+              {content}
+            </SheetContent>
+          </Sheet>
         </div>
-      </div>
-      <div className="md:hidden fixed right-4 bottom-40 z-50">
-        <Button type="button" data-tour="tour-wallet-floating" onClick={openPanel} variant="outline" className="relative h-14 w-14 rounded-2xl bg-popover/90 backdrop-blur-xl shadow-xl active:scale-95 transition-transform p-0" aria-label="打开积分钱包">
-          <Coins className="size-6 text-muted-foreground" />
-          <span className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] leading-none text-cyan-600 font-brand">积分</span>
-          {summary && todayEstimated !== 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center">{todayEstimated > 0 ? `+${todayEstimated}` : todayEstimated}</span>}
-        </Button>
-        <Sheet open={isOpen} onOpenChange={setIsOpen}>
-          <SheetContent side="bottom">
-            <SheetHeader><SheetTitle>积分钱包</SheetTitle></SheetHeader>
-            {content}
-          </SheetContent>
-        </Sheet>
       </div>
     </>
   );
