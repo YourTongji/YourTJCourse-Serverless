@@ -180,13 +180,7 @@ jobs:
             local payload
 
             payload="$(npx wrangler d1 execute "$database" --remote --json --command "$sql")"
-            node -e "
-const payload = JSON.parse(process.argv[1]);
-const field = process.argv[2];
-const row = payload?.[0]?.results?.[0] || {};
-const value = row[field];
-console.log(value == null ? '' : value);
-" "$payload" "$field"
+            node -e "const payload = JSON.parse(process.argv[1]); const field = process.argv[2]; const row = payload?.[0]?.results?.[0] || {}; const value = row[field]; console.log(value == null ? '' : value);" "$payload" "$field"
           }
 
           backup_fts_count="$(query_single "$D1_BACKUP_DATABASE_NAME" "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%';" "count")"
