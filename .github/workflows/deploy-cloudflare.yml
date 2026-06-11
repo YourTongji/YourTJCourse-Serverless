@@ -84,6 +84,7 @@ jobs:
       FEISHU_REPORT_WEBHOOK_URL: ${{ secrets.FEISHU_REPORT_WEBHOOK_URL }}
       FEISHU_REPORT_WEBHOOK_SECRET: ${{ secrets.FEISHU_REPORT_WEBHOOK_SECRET }}
       ADMIN_SECRET: ${{ secrets.JCOURSE_ADMIN_SECRET }}
+      PUBLIC_URL: ${{ vars.PUBLIC_URL || 'https://jcourse.yourtj.de' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -179,6 +180,13 @@ jobs:
             echo "feishu webhook secret: set"
           else
             echo "feishu webhook secret: missing"
+          fi
+
+          if [ -n "${PUBLIC_URL:-}" ]; then
+            echo "$PUBLIC_URL" | npx wrangler secret put PUBLIC_URL --env ""
+            echo "public url: set ($PUBLIC_URL)"
+          else
+            echo "public url: missing (default: https://jcourse.yourtj.de)"
           fi
 
       - name: Deploy Worker
