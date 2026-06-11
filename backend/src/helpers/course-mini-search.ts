@@ -8,7 +8,7 @@ import {
 
 const INDEX_TTL_MS = 5 * 60 * 1000
 const MAX_INDEX_ROWS = 80_000
-const SEARCH_CANDIDATE_LIMIT = 500
+const SEARCH_CANDIDATE_LIMIT = 80
 const INDEX_VERSION = 'course-mini-search-v2'
 
 type MiniCourseDocument = {
