@@ -64,7 +64,7 @@ export function ErrorBoundary() {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{title} — YOURTJ选课社区</title>
+        <title>{`${title} — YOURTJ选课社区`}</title>
         <Links />
       </head>
       <body className="flex min-h-screen items-center justify-center bg-slate-50 p-4">

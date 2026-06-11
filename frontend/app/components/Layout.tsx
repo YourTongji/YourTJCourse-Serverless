@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Outlet } from "react-router";
 import { createPortal } from "react-dom";
 
@@ -7,6 +8,14 @@ import BottomNavigation from "~/components/BottomNavigation";
 import AnnouncementBar from "~/components/AnnouncementBar";
 import TourGuide from "~/components/TourGuide";
 import MaintenanceBar from "~/components/MaintenanceBar";
+
+/** Renders children into document.body via portal, but only on the client. */
+function ClientPortal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return createPortal(children, document.body);
+}
 
 export default function Layout() {
   return (
@@ -29,10 +38,12 @@ export default function Layout() {
       {/* ─── Bottom Navigation (mobile) ─── */}
       <BottomNavigation />
 
-      {/* ─── Footer ─── */}
+      {/* ─── Credit Wallet (client-side only) ─── */}
+      <ClientPortal>
+        <CreditWalletPanel />
+      </ClientPortal>
 
-      {/* ─── Credit Wallet ─── */}
-      {createPortal(<CreditWalletPanel />, document.body)}
+      {/* ─── Footer ─── */}
       <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-400">
         YOURTJ选课社区 · 不记名、自由、简洁、高效的选课社区
       </footer>
