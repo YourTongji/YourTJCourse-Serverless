@@ -308,9 +308,15 @@ publicRoutes.get('/courses', async (c) => {
 
       if (miniSearchCandidate) {
         if (miniSearchCandidate.courseIds.length > 0) {
-          const placeholders = miniSearchCandidate.courseIds.map(() => '?').join(',')
-          baseWhere += ` AND c.id IN (${placeholders})`
-          baseParams.push(...miniSearchCandidate.courseIds)
+          // #119: D1 has a 100-bind-variable limit; chunk courseIds into safe batches
+          const MAX_SAFE_VARS = 80
+          const chunks = chunkArray(miniSearchCandidate.courseIds, MAX_SAFE_VARS)
+          const conditions = chunks.map((chunk) => {
+            const phs = chunk.map(() => '?').join(',')
+            return `c.id IN (${phs})`
+          })
+          baseWhere += ` AND (${conditions.join(' OR ')})`
+          for (const chunk of chunks) baseParams.push(...chunk)
         } else {
           baseWhere += ' AND 0'
         }
