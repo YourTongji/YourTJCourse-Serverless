@@ -106,16 +106,26 @@ npx wrangler pages deploy dist --project-name=jcourse-web
 2. 输入 `calendarId`（一系统学期 ID）和 `depth`（同步深度，默认 1）
 3. 运行
 
-同步流程会将一系统/PK 原始数据同时写入生产 D1 `jcourse-db` 和备份镜像 D1 `jcourse-db-backup`。生产库用于线上查询，并会刷新评课站检索索引；备份库仅用于 PK 数据镜像、导出、ETL 和分析，不创建 `course_search` FTS5 虚拟表。
+同步流程只写入生产 D1 `jcourse-db`，生产库用于线上查询，并会刷新评课站检索索引，可能包含 `course_search` FTS5 虚拟表。
 
-请不要对生产库 `jcourse-db` 执行 `wrangler d1 export`。如需导出一系统/PK 数据，请只导出备份库：
+`jcourse-db-backup` 由 GitHub Actions 的 `Refresh No-FTS D1 Backup` 定时任务每日刷新一次，是生产库的 no-FTS 快照。它用于 `wrangler d1 export`、ETL 和分析，不追求实时一致，数据最多可能落后约 24 小时。该刷新流程不会把 `course_search%` / FTS5 对象写入备份库。
+
+请不要对生产库 `jcourse-db` 执行 `wrangler d1 export`。如需导出数据，请先确认最近一次 `Refresh No-FTS D1 Backup` workflow 成功，再只导出备份库：
 
 ```bash
 cd backend
 npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
 ```
 
-`jcourse-db-backup` 不是完整生产业务灾备库，不可作为线上业务库恢复目标，也不保证包含评论、举报、AI 摘要等业务数据；完整灾备仍需要单独的生产快照或备用库策略。若同步失败导致主备可能分叉，请使用同一组 `calendarId` / `depth` 重新运行同步，直到主备计数校验通过后再基于备份库导出或分析。
+可通过备份库状态表查看最近刷新状态：
+
+```bash
+cd backend
+npx wrangler d1 execute jcourse-db-backup --remote \
+  --command "SELECT status, started_at, finished_at, error FROM backup_refresh_state WHERE id = 1;"
+```
+
+初始化 `jcourse-db-backup` 时，通过 Cloudflare Dashboard 或 `npx wrangler d1 create jcourse-db-backup` 创建 D1 数据库；如果本地 Wrangler 登录了多个 Cloudflare 账号，请只在本地环境变量或 Wrangler 本地配置中选择账号，不要把具体 account id 或备份库 database id 写入公开仓库。
 
 ## 开发流程
 
