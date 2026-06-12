@@ -1152,7 +1152,6 @@ function checkReviewRateLimit(ip: string): boolean {
 publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
   try {
     await ensureDbInitialized(c.env.DB)
-    await ensureReviewsWalletColumn(c.env.DB)
 
     const userHash = String(c.req.param('userHash') || '').trim().toLowerCase()
     if (!/^[a-f0-9]{64}$/.test(userHash)) {
@@ -1162,8 +1161,9 @@ publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
 
     const requestedLimit = Number(c.req.query('limit') ?? 50)
     const requestedOffset = Number(c.req.query('offset') ?? 0)
+    const maxOffset = 10000
     const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 50))
-    const offset = Math.max(0, Number.isFinite(requestedOffset) ? Math.floor(requestedOffset) : 0)
+    const offset = Math.max(0, Math.min(maxOffset, Number.isFinite(requestedOffset) ? Math.floor(requestedOffset) : 0))
     const showIcu = await getShowIcuSetting(c.env.DB)
 
     let whereClause = `r.wallet_user_hash = ? AND r.is_hidden = 0`
