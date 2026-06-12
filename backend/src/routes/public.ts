@@ -1149,6 +1149,66 @@ function checkReviewRateLimit(ip: string): boolean {
   return true
 }
 
+publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
+  try {
+    await ensureDbInitialized(c.env.DB)
+    await ensureReviewsWalletColumn(c.env.DB)
+
+    const userHash = String(c.req.param('userHash') || '').trim().toLowerCase()
+    if (!/^[a-f0-9]{64}$/.test(userHash)) {
+      c.header('Cache-Control', 'no-store')
+      return c.json({ error: 'Invalid userHash' }, 400)
+    }
+
+    const requestedLimit = Number(c.req.query('limit') || 50)
+    const requestedOffset = Number(c.req.query('offset') || 0)
+    const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 50))
+    const offset = Math.max(0, Number.isFinite(requestedOffset) ? Math.floor(requestedOffset) : 0)
+    const showIcu = await getShowIcuSetting(c.env.DB)
+
+    let whereClause = `r.wallet_user_hash = ? AND r.is_hidden = 0`
+    if (!showIcu) whereClause += ` AND r.is_icu = 0`
+
+    const rows = await c.env.DB
+      .prepare(
+        `SELECT r.id, r.course_id, r.semester, r.rating, r.comment, r.score,
+                r.created_at, r.approve_count, r.disapprove_count,
+                r.is_hidden, r.is_legacy, r.is_icu,
+                r.reviewer_name, r.reviewer_avatar,
+                c.code AS course_code, c.name AS course_name,
+                t.name AS teacher_name
+         FROM reviews r
+         JOIN courses c ON r.course_id = c.id
+         LEFT JOIN teachers t ON c.teacher_id = t.id
+         WHERE ${whereClause}
+         ORDER BY r.created_at DESC, r.id DESC
+         LIMIT ? OFFSET ?`
+      )
+      .bind(userHash, limit + 1, offset)
+      .all()
+
+    const results = (rows.results || []) as any[]
+    const hasMore = results.length > limit
+    const reviews = addSqidToReviews(results.slice(0, limit)).map((review: any) => ({
+      ...review,
+      like_count: Number(review?.approve_count || 0)
+    }))
+
+    c.header('Cache-Control', 'no-store')
+    return c.json({
+      reviews,
+      pagination: {
+        limit,
+        offset,
+        hasMore
+      }
+    })
+  } catch (err: any) {
+    c.header('Cache-Control', 'no-store')
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 publicRoutes.post('/review', async (c) => {
   // Rate limit: 5 reviews per minute per IP
   const ip = String(c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown').trim()
