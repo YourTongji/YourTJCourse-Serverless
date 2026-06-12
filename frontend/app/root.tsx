@@ -10,6 +10,12 @@ import {
   type LinksFunction,
 } from "react-router";
 
+
+// TODO: Add Content-Security-Policy header in Cloudflare Worker:
+// default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net;
+// style-src 'self' 'unsafe-inline' https://unpkg.com;
+// frame-src https://credit.yourtj.de https://challenges.cloudflare.com;
+
 import "./app.css";
 
 const queryClient = new QueryClient({

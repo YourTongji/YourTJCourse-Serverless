@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useSchedulerStore } from "~/lib/schedule/store";
-import { getAllCalendars } from "~/lib/schedule/api";
 
 const LABEL_CLASS = "text-xs text-slate-500 mb-0.5";
 const SELECT_CLASS =
@@ -22,29 +20,6 @@ export default function SemesterCascader() {
   const selectGrade = useSchedulerStore((s) => s.selectGrade);
   const selectMajor = useSchedulerStore((s) => s.selectMajor);
 
-  const [loadingCalendars, setLoadingCalendars] = useState(false);
-
-  useEffect(() => {
-    if (calendars.length > 0) {
-      setLoadingCalendars(false);
-      return;
-    }
-    let cancelled = false;
-    setLoadingCalendars(true);
-    getAllCalendars()
-      .then((list) => {
-        if (cancelled) return;
-        useSchedulerStore.setState({ calendars: list });
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoadingCalendars(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [calendars.length]);
-
   return (
     <div className="flex flex-wrap items-end gap-3">
       {/* Semester */}
@@ -53,14 +28,14 @@ export default function SemesterCascader() {
         <select
           className={SELECT_CLASS}
           value={calendarId ?? ""}
-          disabled={loadingCalendars}
+          disabled={calendars.length === 0}
           onChange={(e) => {
             const v = e.target.value;
             if (v) selectCalendar(Number(v));
           }}
         >
           <option value="" disabled>
-            {loadingCalendars ? "加载中..." : "请选择学期"}
+            {calendars.length === 0 ? "加载中..." : "请选择学期"}
           </option>
           {calendars.map((cal) => (
             <option key={cal.calendarId} value={cal.calendarId}>

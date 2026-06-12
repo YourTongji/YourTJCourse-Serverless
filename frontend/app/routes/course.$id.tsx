@@ -89,7 +89,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const reqUrl = new URL(request.url);
   const clientId = reqUrl.searchParams.get("clientId");
   if (clientId) apiUrl.searchParams.set("clientId", clientId);
-  const res = await fetch(apiUrl);
+  const res = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Response("Course not found", { status: 404 });
 
   return res.json() as Promise<CourseDetail>;
@@ -367,13 +367,13 @@ export default function CourseDetail() {
       }
       const wallet = loadCreditWallet();
       const params = new URLSearchParams({ clientId: cid });
-      if (wallet?.userSecret && initialCourse.reviews?.length > 0) {
-        const proofs: string[] = [];
-        for (const r of initialCourse.reviews) {
-          const proof = await computeReviewEditToken(wallet.userSecret, r.id);
-          proofs.push(`${r.id}:${proof}`);
-        }
-        if (proofs.length > 0) params.set("editReviewProofs", proofs.join(","));
+      const proofTargets = initialCourse.reviews.filter(r => r.can_edit);
+      if (wallet?.userSecret && proofTargets.length > 0) {
+        const proofs = await Promise.all(
+          proofTargets.map(r => computeReviewEditToken(wallet.userSecret, r.id))
+        );
+        const proofParam = proofTargets.map((r, i) => `${r.id}:${proofs[i]}`).join(",");
+        if (proofParam) params.set("editReviewProofs", proofParam);
       }
       const res = await fetch(`/api/course/${initialCourse.id}?${params.toString()}`);
       if (!res.ok) throw new Response("Course not found", { status: 404 });
@@ -533,6 +533,9 @@ export default function CourseDetail() {
                   />
                 ))}
               </div>
+
+              {/* TASK: If a course has 200+ reviews and "show all" is clicked,
+                   consider virtualizing this list with @tanstack/react-virtual */}
 
               {hasMoreReviews && !showAllReviews && (
                 <div className="flex justify-center pt-2">

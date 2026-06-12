@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "~/components/ui/dialog";
+import { Button } from "~/components/ui/button";
 
 const CAPTCHA_API_BASE =
   import.meta.env.VITE_CAPTCHA_URL || "https://captcha.07211024.xyz";
@@ -102,17 +103,6 @@ export default function TongjiCaptchaWidget({ value, onVerify }: Props) {
   };
 
   useEffect(() => {
-    if (!isOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    document.body.classList.add("captcha-modal-open");
-    return () => {
-      document.body.style.overflow = prev;
-      document.body.classList.remove("captcha-modal-open");
-    };
-  }, [isOpen]);
-
-  useEffect(() => {
     if (hasPrefetched || captchaData || status === "success") return;
     void fetchCaptcha();
   }, [captchaData, hasPrefetched, status]);
@@ -158,129 +148,116 @@ export default function TongjiCaptchaWidget({ value, onVerify }: Props) {
         </span>
       </div>
 
-      {/* Modal */}
-      {isOpen &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-            <div
-              className="absolute inset-0 bg-slate-900/10"
-              onClick={() => setIsOpen(false)}
-            />
-            <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/20 via-white/5 to-black/10" />
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent
+          showCloseButton={false}
+          className="max-w-[360px] sm:max-w-[360px] rounded-2xl overflow-hidden p-0 gap-0"
+        >
+          {captchaData ? (
+            <>
+              {/* Header */}
+              <DialogHeader className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white p-4 gap-0 rounded-t-2xl">
+                <p className="text-xs opacity-80 mb-1">YOURTJ人机验证</p>
+                <DialogTitle className="text-lg font-bold text-white">
+                  {captchaData.prompt}
+                </DialogTitle>
+              </DialogHeader>
 
-            <div className="relative bg-white rounded-2xl shadow-2xl max-w-[360px] w-full mx-4 overflow-hidden">
-              {captchaData ? (
-                <>
-                  {/* Header */}
-                  <div className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white p-4">
-                    <p className="text-xs opacity-80 mb-1">YOURTJ人机验证</p>
-                    <h3 className="text-lg font-bold">{captchaData.prompt}</h3>
-                  </div>
-
-                  {/* Message */}
-                  {message && (
-                    <div
-                      className={`mx-3 mt-3 px-3 py-2 rounded-lg text-sm text-center transition-all ${
-                        message.type === "success"
-                          ? "bg-green-100 text-green-700 border border-green-200"
-                          : "bg-red-100 text-red-700 border border-red-200"
-                      }`}
-                    >
-                      {message.text}
-                    </div>
-                  )}
-
-                  {/* 9-grid images */}
-                  <div className="p-3">
-                    <div
-                      className="grid grid-cols-3 gap-1.5 transition-opacity duration-200 ease-in-out"
-                      style={{ opacity: imgFade ? 1 : 0 }}
-                    >
-                      {captchaData.images.map((img, idx) => (
-                        <div
-                          key={idx}
-                          onClick={() => toggleSelect(idx)}
-                          className="relative aspect-square cursor-pointer rounded-lg overflow-hidden"
-                        >
-                          <img
-                            src={
-                              img.startsWith("http")
-                                ? img
-                                : `${CAPTCHA_API_BASE}${img}`
-                            }
-                            alt=""
-                            className="w-full h-full object-cover"
-                            draggable={false}
-                          />
-                          {selected.includes(idx) && (
-                            <div className="absolute inset-0 bg-cyan-500/40 border-2 border-cyan-500 flex items-center justify-center">
-                              <span className="text-white font-bold text-xl">
-                                ✓
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Footer note */}
-                  <p className="text-xs text-slate-400 text-center px-4 pb-2">
-                    使用同济建筑物图片均来自于印象同济，包含四平和嘉定校区地标
-                  </p>
-
-                  {/* Actions */}
-                  <div className="flex justify-between items-center px-4 pb-4">
-                    <button
-                      onClick={fetchCaptcha}
-                      disabled={status === "loading"}
-                      className="text-slate-500 hover:text-slate-700 text-sm flex items-center gap-1 disabled:opacity-50"
-                      type="button"
-                    >
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                      换一组
-                    </button>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setIsOpen(false)}
-                        className="px-4 py-2 text-slate-500 hover:text-slate-700 text-sm"
-                        type="button"
-                      >
-                        取消
-                      </button>
-                      <button
-                        onClick={verify}
-                        disabled={status === "loading" || selected.length === 0}
-                        className="bg-cyan-500 hover:bg-cyan-600 text-white px-5 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        type="button"
-                      >
-                        {status === "loading" ? "验证中..." : "确认"}
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="p-10 text-center text-slate-500">
-                  加载中...
+              {/* Message */}
+              {message && (
+                <div
+                  className={`mx-3 mt-3 px-3 py-2 rounded-lg text-sm text-center transition-all ${
+                    message.type === "success"
+                      ? "bg-green-100 text-green-700 border border-green-200"
+                      : "bg-red-100 text-red-700 border border-red-200"
+                  }`}
+                >
+                  {message.text}
                 </div>
               )}
-            </div>
-          </div>,
-          document.body,
-        )}
+
+              {/* 9-grid images */}
+              <div className="p-3">
+                <div
+                  className="grid grid-cols-3 gap-1.5 transition-opacity duration-200 ease-in-out"
+                  style={{ opacity: imgFade ? 1 : 0 }}
+                >
+                  {captchaData.images.map((img, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => toggleSelect(idx)}
+                      className="relative aspect-square cursor-pointer rounded-lg overflow-hidden"
+                    >
+                      <img
+                        src={
+                          img.startsWith("http")
+                            ? img
+                            : `${CAPTCHA_API_BASE}${img}`
+                        }
+                        alt=""
+                        className="w-full h-full object-cover"
+                        draggable={false}
+                      />
+                      {selected.includes(idx) && (
+                        <div className="absolute inset-0 bg-cyan-500/40 border-2 border-cyan-500 flex items-center justify-center">
+                          <span className="text-white font-bold text-xl">
+                            ✓
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Footer note */}
+              <p className="text-xs text-slate-400 text-center px-4 pb-2">
+                使用同济建筑物图片均来自于印象同济，包含四平和嘉定校区地标
+              </p>
+
+              {/* Actions */}
+              <div className="flex justify-between items-center px-4 pb-4">
+                <Button
+                  variant="ghost"
+                  onClick={fetchCaptcha}
+                  disabled={status === "loading"}
+                  className="text-slate-500 hover:text-slate-700 text-sm gap-1"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  换一组
+                </Button>
+                <div className="flex gap-2">
+                  <DialogClose
+                    render={<Button variant="outline" />}
+                  >
+                    取消
+                  </DialogClose>
+                  <Button
+                    onClick={verify}
+                    disabled={status === "loading" || selected.length === 0}
+                  >
+                    {status === "loading" ? "验证中..." : "确认"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="p-10 text-center text-slate-500">加载中...</div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

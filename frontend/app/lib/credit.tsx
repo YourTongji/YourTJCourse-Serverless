@@ -153,6 +153,7 @@ export async function registerCreditWallet(params: {
 export async function fetchCreditBalance(userHash: string): Promise<CreditBalanceData> {
   const res = await fetch(
     `${CREDIT_API_BASE}/api/wallet/${encodeURIComponent(userHash)}/balance`,
+    { signal: AbortSignal.timeout(15000) },
   );
   return readJson(res, "fetch balance");
 }
@@ -165,12 +166,12 @@ export async function fetchCreditSummary(
   if (date) q.set("date", date);
   const primaryUrl = `${CREDIT_INTEGRATION_BASE}/api/integration/jcourse/summary?${q.toString()}`;
   try {
-    const res = await fetch(primaryUrl);
+    const res = await fetch(primaryUrl, { signal: AbortSignal.timeout(15000) });
     return readJson(res, "fetch summary");
   } catch (e: any) {
     if (CREDIT_INTEGRATION_BASE !== DEFAULT_CORE_BASE) {
       const fallbackUrl = `${DEFAULT_CORE_BASE}/api/integration/jcourse/summary?${q.toString()}`;
-      const res = await fetch(fallbackUrl);
+      const res = await fetch(fallbackUrl, { signal: AbortSignal.timeout(15000) });
       return readJson(res, "fetch summary");
     }
     throw e;

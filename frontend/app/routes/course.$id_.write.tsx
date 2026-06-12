@@ -691,7 +691,7 @@ export default function WriteReview() {
                 <div className="flex-1 border-t border-slate-200" />
               </div>
               <Turnstile
-                sitekey={import.meta.env.VITE_TURNSTILE_SITE_KEY || "1x00000000000000000000AA"}
+                sitekey={import.meta.env.VITE_TURNSTILE_SITE_KEY}
                 onVerify={(token) => {
                   setTurnstileToken(token);
                 }}

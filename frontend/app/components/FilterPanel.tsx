@@ -58,7 +58,6 @@ export default function FilterPanel({
   const [searchTerm, setSearchTerm] = useState("");
   const [campusOptions, setCampusOptions] = useState<CampusOption[]>([]);
   const [campusPickerOpen, setCampusPickerOpen] = useState(false);
-  const [campusSearch, setCampusSearch] = useState("");
   const drag = useDraggableDesktop("yourtj_floating_filter_pos", {
     x: 0,
     y: 0,
@@ -263,10 +262,11 @@ export default function FilterPanel({
               <label className="text-[11px] font-semibold text-muted-foreground">
                 校区
               </label>
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => setCampusPickerOpen(true)}
-                className="flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none hover:bg-muted/50"
+                className="w-full justify-between"
               >
                 <span className="truncate text-muted-foreground">
                   {draft.campus
@@ -275,7 +275,7 @@ export default function FilterPanel({
                     : "不限"}
                 </span>
                 <ChevronDown className="size-4 text-muted-foreground" />
-              </button>
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -387,87 +387,39 @@ export default function FilterPanel({
         </div>
       </div>
 
-      {/* Campus picker overlay (keeps custom UI for search + list) */}
-      {campusPickerOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-[80] bg-black/25 backdrop-blur-sm"
-            onClick={() => setCampusPickerOpen(false)}
-          />
-          <div className="fixed inset-x-4 bottom-4 z-[90] max-h-[70vh] rounded-3xl bg-popover border shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between gap-3 p-4 border-b">
-              <div className="text-sm font-semibold">选择校区</div>
+      {/* Campus picker Sheet */}
+      <Sheet open={campusPickerOpen} onOpenChange={setCampusPickerOpen}>
+        <SheetContent side="bottom">
+          <SheetHeader>
+            <SheetTitle>选择校区</SheetTitle>
+          </SheetHeader>
+          <div className="grid grid-cols-3 gap-4 py-4">
+            <Button
+              variant={!draft.campus ? "default" : "outline"}
+              onClick={() => {
+                setDraft((p) => ({ ...p, campus: "" }));
+                setCampusPickerOpen(false);
+              }}
+              className="w-full"
+            >
+              不限
+            </Button>
+            {campusOptions.map((c) => (
               <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setCampusPickerOpen(false)}
-                aria-label="关闭"
+                key={c.campusId || c.campusName}
+                variant={draft.campus === c.campusId ? "default" : "outline"}
+                onClick={() => {
+                  setDraft((p) => ({ ...p, campus: c.campusId }));
+                  setCampusPickerOpen(false);
+                }}
+                className="w-full"
               >
-                <X className="size-4" />
+                {c.campusName}
               </Button>
-            </div>
-            <div className="p-4">
-              <Input
-                placeholder="搜索校区..."
-                value={campusSearch}
-                onChange={(e) => setCampusSearch(e.target.value)}
-              />
-            </div>
-            <div className="px-2 pb-3 max-h-[calc(70vh-132px)] overflow-y-auto">
-              <div className="space-y-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraft((p) => ({ ...p, campus: "" }));
-                    setCampusPickerOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium border transition-colors ${
-                    !draft.campus
-                      ? "border-cyan-500 bg-cyan-50 text-cyan-700"
-                      : "border-transparent hover:bg-muted"
-                  }`}
-                >
-                  不限
-                  {!draft.campus && (
-                    <span className="text-cyan-600 font-bold">✓</span>
-                  )}
-                </button>
-                {(campusSearch.trim()
-                  ? campusOptions.filter((c) =>
-                      String(c.campusName || "")
-                        .toLowerCase()
-                        .includes(campusSearch.trim().toLowerCase()),
-                    )
-                  : campusOptions
-                ).map((c) => {
-                  const selected = draft.campus === c.campusId;
-                  return (
-                    <button
-                      key={c.campusId || c.campusName}
-                      type="button"
-                      onClick={() => {
-                        setDraft((p) => ({ ...p, campus: c.campusId }));
-                        setCampusPickerOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-sm border transition-colors ${
-                        selected
-                          ? "border-cyan-500 bg-cyan-50 text-cyan-700 font-semibold"
-                          : "border-transparent hover:bg-muted"
-                      }`}
-                    >
-                      <span className="truncate">{c.campusName}</span>
-                      {selected && (
-                        <span className="text-cyan-600 font-bold">✓</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            ))}
           </div>
-        </>
-      )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 

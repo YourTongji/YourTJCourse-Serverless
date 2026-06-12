@@ -10,7 +10,7 @@ import {
 } from "~/components/ui/sheet";
 import { Skeleton } from "~/components/ui/skeleton";
 import { useIsMobile } from "~/lib/schedule/responsive";
-import { StarIcon } from "lucide-react";
+import StarRating from "~/components/StarRating";
 
 interface ReviewEntry {
   id?: number;
@@ -61,21 +61,6 @@ export default function ReviewDrawer({ open, onOpenChange }: ReviewDrawerProps) 
     };
   }, [open, clickedCourse.courseCode, clickedCourse.teacherCode, clickedCourse.teacherName]);
 
-  function renderStars(rating: number) {
-    return (
-      <div className="flex gap-0.5">
-        {Array.from({ length: 5 }, (_, i) => (
-          <StarIcon
-            key={i}
-            className={`size-3 ${
-              i < rating ? "fill-amber-400 text-amber-400" : "text-slate-200"
-            }`}
-          />
-        ))}
-      </div>
-    );
-  }
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -108,7 +93,9 @@ export default function ReviewDrawer({ open, onOpenChange }: ReviewDrawerProps) 
                   <span className="text-xs font-medium text-slate-700">
                     {review.reviewer || review.reviewer_name || "匿名用户"}
                   </span>
-                  {review.rating != null && renderStars(review.rating)}
+                  {review.rating != null && (
+                    <StarRating rating={review.rating} size={12} />
+                  )}
                 </div>
                 {review.comment && (
                   <p className="mt-2 text-xs leading-relaxed text-slate-600">

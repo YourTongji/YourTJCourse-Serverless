@@ -1,9 +1,12 @@
 "use client";
 
-import { useSchedulerStore } from "~/lib/schedule/store";
-import { Button } from "~/components/ui/button";
-import { Badge } from "~/components/ui/badge";
-import { XIcon } from "lucide-react";
+import { cn } from "~/lib/utils";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "~/components/ui/sheet";
 import type { CourseOnTable } from "~/lib/schedule/types";
 
 function parseShowText(raw: string) {
@@ -32,28 +35,33 @@ export default function MobileTimetableDetail({
   const parsed = parseShowText(course.showText || "");
 
   return (
-    <div className="fixed inset-0 z-[2100]">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="absolute left-1/2 top-1/2 w-[88vw] max-w-[420px] -translate-x-1/2 -translate-y-1/2">
-        <div className="rounded-3xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
-          <div className="px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white">
-            <div className="text-sm font-extrabold">
-              {parsed.name || course.courseName || "课程"}
-            </div>
-            <div className="text-[11px] opacity-90">
-              {parsed.code || course.code}
-            </div>
+    <Sheet open={!!course} onOpenChange={() => onClose()}>
+      <SheetContent side="bottom" className="max-h-[70vh]">
+        <SheetHeader>
+          <SheetTitle>
+            {parsed.name || course.courseName || "课程"}
+          </SheetTitle>
+        </SheetHeader>
+
+        <div className="space-y-3">
+          <div
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-mono",
+              "border border-slate-200 bg-slate-50 text-slate-600",
+            )}
+          >
+            {parsed.code || course.code}
           </div>
-          <div className="p-4 space-y-2">
-            <div className="text-[12px] text-slate-600">
-              {parsed.teacherAndCode || "未知教师"}
-            </div>
-            <div className="text-[13px] leading-snug text-slate-800 whitespace-pre-wrap break-words">
-              {parsed.arrangement}
-            </div>
+
+          <div className="text-sm text-slate-600">
+            {parsed.teacherAndCode || "未知教师"}
+          </div>
+
+          <div className="text-sm leading-snug text-slate-800 whitespace-pre-wrap break-words">
+            {parsed.arrangement}
           </div>
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

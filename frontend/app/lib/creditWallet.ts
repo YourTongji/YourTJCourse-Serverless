@@ -5,6 +5,11 @@ export interface CreditWallet {
   createdAt?: number;
 }
 
+
+// NOTE: userSecret is stored as plain JSON in localStorage.
+// Any XSS vulnerability would compromise wallet access.
+// Consider session-only storage or client-side encryption.
+
 const STORAGE_KEY = "yourtj_credit_wallet";
 
 export function loadCreditWallet(): CreditWallet | null {

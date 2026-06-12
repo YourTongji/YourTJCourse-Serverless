@@ -13,6 +13,8 @@ import {
   SheetTitle,
   SheetDescription,
 } from "~/components/ui/sheet";
+import { Button } from "~/components/ui/button";
+import { ChevronRight } from "lucide-react";
 import type { TemplateHints } from "~/components/MarkdownEditor";
 
 interface Template {
@@ -259,10 +261,11 @@ export default function TemplateSelector({
           <div className="overflow-y-auto max-h-[calc(80vh-160px)]">
             <div className="grid grid-cols-2 gap-4">
               {TEMPLATES.map((template) => (
-                <button
+                <Button
+                  variant="ghost"
                   key={template.id}
                   onClick={() => handleSelect(template)}
-                  className="text-left p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-400 hover:bg-cyan-50/50 transition-all group"
+                  className="text-left p-4 rounded-xl border-2 border-slate-200 hover:border-cyan-400 hover:bg-cyan-50/50 transition-all group h-auto"
                   type="button"
                 >
                   <div className="flex items-start gap-3 mb-2">
@@ -278,7 +281,7 @@ export default function TemplateSelector({
                   <p className="text-sm text-slate-500 line-clamp-2">
                     {template.description}
                   </p>
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -301,10 +304,11 @@ export default function TemplateSelector({
           style={{ maxHeight: "calc(80vh - 100px)" }}
         >
           {TEMPLATES.map((template) => (
-            <button
+            <Button
+              variant="ghost"
               key={template.id}
               onClick={() => handleSelect(template)}
-              className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-cyan-300 hover:bg-cyan-50/50 transition-all group"
+              className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-cyan-300 hover:bg-cyan-50/50 transition-all group h-auto"
               type="button"
             >
               <div className="flex items-start gap-3">
@@ -319,21 +323,9 @@ export default function TemplateSelector({
                     {template.description}
                   </p>
                 </div>
-                <svg
-                  className="w-5 h-5 text-slate-400 group-hover:text-cyan-600 transition-colors flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5l7 7-7 7"
-                  />
-                </svg>
+                <ChevronRight className="size-5 text-slate-400 group-hover:text-cyan-600 transition-colors flex-shrink-0" />
               </div>
-            </button>
+            </Button>
           ))}
         </div>
       </SheetContent>

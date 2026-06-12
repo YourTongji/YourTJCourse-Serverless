@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useSchedulerStore } from "~/lib/schedule/store";
-import { getCompulsoryCourses } from "~/lib/schedule/api";
 import { useIsMobile } from "~/lib/schedule/responsive";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
@@ -25,22 +24,12 @@ export default function CompulsoryCourseTab({
   const grade = useSchedulerStore((s) => s.grade);
   const major = useSchedulerStore((s) => s.major);
   const compulsoryCourses = useSchedulerStore((s) => s.compulsoryCourses);
+  const compulsoryLoading = useSchedulerStore((s) => s.compulsoryLoading);
   const stagedCourses = useSchedulerStore((s) => s.stagedCourses);
-  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
 
   const stagedCodes = new Set(stagedCourses.map((c) => c.courseCode));
 
-  useEffect(() => {
-    if (!calendarId || grade === null || !major) return;
-    setLoading(true);
-    getCompulsoryCourses(calendarId, grade, major)
-      .then((courses) => {
-        useSchedulerStore.setState({ compulsoryCourses: courses });
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [calendarId, grade, major]);
 
   // Filter out already staged courses
   const availableCourses = compulsoryCourses.filter(
@@ -63,7 +52,7 @@ export default function CompulsoryCourseTab({
   }
   const sortedGrades = [...grouped.keys()].sort((a, b) => a - b);
 
-  if (loading) {
+  if (compulsoryLoading) {
     return (
       <div className="space-y-2 p-4">
         <Skeleton className="h-8 w-full" />

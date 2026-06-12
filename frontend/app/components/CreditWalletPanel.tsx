@@ -61,7 +61,7 @@ export default function CreditWalletPanel() {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      if (!event.origin.includes("credit.yourtj.de")) return;
+      if (event.origin !== "https://credit.yourtj.de") return;
       if (event.data?.type !== "yourtj-credit-wallet") return;
       const w = event.data.wallet;
       if (!w || typeof w.userHash !== "string" || !w.userHash) return;
@@ -195,7 +195,7 @@ export default function CreditWalletPanel() {
               <p className="text-sm font-semibold">YOURTJ 社区积分站 - 注册/绑定</p>
               <Button type="button" variant="ghost" size="icon-sm" onClick={() => setEmbedOpen(false)} aria-label="关闭"><X className="size-4" /></Button>
             </div>
-            <iframe src="https://credit.yourtj.de/#/" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" className="h-full w-full bg-white" title="YOURTJ Credit" />
+            <iframe src="https://credit.yourtj.de/#/" sandbox="allow-scripts allow-forms allow-popups" className="h-full w-full bg-white" title="YOURTJ Credit" />
           </div>
         </>
       )}

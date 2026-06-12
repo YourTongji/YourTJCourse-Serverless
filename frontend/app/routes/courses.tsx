@@ -194,7 +194,7 @@ export default function CoursesPage() {
       queryKey: readonly [string, string, number, string, CourseFilters];
     }): Promise<PaginatedCoursesResponse> => {
       const params = buildCourseParams(kw, fl, page);
-      const res = await fetch(`/api/courses?${params}`);
+      const res = await fetch(`/api/courses?${params}`, { signal: AbortSignal.timeout(15000) });
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },

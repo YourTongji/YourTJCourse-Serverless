@@ -8,7 +8,6 @@ import {
   ChevronRight,
   MessageSquare,
   RefreshCw,
-  Star,
   UserRound,
 } from "lucide-react";
 
@@ -19,12 +18,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Separator } from "~/components/ui/separator";
 import {
   formatCredit,
-  formatRating,
   formatSemesterLabel,
   semesterLabelScore,
 } from "~/lib/format";
 import { cn } from "~/lib/utils";
 import type { Course } from "~/lib/queries";
+import StarRating from "~/components/StarRating";
 
 interface CourseGridViewProps {
   courses: Course[];
@@ -150,13 +149,8 @@ function CourseCard({ course }: { course: Course }) {
                   : "bg-slate-100 text-slate-500",
               )}
             >
-              <Star
-                className={cn(
-                  "size-3.5",
-                  hasRating ? "fill-amber-400 text-amber-400" : "text-slate-300",
-                )}
-              />
-              {hasRating ? formatRating(course.rating) : "暂无"}
+              <StarRating rating={hasRating ? course.rating : 0} size={14} showValue={hasRating} />
+              {!hasRating && <span>暂无</span>}
             </div>
           </div>
           <CardTitle className="mt-3 line-clamp-2 text-base leading-snug text-slate-900 transition-colors group-hover:text-teal-700">

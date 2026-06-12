@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import type { CourseInfo } from "~/lib/schedule/types";
 import { useSchedulerStore } from "~/lib/schedule/store";
@@ -56,13 +56,16 @@ export default function Schedule() {
   const compulsoryCourses = useSchedulerStore((s) => s.compulsoryCourses);
   const loadCompulsoryCourses = useSchedulerStore((s) => s.loadCompulsoryCourses);
 
+  const compulsoryLoadedRef = useRef(false);
   useEffect(() => {
+    if (compulsoryLoadedRef.current) return;
     if (
       calendarId !== null &&
       grade !== null &&
       major !== null &&
       compulsoryCourses.length === 0
     ) {
+      compulsoryLoadedRef.current = true;
       loadCompulsoryCourses();
     }
   }, [calendarId, grade, major, compulsoryCourses.length, loadCompulsoryCourses]);

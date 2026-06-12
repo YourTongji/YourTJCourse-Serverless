@@ -207,6 +207,7 @@ export default function Admin() {
   } = useQuery({
     queryKey: ["admin", "settings", secret],
     queryFn: () => fetchAdminSettings(secret),
+    enabled: isAuthed,
   });
 
   // ─── 401 detection — clear secret if any query returns auth error ─────────
@@ -416,6 +417,8 @@ function ReviewTab({
       setEditDialogOpen(false);
       setEditingReview(null);
       queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["course"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
     },
   });
 
@@ -423,6 +426,8 @@ function ReviewTab({
     mutationFn: (id: number) => toggleReviewHide(id, secret),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["course"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
     },
   });
 
@@ -432,6 +437,8 @@ function ReviewTab({
       setDeleteDialogOpen(false);
       setDeletingId(null);
       queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["course"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
     },
   });
 
@@ -566,6 +573,7 @@ function ReviewTab({
                           variant="ghost"
                           size="icon-xs"
                           onClick={() => handleEdit(r)}
+                          aria-label="编辑"
                         >
                           <Pencil className="size-3" />
                         </Button>
@@ -573,6 +581,7 @@ function ReviewTab({
                           variant="ghost"
                           size="icon-xs"
                           onClick={() => handleToggleHide(r)}
+                          aria-label="显示/隐藏"
                         >
                           {r.is_hidden ? (
                             <Eye className="size-3" />
@@ -588,6 +597,7 @@ function ReviewTab({
                             setDeletingId(r.id);
                             setDeleteDialogOpen(true);
                           }}
+                          aria-label="删除"
                         >
                           <Trash2 className="size-3" />
                         </Button>
@@ -800,6 +810,8 @@ function CourseTab({
         teacher_name: "",
       });
       queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+      queryClient.invalidateQueries({ queryKey: ["course"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
     },
   });
 
@@ -816,6 +828,8 @@ function CourseTab({
       setEditDialogOpen(false);
       setEditingCourse(null);
       queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+      queryClient.invalidateQueries({ queryKey: ["course"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
     },
   });
 
@@ -825,6 +839,8 @@ function CourseTab({
       setDeleteDialogOpen(false);
       setDeletingId(null);
       queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+      queryClient.invalidateQueries({ queryKey: ["course"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
     },
   });
 
@@ -945,6 +961,7 @@ function CourseTab({
                           variant="ghost"
                           size="icon-xs"
                           onClick={() => handleEdit(c)}
+                          aria-label="编辑"
                         >
                           <Pencil className="size-3" />
                         </Button>
@@ -956,6 +973,7 @@ function CourseTab({
                             setDeletingId(c.id);
                             setDeleteDialogOpen(true);
                           }}
+                          aria-label="删除"
                         >
                           <Trash2 className="size-3" />
                         </Button>
@@ -1384,6 +1402,7 @@ function SettingsTab({
                           size="icon-xs"
                           className="shrink-0"
                           onClick={() => handleStartEdit(key, value)}
+                          aria-label="编辑设置"
                         >
                           <Pencil className="size-3" />
                         </Button>

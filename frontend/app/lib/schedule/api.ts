@@ -108,7 +108,7 @@ function normalizeDetailMap(raw: unknown): Record<string, ClassDetail[]> {
 }
 
 async function pkGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`PK API ${path} failed (${res.status})`);
   const envelope = (await res.json()) as PkEnvelope<T>;
   return envelope.data;
@@ -119,6 +119,7 @@ async function pkPost<T>(path: string, body: Record<string, unknown>): Promise<T
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`PK API ${path} failed (${res.status})`);
   const envelope = (await res.json()) as PkEnvelope<T>;
