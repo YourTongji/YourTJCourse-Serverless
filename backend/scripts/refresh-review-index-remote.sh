@@ -19,6 +19,8 @@ if [ -n "$WRANGLER_ENV" ]; then
   wrangler_args+=(--env "$WRANGLER_ENV")
 fi
 
+NO_FTS_OBJECT_COUNT_SQL="SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%' OR LOWER(COALESCE(sql, '')) LIKE '%create virtual table%' OR LOWER(COALESCE(sql, '')) LIKE '%fts5%';"
+
 run_sql() {
   local label="$1"
   local sql="$2"
@@ -34,6 +36,22 @@ run_sql() {
 
   echo "[$label] failed after retries" >&2
   return 1
+}
+
+query_count() {
+  local sql="$1"
+  local json
+  json="$(npx wrangler "${wrangler_args[@]}" --json --command "$sql")"
+  node -e "const payload = JSON.parse(process.argv[1]); const row = payload?.[0]?.results?.[0] || {}; console.log(row.count || 0);" "$json"
+}
+
+assert_no_fts_objects() {
+  local fts_count
+  fts_count="$(query_count "$NO_FTS_OBJECT_COUNT_SQL")"
+  if [ "$fts_count" -ne 0 ]; then
+    echo "No-FTS mode found $fts_count course_search/FTS/virtual-table object(s)" >&2
+    exit 1
+  fi
 }
 
 run_sql "ensure-pk-new-code-index" "CREATE INDEX IF NOT EXISTS idx_coursedetail_newCode ON coursedetail(newCode);"
@@ -65,12 +83,7 @@ console.log([row.min_id || 0, row.max_id || 0, row.course_count || 0].join(' '))
 
 if [ "$course_count" -eq 0 ]; then
   if [ "$NO_FTS" -eq 1 ]; then
-    fts_count_json="$(npx wrangler "${wrangler_args[@]}" --json --command "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%';")"
-    fts_count="$(node -e "const payload = JSON.parse(process.argv[1]); const row = payload?.[0]?.results?.[0] || {}; console.log(row.count || 0);" "$fts_count_json")"
-    if [ "$fts_count" -ne 0 ]; then
-      echo "No-FTS mode found $fts_count course_search/FTS object(s)" >&2
-      exit 1
-    fi
+    assert_no_fts_objects
   fi
   echo "No courses found, skip review index refresh"
   exit 0
@@ -88,13 +101,8 @@ done
 
 if [ "$NO_FTS" -eq 1 ]; then
   run_sql "cleanup-stale-review-index-no-fts" "DELETE FROM course_semesters WHERE course_id NOT IN (SELECT id FROM courses); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
-  fts_count_json="$(npx wrangler "${wrangler_args[@]}" --json --command "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%';")"
-  fts_count="$(node -e "const payload = JSON.parse(process.argv[1]); const row = payload?.[0]?.results?.[0] || {}; console.log(row.count || 0);" "$fts_count_json")"
-  if [ "$fts_count" -ne 0 ]; then
-    echo "No-FTS mode found $fts_count course_search/FTS object(s)" >&2
-    exit 1
-  fi
-  npx wrangler "${wrangler_args[@]}" --command "SELECT key,value FROM settings WHERE key='aux_schema_version'; SELECT COUNT(*) AS course_count FROM courses; SELECT COUNT(*) AS course_semester_count FROM course_semesters; SELECT COUNT(*) AS nonempty_semester_count FROM course_semesters WHERE TRIM(COALESCE(semester_names,'')) != ''; SELECT COUNT(*) AS course_search_object_count FROM sqlite_master WHERE name LIKE 'course_search%';"
+  assert_no_fts_objects
+  npx wrangler "${wrangler_args[@]}" --command "SELECT key,value FROM settings WHERE key='aux_schema_version'; SELECT COUNT(*) AS course_count FROM courses; SELECT COUNT(*) AS course_semester_count FROM course_semesters; SELECT COUNT(*) AS nonempty_semester_count FROM course_semesters WHERE TRIM(COALESCE(semester_names,'')) != ''; SELECT COUNT(*) AS no_fts_object_count FROM sqlite_master WHERE name LIKE 'course_search%' OR LOWER(COALESCE(sql, '')) LIKE '%create virtual table%' OR LOWER(COALESCE(sql, '')) LIKE '%fts5%';"
   exit 0
 fi
 

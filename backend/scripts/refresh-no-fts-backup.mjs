@@ -3,6 +3,13 @@
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  NO_FTS_OBJECT_COUNT_SQL,
+  quoteIdent,
+  quoteSqlString,
+  wranglerD1List,
+  wranglerD1Query
+} from './d1-backup-utils.mjs'
 
 const API_BASE = 'https://api.cloudflare.com/client/v4'
 const DEFAULT_SOURCE = 'jcourse-db'
@@ -10,6 +17,7 @@ const DEFAULT_TARGET = 'jcourse-db-backup'
 const STATE_TABLE = 'backup_refresh_state'
 const MAX_BIND_PARAMS = 90
 const DRY_RUN_COUNT_CHUNK_SIZE = 4
+const ROWID_COPY_KEY = '_rowid_'
 const TABLE_ORDER = [
   'settings',
   'categories',
@@ -91,14 +99,6 @@ Options:
 `)
 }
 
-function quoteIdent(name) {
-  return `"${String(name).replace(/"/g, '""')}"`
-}
-
-function quoteSqlString(value) {
-  return `'${String(value).replace(/'/g, "''")}'`
-}
-
 function isInternalName(name) {
   const lower = String(name || '').toLowerCase()
   return lower.startsWith('sqlite_') || lower.startsWith('_cf_') || lower === 'd1_migrations' || lower === STATE_TABLE
@@ -154,63 +154,6 @@ function normalizeD1Result(payload) {
   return first.results || []
 }
 
-function runCommand(command, args, options = {}) {
-  const commandEnv = {
-    ...process.env,
-    ...(options.env || {})
-  }
-  const result = process.platform === 'win32'
-    ? spawnSync([command, ...args].map(windowsShellQuote).join(' '), {
-        encoding: 'utf8',
-        shell: true,
-        ...options,
-        env: commandEnv
-      })
-    : spawnSync(command, args, {
-        encoding: 'utf8',
-        ...options,
-        env: commandEnv
-      })
-
-  if (result.status !== 0) {
-    const details = [result.stdout, result.stderr].filter(Boolean).join('\n').trim()
-    const errorDetail = result.error ? ` (${result.error.message})` : ''
-    throw new Error(`${command} ${args.join(' ')} failed with status ${result.status}${errorDetail}${details ? `:\n${details}` : ''}`)
-  }
-
-  return result.stdout
-}
-
-function windowsShellQuote(value) {
-  const text = String(value)
-  if (/^[A-Za-z0-9_./:=@-]+$/.test(text)) return text
-  return `"${text.replace(/"/g, '\\"')}"`
-}
-
-function parseWranglerJson(output) {
-  const text = String(output || '').trim()
-  const start = text.search(/[\[{]/)
-  if (start < 0) throw new Error(`Wrangler returned no JSON payload: ${text.slice(0, 300)}`)
-  return JSON.parse(text.slice(start))
-}
-
-function normalizeWranglerD1Result(payload) {
-  const first = Array.isArray(payload) ? payload[0] : payload
-  if (!first) return []
-  if (first.success === false) throw new Error(first.error || 'Wrangler D1 query failed')
-  return first.results || []
-}
-
-function wranglerD1Query(databaseName, sql) {
-  const output = runCommand('npx', ['wrangler', 'd1', 'execute', databaseName, '--remote', '--json', '--command', sql])
-  return normalizeWranglerD1Result(parseWranglerJson(output))
-}
-
-function wranglerD1List() {
-  const output = runCommand('npx', ['wrangler', 'd1', 'list', '--json'])
-  return parseWranglerJson(output)
-}
-
 function toBashPath(path) {
   if (process.platform !== 'win32') return path
   return String(path).replace(/^([A-Za-z]):\\/, (_, drive) => `/${drive.toLowerCase()}/`).replace(/\\/g, '/')
@@ -259,8 +202,8 @@ async function runWranglerDryRun(args) {
     }
   }
 
-  const targetFts = wranglerD1Query(args.target, "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%'")
-  console.log(`[dry-run] backup course_search object count: ${Number(targetFts[0]?.count || 0)}`)
+  const targetFts = wranglerD1Query(args.target, NO_FTS_OBJECT_COUNT_SQL)
+  console.log(`[dry-run] backup no-FTS object count: ${Number(targetFts[0]?.count || 0)}`)
 }
 
 async function cfFetch(path, init = {}) {
@@ -330,9 +273,8 @@ async function getSchema(accountId, databaseId) {
   )
 }
 
-async function getColumns(accountId, databaseId, tableName) {
-  const rows = await d1Query(accountId, databaseId, `PRAGMA table_info(${quoteIdent(tableName)})`)
-  return rows.map((row) => row.name).filter(Boolean)
+async function getTableInfo(accountId, databaseId, tableName) {
+  return d1Query(accountId, databaseId, `PRAGMA table_info(${quoteIdent(tableName)})`)
 }
 
 async function getCount(accountId, databaseId, tableName) {
@@ -375,34 +317,75 @@ async function updateState(accountId, databaseId, data) {
 }
 
 async function assertNoFts(accountId, databaseId, label) {
-  const rows = await d1Query(
-    accountId,
-    databaseId,
-    "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%'"
-  )
+  const rows = await d1Query(accountId, databaseId, NO_FTS_OBJECT_COUNT_SQL)
   const count = Number(rows[0]?.count || 0)
-  if (count !== 0) throw new Error(`${label} must not contain course_search/FTS5 objects; found ${count}`)
+  if (count !== 0) throw new Error(`${label} must not contain course_search/FTS5/virtual-table objects; found ${count}`)
 }
 
-async function copyTable({ accountId, sourceId, targetId, tableName, columns, readBatchSize }) {
+function copyKeyColumnsFromTableInfo(tableInfo) {
+  const primaryKeyColumns = tableInfo
+    .filter((row) => Number(row.pk || 0) > 0)
+    .sort((left, right) => Number(left.pk || 0) - Number(right.pk || 0))
+    .map((row) => row.name)
+    .filter(Boolean)
+  return primaryKeyColumns.length > 0 ? primaryKeyColumns : [ROWID_COPY_KEY]
+}
+
+function buildKeysetPredicate(keyColumns, lastKey) {
+  if (!lastKey) return { whereSql: '', params: [] }
+
+  const parts = []
+  const params = []
+  for (let index = 0; index < keyColumns.length; index += 1) {
+    const equalColumns = keyColumns.slice(0, index)
+    const equalSql = equalColumns.map((column) => `${quoteIdent(column)} = ?`)
+    const greaterSql = `${quoteIdent(keyColumns[index])} > ?`
+    parts.push(`(${[...equalSql, greaterSql].join(' AND ')})`)
+    params.push(...equalColumns.map((column) => lastKey[column] ?? null), lastKey[keyColumns[index]] ?? null)
+  }
+
+  return {
+    whereSql: `WHERE ${parts.join(' OR ')}`,
+    params
+  }
+}
+
+function lastKeyFromRow(row, keyColumns, usesRowid) {
+  const lastKey = {}
+  for (const column of keyColumns) {
+    lastKey[column] = usesRowid ? row.__copy_rowid : row[column]
+  }
+  return lastKey
+}
+
+async function copyTable({ accountId, sourceId, targetId, tableName, tableInfo, readBatchSize }) {
   const total = await getCount(accountId, sourceId, tableName)
   console.log(`[copy] ${tableName}: ${total} row(s)`)
 
+  const columns = tableInfo.map((row) => row.name).filter(Boolean)
   if (columns.length === 0 || total === 0) {
     return total
   }
 
   const selectColumns = columns.map(quoteIdent).join(', ')
   const insertColumns = selectColumns
+  const keyColumns = copyKeyColumnsFromTableInfo(tableInfo)
+  const usesRowid = keyColumns.length === 1 && keyColumns[0] === ROWID_COPY_KEY
+  const readColumns = usesRowid ? `${selectColumns}, ${ROWID_COPY_KEY} AS __copy_rowid` : selectColumns
+  const orderBy = keyColumns.map(quoteIdent).join(', ')
   const rowsPerInsert = Math.max(1, Math.floor(MAX_BIND_PARAMS / columns.length))
   let copied = 0
+  let lastKey = null
 
-  for (let offset = 0; offset < total; offset += readBatchSize) {
+  while (true) {
+    const { whereSql, params } = buildKeysetPredicate(keyColumns, lastKey)
     const rows = await d1Query(
       accountId,
       sourceId,
-      `SELECT ${selectColumns} FROM ${quoteIdent(tableName)} LIMIT ${readBatchSize} OFFSET ${offset}`
+      `SELECT ${readColumns} FROM ${quoteIdent(tableName)} ${whereSql} ORDER BY ${orderBy} LIMIT ${readBatchSize}`,
+      params
     )
+    if (rows.length === 0) break
 
     for (let i = 0; i < rows.length; i += rowsPerInsert) {
       const part = rows.slice(i, i + rowsPerInsert)
@@ -420,7 +403,8 @@ async function copyTable({ accountId, sourceId, targetId, tableName, columns, re
       copied += part.length
     }
 
-    console.log(`[copy] ${tableName}: copied ${Math.min(offset + rows.length, total)}/${total}`)
+    lastKey = lastKeyFromRow(rows[rows.length - 1], keyColumns, usesRowid)
+    console.log(`[copy] ${tableName}: copied ${copied}/${total}`)
   }
 
   return copied
@@ -515,13 +499,13 @@ async function main() {
     }
 
     for (const table of sourceTables) {
-      const columns = await getColumns(accountId, sourceId, table.name)
+      const tableInfo = await getTableInfo(accountId, sourceId, table.name)
       tableCounts[table.name] = await copyTable({
         accountId,
         sourceId,
         targetId,
         tableName: table.name,
-        columns,
+        tableInfo,
         readBatchSize: args.batchSize
       })
     }

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process'
+import {
+  NO_FTS_OBJECT_COUNT_SQL,
+  quoteIdent,
+  wranglerD1Statements
+} from './d1-backup-utils.mjs'
 
 const DEFAULT_DATABASE = 'jcourse-db-backup'
 const CHECK_TABLES = [
@@ -50,57 +54,6 @@ Options:
 `)
 }
 
-function quoteIdent(name) {
-  return `"${String(name).replace(/"/g, '""')}"`
-}
-
-function runCommand(command, args) {
-  const result = process.platform === 'win32'
-    ? spawnSync([command, ...args].map(windowsShellQuote).join(' '), {
-        encoding: 'utf8',
-        shell: true,
-        env: process.env
-      })
-    : spawnSync(command, args, {
-        encoding: 'utf8',
-        env: process.env
-      })
-
-  if (result.status !== 0) {
-    const details = [result.stdout, result.stderr].filter(Boolean).join('\n').trim()
-    const errorDetail = result.error ? ` (${result.error.message})` : ''
-    throw new Error(`${command} ${args.join(' ')} failed with status ${result.status}${errorDetail}${details ? `:\n${details}` : ''}`)
-  }
-
-  return result.stdout
-}
-
-function windowsShellQuote(value) {
-  const text = String(value)
-  if (/^[A-Za-z0-9_./:=@-]+$/.test(text)) return text
-  return `"${text.replace(/"/g, '\\"')}"`
-}
-
-function parseWranglerJson(output) {
-  const text = String(output || '').trim()
-  const start = text.search(/[\[{]/)
-  if (start < 0) throw new Error(`Wrangler returned no JSON payload: ${text.slice(0, 300)}`)
-  return JSON.parse(text.slice(start))
-}
-
-function normalizeStatements(payload) {
-  const statements = Array.isArray(payload) ? payload : [payload]
-  for (const statement of statements) {
-    if (statement?.success === false) throw new Error(statement.error || 'Wrangler D1 query failed')
-  }
-  return statements
-}
-
-function wranglerD1Statements(databaseName, sql) {
-  const output = runCommand('npx', ['wrangler', 'd1', 'execute', databaseName, '--remote', '--json', '--command', sql])
-  return normalizeStatements(parseWranglerJson(output))
-}
-
 function statementFirstRow(statements, index) {
   return statements[index]?.results?.[0] || {}
 }
@@ -108,7 +61,7 @@ function statementFirstRow(statements, index) {
 function buildCheckSql() {
   const statements = [
     'SELECT status, started_at, finished_at, source_database, target_database, error FROM backup_refresh_state WHERE id = 1',
-    "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%'",
+    NO_FTS_OBJECT_COUNT_SQL,
     ...CHECK_TABLES.map((table) => `SELECT COUNT(*) AS count FROM ${quoteIdent(table)}`)
   ]
   return statements.join('; ')
@@ -129,7 +82,7 @@ function main() {
   if (!state.status) errors.push('backup_refresh_state is missing')
   else if (state.status !== 'ready') errors.push(`backup status is ${state.status}`)
   if (state.error) errors.push(`backup state error is not empty: ${state.error}`)
-  if (ftsObjects !== 0) errors.push(`backup contains ${ftsObjects} course_search/FTS object(s)`)
+  if (ftsObjects !== 0) errors.push(`backup contains ${ftsObjects} course_search/FTS/virtual-table object(s)`)
 
   const result = {
     database: args.database,
@@ -145,7 +98,7 @@ function main() {
   } else {
     console.log(`[backup-check] database=${result.database}`)
     console.log(`[backup-check] status=${state.status || '(missing)'} started_at=${state.started_at || '(missing)'} finished_at=${state.finished_at || '(missing)'}`)
-    console.log(`[backup-check] course_search_objects=${ftsObjects}`)
+    console.log(`[backup-check] no_fts_objects=${ftsObjects}`)
     for (const [table, count] of Object.entries(tableCounts)) {
       console.log(`[backup-check] ${table}=${count}`)
     }
