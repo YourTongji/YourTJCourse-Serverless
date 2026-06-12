@@ -5,11 +5,21 @@ DB_NAME="${D1_DATABASE_NAME:-jcourse-db}"
 WRANGLER_ENV="${WRANGLER_ENV:-}"
 BATCH_SIZE="${REFRESH_REVIEW_INDEX_BATCH_SIZE:-500}"
 AUX_SCHEMA_VERSION="20260609-pk-materialize-v1"
+NO_FTS=0
+
+if [ "${1:-}" = "--no-fts" ]; then
+  NO_FTS=1
+elif [ -n "${1:-}" ]; then
+  echo "Usage: $0 [--no-fts]" >&2
+  exit 1
+fi
 
 wrangler_args=(d1 execute "$DB_NAME" --remote)
 if [ -n "$WRANGLER_ENV" ]; then
   wrangler_args+=(--env "$WRANGLER_ENV")
 fi
+
+NO_FTS_OBJECT_COUNT_SQL="SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'course_search%' OR LOWER(COALESCE(sql, '')) LIKE '%create virtual table%' OR LOWER(COALESCE(sql, '')) LIKE '%fts5%';"
 
 run_sql() {
   local label="$1"
@@ -28,6 +38,44 @@ run_sql() {
   return 1
 }
 
+query_count() {
+  local sql="$1"
+  local label="${2:-query-count}"
+  local json
+  local attempt
+
+  for attempt in 1 2 3; do
+    echo "[$label] attempt $attempt" >&2
+    if json="$(npx wrangler "${wrangler_args[@]}" --json --command "$sql")"; then
+      node -e "const payload = JSON.parse(process.argv[1]); const row = payload?.[0]?.results?.[0] || {}; console.log(row.count || 0);" "$json"
+      return 0
+    fi
+    sleep $((attempt * 2))
+  done
+
+  echo "[$label] failed after retries" >&2
+  return 1
+}
+
+assert_no_fts_objects() {
+  local fts_count
+  if ! fts_count="$(query_count "$NO_FTS_OBJECT_COUNT_SQL" "assert-no-fts-objects")"; then
+    exit 1
+  fi
+  if [ "$fts_count" -ne 0 ]; then
+    echo "No-FTS mode found $fts_count course_search/FTS/virtual-table object(s)" >&2
+    exit 1
+  fi
+}
+
+cleanup_stale_review_index() {
+  if [ "$NO_FTS" -eq 1 ]; then
+    run_sql "cleanup-stale-review-index-no-fts" "DELETE FROM course_semesters WHERE course_id NOT IN (SELECT id FROM courses); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+  else
+    run_sql "cleanup-stale-review-index" "DELETE FROM course_semesters WHERE course_id NOT IN (SELECT id FROM courses); DELETE FROM course_search WHERE course_id NOT IN (SELECT id FROM courses); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+  fi
+}
+
 run_sql "ensure-pk-new-code-index" "CREATE INDEX IF NOT EXISTS idx_coursedetail_newCode ON coursedetail(newCode);"
 
 run_sql "materialize-teachers" "INSERT INTO teachers (name) SELECT DISTINCT TRIM(t.teacherName) AS name FROM teacher t WHERE TRIM(COALESCE(t.teacherName, '')) != '' AND NOT EXISTS (SELECT 1 FROM teachers tt WHERE tt.name = TRIM(t.teacherName));"
@@ -40,7 +88,11 @@ run_sql "refresh-split-course-credit" "UPDATE courses SET credit = ( SELECT MAX(
 
 run_sql "refresh-course-aliases" "INSERT INTO course_aliases (system, alias, course_id) SELECT DISTINCT 'onesystem' AS system, TRIM(alias.alias) AS alias, c.id AS course_id FROM ( SELECT courseCode AS alias, courseCode AS courseCode FROM coursedetail WHERE TRIM(COALESCE(courseCode, '')) != '' UNION ALL SELECT code AS alias, courseCode AS courseCode FROM coursedetail WHERE TRIM(COALESCE(code, '')) != '' AND TRIM(COALESCE(courseCode, '')) != '' UNION ALL SELECT newCourseCode AS alias, courseCode AS courseCode FROM coursedetail WHERE TRIM(COALESCE(newCourseCode, '')) != '' AND TRIM(COALESCE(courseCode, '')) != '' UNION ALL SELECT newCode AS alias, courseCode AS courseCode FROM coursedetail WHERE TRIM(COALESCE(newCode, '')) != '' AND TRIM(COALESCE(courseCode, '')) != '' ) AS alias JOIN courses c ON c.code = alias.courseCode AND c.is_legacy = 0 WHERE TRIM(COALESCE(alias.alias, '')) != '' ON CONFLICT(system, alias) DO UPDATE SET course_id = excluded.course_id;"
 
-run_sql "ensure-review-index-tables" "CREATE TABLE IF NOT EXISTS course_semesters (course_id INTEGER PRIMARY KEY, semester_names TEXT DEFAULT ''); CREATE INDEX IF NOT EXISTS idx_course_semesters_course_id ON course_semesters(course_id); CREATE VIRTUAL TABLE IF NOT EXISTS course_search USING fts5(course_id UNINDEXED, search_doc, tokenize='trigram'); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+if [ "$NO_FTS" -eq 1 ]; then
+  run_sql "ensure-review-index-tables-no-fts" "CREATE TABLE IF NOT EXISTS course_semesters (course_id INTEGER PRIMARY KEY, semester_names TEXT DEFAULT ''); CREATE INDEX IF NOT EXISTS idx_course_semesters_course_id ON course_semesters(course_id); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+else
+  run_sql "ensure-review-index-tables" "CREATE TABLE IF NOT EXISTS course_semesters (course_id INTEGER PRIMARY KEY, semester_names TEXT DEFAULT ''); CREATE INDEX IF NOT EXISTS idx_course_semesters_course_id ON course_semesters(course_id); CREATE VIRTUAL TABLE IF NOT EXISTS course_search USING fts5(course_id UNINDEXED, search_doc, tokenize='trigram'); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+fi
 
 range_json="$(npx wrangler "${wrangler_args[@]}" --json --command "SELECT MIN(id) AS min_id, MAX(id) AS max_id, COUNT(*) AS course_count FROM courses;")"
 read -r min_id max_id course_count < <(
@@ -52,6 +104,10 @@ console.log([row.min_id || 0, row.max_id || 0, row.course_count || 0].join(' '))
 )
 
 if [ "$course_count" -eq 0 ]; then
+  cleanup_stale_review_index
+  if [ "$NO_FTS" -eq 1 ]; then
+    assert_no_fts_objects
+  fi
   echo "No courses found, skip review index refresh"
   exit 0
 fi
@@ -60,10 +116,18 @@ start=$(( (min_id / BATCH_SIZE) * BATCH_SIZE ))
 while [ "$start" -le "$max_id" ]; do
   end=$((start + BATCH_SIZE - 1))
   run_sql "refresh-semesters-$start-$end" "WITH course_codes AS ( SELECT id AS course_id, TRIM(code) AS code FROM courses WHERE id BETWEEN $start AND $end AND TRIM(COALESCE(code, '')) != '' UNION SELECT ca.course_id, TRIM(ca.alias) AS code FROM course_aliases ca JOIN courses c ON c.id = ca.course_id WHERE c.id BETWEEN $start AND $end AND ca.system = 'onesystem' AND TRIM(COALESCE(ca.alias, '')) != '' ), semester_rows AS ( SELECT cc.course_id, ca.calendarIdI18n AS name, ca.calendarId FROM course_codes cc JOIN coursedetail cd ON cd.courseCode = cc.code JOIN calendar ca ON ca.calendarId = cd.calendarId UNION ALL SELECT cc.course_id, ca.calendarIdI18n AS name, ca.calendarId FROM course_codes cc JOIN coursedetail cd ON cd.code = cc.code JOIN calendar ca ON ca.calendarId = cd.calendarId UNION ALL SELECT cc.course_id, ca.calendarIdI18n AS name, ca.calendarId FROM course_codes cc JOIN coursedetail cd ON cd.newCourseCode = cc.code JOIN calendar ca ON ca.calendarId = cd.calendarId UNION ALL SELECT cc.course_id, ca.calendarIdI18n AS name, ca.calendarId FROM course_codes cc JOIN coursedetail cd ON cd.newCode = cc.code JOIN calendar ca ON ca.calendarId = cd.calendarId ), semester_ranked AS ( SELECT course_id, TRIM(name) AS name, MAX(calendarId) AS calendarId FROM semester_rows WHERE TRIM(COALESCE(name, '')) != '' GROUP BY course_id, TRIM(name) ) INSERT OR REPLACE INTO course_semesters (course_id, semester_names) SELECT c.id, COALESCE(( SELECT GROUP_CONCAT(name, '||') FROM ( SELECT sr.name FROM semester_ranked sr WHERE sr.course_id = c.id ORDER BY sr.calendarId DESC, sr.name ) ), '') AS semester_names FROM courses c WHERE c.id BETWEEN $start AND $end;"
-  run_sql "refresh-search-$start-$end" "DELETE FROM course_search WHERE course_id IN (SELECT id FROM courses WHERE id BETWEEN $start AND $end); WITH alias_keywords AS ( SELECT ca.course_id, GROUP_CONCAT(DISTINCT TRIM(ca.alias)) AS aliases FROM course_aliases ca JOIN courses c ON c.id = ca.course_id WHERE c.id BETWEEN $start AND $end AND ca.system = 'onesystem' AND TRIM(COALESCE(ca.alias, '')) != '' GROUP BY ca.course_id ), course_codes AS ( SELECT id AS course_id, TRIM(code) AS code FROM courses WHERE id BETWEEN $start AND $end AND TRIM(COALESCE(code, '')) != '' UNION SELECT ca.course_id, TRIM(ca.alias) AS code FROM course_aliases ca JOIN courses c ON c.id = ca.course_id WHERE c.id BETWEEN $start AND $end AND ca.system = 'onesystem' AND TRIM(COALESCE(ca.alias, '')) != '' ), pk_rows AS ( SELECT cc.course_id, cd.* FROM course_codes cc JOIN coursedetail cd ON cd.courseCode = cc.code UNION ALL SELECT cc.course_id, cd.* FROM course_codes cc JOIN coursedetail cd ON cd.code = cc.code UNION ALL SELECT cc.course_id, cd.* FROM course_codes cc JOIN coursedetail cd ON cd.newCourseCode = cc.code UNION ALL SELECT cc.course_id, cd.* FROM course_codes cc JOIN coursedetail cd ON cd.newCode = cc.code ), pk_keywords AS ( SELECT pr.course_id, TRIM( COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.courseCode)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.code)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.newCourseCode)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.newCode)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.courseName)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.name)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.faculty)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.campus)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherCode)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherName)), '') ) AS keywords FROM pk_rows pr LEFT JOIN teacher t ON t.teachingClassId = pr.id GROUP BY pr.course_id ) INSERT INTO course_search (course_id, search_doc) SELECT c.id, TRIM( c.code || ' ' || c.name || ' ' || COALESCE(c.department, '') || ' ' || COALESCE(t.name, '') || ' ' || COALESCE(t.tid, '') || ' ' || COALESCE(c.search_keywords, '') || ' ' || COALESCE(ak.aliases, '') || ' ' || COALESCE(pk.keywords, '') ) AS search_doc FROM courses c LEFT JOIN teachers t ON t.id = c.teacher_id LEFT JOIN alias_keywords ak ON ak.course_id = c.id LEFT JOIN pk_keywords pk ON pk.course_id = c.id WHERE c.id BETWEEN $start AND $end;"
+  if [ "$NO_FTS" -eq 0 ]; then
+    run_sql "refresh-search-$start-$end" "DELETE FROM course_search WHERE course_id IN (SELECT id FROM courses WHERE id BETWEEN $start AND $end); WITH alias_keywords AS ( SELECT ca.course_id, GROUP_CONCAT(DISTINCT TRIM(ca.alias)) AS aliases FROM course_aliases ca JOIN courses c ON c.id = ca.course_id WHERE c.id BETWEEN $start AND $end AND ca.system = 'onesystem' AND TRIM(COALESCE(ca.alias, '')) != '' GROUP BY ca.course_id ), course_codes AS ( SELECT id AS course_id, TRIM(code) AS code FROM courses WHERE id BETWEEN $start AND $end AND TRIM(COALESCE(code, '')) != '' UNION SELECT ca.course_id, TRIM(ca.alias) AS code FROM course_aliases ca JOIN courses c ON c.id = ca.course_id WHERE c.id BETWEEN $start AND $end AND ca.system = 'onesystem' AND TRIM(COALESCE(ca.alias, '')) != '' ), pk_rows AS ( SELECT cc.course_id, cd.* FROM course_codes cc JOIN coursedetail cd ON cd.courseCode = cc.code UNION ALL SELECT cc.course_id, cd.* FROM course_codes cc JOIN coursedetail cd ON cd.code = cc.code UNION ALL SELECT cc.course_id, cd.* FROM course_codes cc JOIN coursedetail cd ON cd.newCourseCode = cc.code UNION ALL SELECT cc.course_id, cd.* FROM course_codes cc JOIN coursedetail cd ON cd.newCode = cc.code ), pk_keywords AS ( SELECT pr.course_id, TRIM( COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.courseCode)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.code)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.newCourseCode)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.newCode)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.courseName)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.name)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.faculty)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(pr.campus)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherCode)), '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT TRIM(t.teacherName)), '') ) AS keywords FROM pk_rows pr LEFT JOIN teacher t ON t.teachingClassId = pr.id GROUP BY pr.course_id ) INSERT INTO course_search (course_id, search_doc) SELECT c.id, TRIM( c.code || ' ' || c.name || ' ' || COALESCE(c.department, '') || ' ' || COALESCE(t.name, '') || ' ' || COALESCE(t.tid, '') || ' ' || COALESCE(c.search_keywords, '') || ' ' || COALESCE(ak.aliases, '') || ' ' || COALESCE(pk.keywords, '') ) AS search_doc FROM courses c LEFT JOIN teachers t ON t.id = c.teacher_id LEFT JOIN alias_keywords ak ON ak.course_id = c.id LEFT JOIN pk_keywords pk ON pk.course_id = c.id WHERE c.id BETWEEN $start AND $end;"
+  fi
   start=$((start + BATCH_SIZE))
 done
 
-run_sql "cleanup-stale-review-index" "DELETE FROM course_semesters WHERE course_id NOT IN (SELECT id FROM courses); DELETE FROM course_search WHERE course_id NOT IN (SELECT id FROM courses); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+if [ "$NO_FTS" -eq 1 ]; then
+  cleanup_stale_review_index
+  assert_no_fts_objects
+  npx wrangler "${wrangler_args[@]}" --command "SELECT key,value FROM settings WHERE key='aux_schema_version'; SELECT COUNT(*) AS course_count FROM courses; SELECT COUNT(*) AS course_semester_count FROM course_semesters; SELECT COUNT(*) AS nonempty_semester_count FROM course_semesters WHERE TRIM(COALESCE(semester_names,'')) != ''; SELECT COUNT(*) AS no_fts_object_count FROM sqlite_master WHERE name LIKE 'course_search%' OR LOWER(COALESCE(sql, '')) LIKE '%create virtual table%' OR LOWER(COALESCE(sql, '')) LIKE '%fts5%';"
+  exit 0
+fi
 
+cleanup_stale_review_index
 npx wrangler "${wrangler_args[@]}" --command "SELECT key,value FROM settings WHERE key='aux_schema_version'; SELECT COUNT(*) AS course_count FROM courses; SELECT COUNT(*) AS course_semester_count FROM course_semesters; SELECT COUNT(*) AS course_search_count FROM course_search; SELECT COUNT(*) AS nonempty_semester_count FROM course_semesters WHERE TRIM(COALESCE(semester_names,'')) != '';"

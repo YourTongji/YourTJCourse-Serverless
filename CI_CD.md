@@ -50,23 +50,44 @@ wrangler secret put ADMIN_SECRET
 
 ## 5) 一系统同步与 D1 导出规范
 
-一系统/PK 数据同步统一使用 `.github/workflows/sync-onesystem-login.yml`。该流程会将生成的 SQL 同时写入：
+一系统/PK 数据同步统一使用 `.github/workflows/sync-onesystem-login.yml`。该流程只将生成的 SQL 写入生产查询库：
 
 - `jcourse-db`：生产查询库，会刷新评课站检索索引，可能包含 `course_search` FTS5 虚拟表。
-- `jcourse-db-backup`：PK 数据镜像库，仅用于导出、ETL 和分析，不应创建 `course_search` FTS5 虚拟表。
+- `jcourse-db-backup`：由 `.github/workflows/refresh-no-fts-d1-backup.yml` 每日刷新，是生产库的 no-FTS 快照，用于导出、ETL 和分析，不应创建 `course_search%` / FTS5 对象。
 
-旧的 `.github/workflows/sync-onesystem.yml` Cookie 同步流程已停用，执行时会立即失败并提示使用 Login 同步流程，因为它会绕过备份库双写链路。
+旧的 `.github/workflows/sync-onesystem.yml` Cookie 同步流程已停用，执行时会立即失败并提示使用 Login 同步流程。
 
-初始化 `jcourse-db-backup` 时，通过 Cloudflare Dashboard 或 `npx wrangler d1 create jcourse-db-backup` 创建 D1 数据库；如果本地 Wrangler 登录了多个 Cloudflare 账号，请只在本地环境变量或 Wrangler 本地配置中选择账号，不要把具体账号 ID 或备份库 database_id 写入公开仓库。创建后可通过 Login 同步 workflow 初始化并填充 PK 表；备份库路径会跳过搜索索引迁移，并在写入后校验不存在 `course_search%` 对象。
+初始化 `jcourse-db-backup` 时，通过 Cloudflare Dashboard 或 `npx wrangler d1 create jcourse-db-backup` 创建 D1 数据库；如果本地 Wrangler 登录了多个 Cloudflare 账号，请只在本地环境变量或 Wrangler 本地配置中选择账号，不要把具体账号 ID 或备份库 database_id 写入公开仓库。创建后可手动触发 `Refresh No-FTS D1 Backup` workflow 做首次全量刷新。
 
-请不要对生产库执行 `wrangler d1 export`。需要导出一系统/PK 数据时，只导出备份库：
+请不要对生产库执行 `wrangler d1 export`。需要导出数据时，先确认最近一次 `Refresh No-FTS D1 Backup` workflow 成功，或用和检查脚本一致的 SQL 查询备份库状态：
+
+```bash
+cd backend
+npx wrangler d1 execute jcourse-db-backup --remote \
+  --command "SELECT status, started_at, finished_at, error FROM backup_refresh_state WHERE id = 1; SELECT COUNT(*) AS no_fts_objects FROM sqlite_master WHERE name LIKE 'course_search%' OR LOWER(COALESCE(sql, '')) LIKE '%create virtual table%' OR LOWER(COALESCE(sql, '')) LIKE '%fts5%';"
+```
+
+只有 `status = 'ready'`、`error` 为空、`no_fts_objects = 0` 时，才只导出备份库：
 
 ```bash
 cd backend
 npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
 ```
 
-`jcourse-db-backup` 不是完整生产业务灾备库，不可作为线上业务库恢复目标，也不保证包含评论、举报、AI 摘要等业务数据；完整灾备仍需要单独的生产快照或备用库策略。若同步失败导致主备可能分叉，必须使用同一组 `calendarId` / `depth` 重新运行同步，直到主备计数校验通过；在校验通过前不要基于 `jcourse-db-backup` 做导出、ETL 或分析。
+本地只检查复制计划和表计数时，可使用 Wrangler 登录态做 dry-run；如果本地 Wrangler 登录了多个账号，先在本地环境变量或 Wrangler 本地配置中选择账号：
+
+```bash
+cd backend
+node ./scripts/refresh-no-fts-backup.mjs --dry-run
+```
+
+正式全量刷新仍建议优先手动触发 GitHub Actions 的 `Refresh No-FTS D1 Backup` workflow。手动触发时可选择：
+
+- `dryRun`：只检查复制计划和表计数，不修改备份库。
+- `skipMaterialize`：只复制普通表，跳过 no-FTS 派生课程索引刷新，主要用于排查复制问题。
+- `exportSmoke`：刷新成功后对备份库执行一次导出 smoke test，并检查 dump 中不包含 FTS 对象。
+
+`jcourse-db-backup` 是定时快照，不是实时镜像；默认最多可能落后约 24 小时。该库用于导出、ETL 和分析，不替代完整生产灾备策略。
 
 ## 6) 自定义域名（xk.yourtj.de）为什么没更新？
 

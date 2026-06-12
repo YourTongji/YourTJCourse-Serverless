@@ -1,0 +1,117 @@
+name: Refresh No-FTS D1 Backup
+
+on:
+  schedule:
+    # 04:00 Asia/Shanghai
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Only inspect tables/counts without mutating backup"
+        required: false
+        default: false
+        type: boolean
+      batchSize:
+        description: "Rows to read from primary per page"
+        required: false
+        default: "500"
+        type: string
+      skipMaterialize:
+        description: "Skip no-FTS course auxiliary refresh after copying tables"
+        required: false
+        default: false
+        type: boolean
+      exportSmoke:
+        description: "Run a backup export smoke test after refresh"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-no-fts-d1-backup
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_PRIMARY_DATABASE_NAME: jcourse-db
+      D1_BACKUP_DATABASE_NAME: jcourse-db-backup
+
+    steps:
+      - name: Checkout
+        # actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs and secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then echo "Missing secrets.CLOUDFLARE_API_TOKEN" >&2; exit 1; fi
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then echo "Missing secrets.CLOUDFLARE_ACCOUNT_ID" >&2; exit 1; fi
+          if [ -z "${D1_PRIMARY_DATABASE_NAME:-}" ]; then echo "Missing D1_PRIMARY_DATABASE_NAME" >&2; exit 1; fi
+          if [ -z "${D1_BACKUP_DATABASE_NAME:-}" ]; then echo "Missing D1_BACKUP_DATABASE_NAME" >&2; exit 1; fi
+          if [ "$D1_PRIMARY_DATABASE_NAME" = "$D1_BACKUP_DATABASE_NAME" ]; then echo "Primary and backup database names must differ" >&2; exit 1; fi
+
+          batch_size="${{ github.event.inputs.batchSize || '500' }}"
+          if ! [[ "$batch_size" =~ ^[0-9]+$ ]]; then
+            echo "batchSize must be numeric" >&2
+            exit 1
+          fi
+
+      - name: Setup Node
+        # actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Refresh backup snapshot
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --source "$D1_PRIMARY_DATABASE_NAME"
+            --target "$D1_BACKUP_DATABASE_NAME"
+            --batch-size "${{ github.event.inputs.batchSize || '500' }}"
+          )
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.dryRun }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.skipMaterialize }}" = "true" ]; then
+            args+=(--skip-materialize)
+          fi
+
+          node ./scripts/refresh-no-fts-backup.mjs "${args[@]}"
+
+      - name: Check backup status
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.dryRun == 'true') }}
+        working-directory: backend
+        run: node ./scripts/check-no-fts-backup.mjs
+
+      - name: Export backup smoke test
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.exportSmoke == 'true' && github.event.inputs.dryRun != 'true' }}
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/jcourse-db-backup-smoke.sql"
+          npx wrangler d1 export "$D1_BACKUP_DATABASE_NAME" --remote --output "$output"
+          if grep -Eiq '^[[:space:]]*CREATE[[:space:]]+.*(VIRTUAL[[:space:]]+TABLE|fts5|course_search)' "$output"; then
+            echo "Backup export unexpectedly contains FTS objects" >&2
+            exit 1
+          fi
+          wc -c "$output"
