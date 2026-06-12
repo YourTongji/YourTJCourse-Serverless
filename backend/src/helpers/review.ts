@@ -7,7 +7,8 @@ const PUBLIC_REVIEW_COLUMNS = new Set([
   'id', 'course_id', 'semester', 'rating', 'comment', 'score',
   'created_at', 'approve_count', 'disapprove_count',
   'is_hidden', 'is_legacy', 'is_icu',
-  'reviewer_name', 'reviewer_avatar', 'sqid'
+  'reviewer_name', 'reviewer_avatar', 'sqid',
+  'course_name', 'course_code', 'teacher_name'
 ])
 
 export function addSqidToReviews(reviews: any[]): any[] {

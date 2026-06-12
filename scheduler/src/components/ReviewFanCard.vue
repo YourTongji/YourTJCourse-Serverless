@@ -23,19 +23,18 @@
             @click.stop.prevent="onToggle"
             aria-label="点赞"
           >
-            <svg
-              class="w-4 h-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M7 11v10H3V11h4z" />
-              <path d="M7 11l5-7a2 2 0 013 2l-1 5h5a2 2 0 012 2l-2 7a2 2 0 01-2 2H7" />
-            </svg>
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11v10H3V11h4z"/><path d="M7 11l5-7a2 2 0 013 2l-1 5h5a2 2 0 012 2l-2 7a2 2 0 01-2 2H7"/></svg>
             <span>{{ likeCount }}</span>
+          </button>
+          <button
+            v-if="enableReport"
+            type="button"
+            class="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 text-[11px] font-extrabold text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+            @click.stop.prevent="onReport"
+            aria-label="举报"
+            title="举报此评价"
+          >
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
           </button>
         </div>
       </div>
@@ -55,8 +54,10 @@ export default {
   props: {
     review: { type: Object, required: true },
     enableLike: { type: Boolean, default: false },
+    enableReport: { type: Boolean, default: false },
     likeLoading: { type: Boolean, default: false },
     onToggleLike: { type: Function, default: null },
+    onReportReview: { type: Function, default: null },
   },
   computed: {
     reviewerName(): string {
@@ -91,8 +92,12 @@ export default {
     onToggle() {
       // @ts-ignore
       if (typeof this.onToggleLike === 'function') this.onToggleLike(this.review)
-    }
-  }
+    },
+    onReport() {
+      // @ts-ignore
+      if (typeof this.onReportReview === 'function') this.onReportReview(this.review)
+    },
+  },
 }
 </script>
 

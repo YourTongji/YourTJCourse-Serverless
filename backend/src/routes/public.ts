@@ -308,9 +308,15 @@ publicRoutes.get('/courses', async (c) => {
 
       if (miniSearchCandidate) {
         if (miniSearchCandidate.courseIds.length > 0) {
-          const placeholders = miniSearchCandidate.courseIds.map(() => '?').join(',')
-          baseWhere += ` AND c.id IN (${placeholders})`
-          baseParams.push(...miniSearchCandidate.courseIds)
+          // #119: D1 has a 100-bind-variable limit; chunk courseIds into safe batches
+          const MAX_SAFE_VARS = 80
+          const chunks = chunkArray(miniSearchCandidate.courseIds, MAX_SAFE_VARS)
+          const conditions = chunks.map((chunk) => {
+            const phs = chunk.map(() => '?').join(',')
+            return `c.id IN (${phs})`
+          })
+          baseWhere += ` AND (${conditions.join(' OR ')})`
+          for (const chunk of chunks) baseParams.push(...chunk)
         } else {
           baseWhere += ' AND 0'
         }
@@ -1143,6 +1149,67 @@ function checkReviewRateLimit(ip: string): boolean {
   return true
 }
 
+publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
+  try {
+    await ensureDbInitialized(c.env.DB)
+
+    const userHash = String(c.req.param('userHash') || '').trim().toLowerCase()
+    if (!/^[a-f0-9]{64}$/.test(userHash)) {
+      c.header('Cache-Control', 'no-store')
+      return c.json({ error: 'Invalid userHash' }, 400)
+    }
+
+    const requestedLimit = Number(c.req.query('limit') ?? 50)
+    const requestedOffset = Number(c.req.query('offset') ?? 0)
+    const maxOffset = 10000
+    const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 50))
+    const offset = Math.max(0, Math.min(maxOffset, Number.isFinite(requestedOffset) ? Math.floor(requestedOffset) : 0))
+    const showIcu = await getShowIcuSetting(c.env.DB)
+
+    let whereClause = `r.wallet_user_hash = ? AND r.is_hidden = 0`
+    if (!showIcu) whereClause += ` AND r.is_icu = 0`
+
+    const rows = await c.env.DB
+      .prepare(
+        `SELECT r.id, r.course_id, r.semester, r.rating, r.comment, r.score,
+                r.created_at, r.approve_count, r.disapprove_count,
+                r.is_hidden, r.is_legacy, r.is_icu,
+                r.reviewer_name, r.reviewer_avatar,
+                c.code AS course_code, c.name AS course_name,
+                t.name AS teacher_name
+         FROM reviews r
+         JOIN courses c ON r.course_id = c.id
+         LEFT JOIN teachers t ON c.teacher_id = t.id
+         WHERE ${whereClause}
+         ORDER BY r.created_at DESC, r.id DESC
+         LIMIT ? OFFSET ?`
+      )
+      .bind(userHash, limit + 1, offset)
+      .all()
+
+    const results = (rows.results || []) as any[]
+    const hasMore = results.length > limit
+    const reviews = addSqidToReviews(results.slice(0, limit)).map((review: any) => ({
+      ...review,
+      like_count: Number(review?.approve_count || 0)
+    }))
+
+    c.header('Cache-Control', 'no-store')
+    return c.json({
+      reviews,
+      pagination: {
+        limit,
+        offset,
+        hasMore
+      }
+    })
+  } catch (err: any) {
+    console.error('Failed to load reviews by wallet:', err)
+    c.header('Cache-Control', 'no-store')
+    return c.json({ error: 'Internal server error' }, 500)
+  }
+})
+
 publicRoutes.post('/review', async (c) => {
   // Rate limit: 5 reviews per minute per IP
   const ip = String(c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown').trim()
@@ -1512,11 +1579,11 @@ function buildReportActionHtml(options: {
   const statusCode = options.statusCode || 200
   const color = options.color || '#111827'
   const form = options.action && options.reportId && options.deadline && options.sig
-    ? `<form method="post" action="/api/admin/report/${options.reportId}/resolve" style="margin-top:24px">
+    ? `<form method="post" action="/api/admin/report/${options.reportId}/resolve">
         <input type="hidden" name="action" value="${options.action}" />
         <input type="hidden" name="deadline" value="${options.deadline}" />
         <input type="hidden" name="sig" value="${options.sig}" />
-        <button type="submit" style="appearance:none;border:0;border-radius:10px;background:${color};color:white;padding:12px 18px;font-size:16px;cursor:pointer">${options.actionLabel}</button>
+        <button type="submit" class="btn" style="background:${color};color:white">${options.actionLabel}</button>
       </form>`
     : ''
 

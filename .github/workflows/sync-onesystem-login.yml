@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       calendarId:
-        description: "一系统学期ID (例如 121)"
+        description: "一系统学期ID (例如 121；本 Login 流程替代旧 Cookie 同步)"
         required: true
         type: string
       depth:
@@ -22,6 +22,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[pk-sync]'))
@@ -39,6 +40,7 @@ jobs:
       ONESYSTEM_IMAP_PORT: ${{ secrets.ONESYSTEM_IMAP_PORT }}
       ONESYSTEM_IMAP_EMAIL: ${{ secrets.ONESYSTEM_IMAP_EMAIL }}
       ONESYSTEM_IMAP_GRANTCODE: ${{ secrets.ONESYSTEM_IMAP_GRANTCODE }}
+      D1_PRIMARY_DATABASE_NAME: jcourse-db
 
     steps:
       - name: Resolve calendarId/depth
@@ -53,8 +55,17 @@ jobs:
           set -euo pipefail
 
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            depth="${INPUT_DEPTH:-1}"
+            if ! [[ "$INPUT_CALENDAR_ID" =~ ^[0-9]+$ ]]; then
+              echo "calendarId must be numeric" >&2
+              exit 1
+            fi
+            if ! [[ "$depth" =~ ^[0-9]+$ ]]; then
+              echo "depth must be numeric" >&2
+              exit 1
+            fi
             echo "calendarId=$INPUT_CALENDAR_ID" >> "$GITHUB_OUTPUT"
-            echo "depth=$INPUT_DEPTH" >> "$GITHUB_OUTPUT"
+            echo "depth=$depth" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -81,6 +92,7 @@ jobs:
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then echo "Missing secrets.CLOUDFLARE_ACCOUNT_ID" >&2; exit 1; fi
           if [ -z "${ONESYSTEM_SNO:-}" ]; then echo "Missing secrets.ONESYSTEM_SNO" >&2; exit 1; fi
           if [ -z "${ONESYSTEM_PASSWORD:-}" ]; then echo "Missing secrets.ONESYSTEM_PASSWORD" >&2; exit 1; fi
+          if [ -z "${D1_PRIMARY_DATABASE_NAME:-}" ]; then echo "Missing D1_PRIMARY_DATABASE_NAME" >&2; exit 1; fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -118,16 +130,6 @@ jobs:
             printf "qq_grantcode=%s\n" "$ONESYSTEM_IMAP_GRANTCODE" >> backend/config.onesystem.ini
           fi
 
-      - name: Ensure pk tables on D1 (remote)
-        working-directory: backend
-        run: |
-          set -euo pipefail
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/001_pk_schema.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/002_pk_schema_patch.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/011_maintenance_settings.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/012_search_indexes.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/013_fetchlog_pk.sql"
-
       - name: Login & export SQL
         working-directory: backend
         shell: bash
@@ -140,23 +142,20 @@ jobs:
             --config "./config.onesystem.ini" \
             2>&1 | tee pk-sync-summary.log
 
-      - name: Apply SQL to D1 (remote)
+      - name: Apply SQL to primary D1 (remote)
         working-directory: backend
         shell: bash
         run: |
           set -euo pipefail
           ls -la .tmp/pk-sync
-          for f in .tmp/pk-sync/pk-sync-*.sql; do
-            echo "Applying $f" | tee -a pk-apply.log
-            npx wrangler d1 execute jcourse-db --remote --file="$f" 2>&1 | tee -a pk-apply.log
-          done
+          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_PRIMARY_DATABASE_NAME" ".tmp/pk-sync" | tee -a pk-apply-primary.log
 
       - name: Materialize pk courses to review site tables (remote)
         working-directory: backend
         shell: bash
         run: |
           set -euo pipefail
-          bash ./scripts/refresh-review-index-remote.sh
+          D1_DATABASE_NAME="$D1_PRIMARY_DATABASE_NAME" bash ./scripts/refresh-review-index-remote.sh
 
       - name: Post-check via backend API
         shell: bash
