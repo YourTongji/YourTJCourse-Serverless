@@ -64,8 +64,8 @@ jobs:
           if [ "$D1_PRIMARY_DATABASE_NAME" = "$D1_BACKUP_DATABASE_NAME" ]; then echo "Primary and backup database names must differ" >&2; exit 1; fi
 
           batch_size="${INPUT_BATCH_SIZE}"
-          if ! [[ "$batch_size" =~ ^[0-9]+$ ]]; then
-            echo "batchSize must be numeric" >&2
+          if ! [[ "$batch_size" =~ ^[0-9]+$ ]] || [ "$batch_size" -le 0 ]; then
+            echo "batchSize must be a positive integer" >&2
             exit 1
           fi
 
