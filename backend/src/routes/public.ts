@@ -1160,8 +1160,8 @@ publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
       return c.json({ error: 'Invalid userHash' }, 400)
     }
 
-    const requestedLimit = Number(c.req.query('limit') || 50)
-    const requestedOffset = Number(c.req.query('offset') || 0)
+    const requestedLimit = Number(c.req.query('limit') ?? 50)
+    const requestedOffset = Number(c.req.query('offset') ?? 0)
     const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 50))
     const offset = Math.max(0, Number.isFinite(requestedOffset) ? Math.floor(requestedOffset) : 0)
     const showIcu = await getShowIcuSetting(c.env.DB)
@@ -1204,8 +1204,9 @@ publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
       }
     })
   } catch (err: any) {
+    console.error('Failed to load reviews by wallet:', err)
     c.header('Cache-Control', 'no-store')
-    return c.json({ error: err.message }, 500)
+    return c.json({ error: 'Internal server error' }, 500)
   }
 })
 
