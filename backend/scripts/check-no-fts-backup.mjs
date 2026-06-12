@@ -3,10 +3,12 @@
 import {
   NO_FTS_OBJECT_COUNT_SQL,
   quoteIdent,
+  quoteSqlString,
   wranglerD1Statements
 } from './d1-backup-utils.mjs'
 
 const DEFAULT_DATABASE = 'jcourse-db-backup'
+const STATE_TABLE = 'backup_refresh_state'
 const CHECK_TABLES = [
   'courses',
   'course_aliases',
@@ -58,37 +60,69 @@ function statementFirstRow(statements, index) {
   return statements[index]?.results?.[0] || {}
 }
 
-function buildCheckSql() {
+function buildProbeSql() {
   const statements = [
-    'SELECT status, started_at, finished_at, source_database, target_database, error FROM backup_refresh_state WHERE id = 1',
+    `SELECT COUNT(*) AS exists_count FROM sqlite_master WHERE type = 'table' AND name = ${quoteSqlString(STATE_TABLE)}`,
     NO_FTS_OBJECT_COUNT_SQL,
-    ...CHECK_TABLES.map((table) => `SELECT COUNT(*) AS count FROM ${quoteIdent(table)}`)
+    ...CHECK_TABLES.map((table) => `SELECT ${quoteSqlString(table)} AS table_name, COUNT(*) AS exists_count FROM sqlite_master WHERE type IN ('table', 'view') AND name = ${quoteSqlString(table)}`)
   ]
   return statements.join('; ')
 }
 
+function buildStateSql() {
+  return `SELECT status, started_at, finished_at, source_database, target_database, error FROM ${quoteIdent(STATE_TABLE)} WHERE id = 1`
+}
+
+function buildTableCountsSql(tables) {
+  return tables
+    .map((table) => `SELECT ${quoteSqlString(table)} AS table_name, COUNT(*) AS count FROM ${quoteIdent(table)}`)
+    .join('; ')
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2))
-  const statements = wranglerD1Statements(args.database, buildCheckSql())
-  const state = statementFirstRow(statements, 0)
-  const ftsObjects = Number(statementFirstRow(statements, 1).count || 0)
+  const probes = wranglerD1Statements(args.database, buildProbeSql())
+  const stateTableExists = Number(statementFirstRow(probes, 0).exists_count || 0) > 0
+  const ftsObjects = Number(statementFirstRow(probes, 1).count || 0)
+  const tableExists = {}
   const tableCounts = {}
 
   CHECK_TABLES.forEach((table, index) => {
-    tableCounts[table] = Number(statementFirstRow(statements, index + 2).count || 0)
+    tableExists[table] = Number(statementFirstRow(probes, index + 2).exists_count || 0) > 0
+    tableCounts[table] = 0
   })
 
+  const state = stateTableExists
+    ? statementFirstRow(wranglerD1Statements(args.database, buildStateSql()), 0)
+    : {}
+
+  const existingTables = CHECK_TABLES.filter((table) => tableExists[table])
+  if (existingTables.length > 0) {
+    const countStatements = wranglerD1Statements(args.database, buildTableCountsSql(existingTables))
+    existingTables.forEach((table, index) => {
+      tableCounts[table] = Number(statementFirstRow(countStatements, index).count || 0)
+    })
+  }
+
+  const missingTables = CHECK_TABLES.filter((table) => !tableExists[table])
   const errors = []
-  if (!state.status) errors.push('backup_refresh_state is missing')
+  if (!stateTableExists) errors.push('backup_refresh_state is missing')
+  else if (!state.status) errors.push('backup_refresh_state row is missing')
   else if (state.status !== 'ready') errors.push(`backup status is ${state.status}`)
+  for (const table of missingTables) {
+    errors.push(`backup table ${table} is missing`)
+  }
   if (state.error) errors.push(`backup state error is not empty: ${state.error}`)
   if (ftsObjects !== 0) errors.push(`backup contains ${ftsObjects} course_search/FTS/virtual-table object(s)`)
 
   const result = {
     database: args.database,
     state,
+    stateTableExists,
     ftsObjects,
+    tableExists,
     tableCounts,
+    missingTables,
     ok: errors.length === 0,
     errors
   }
@@ -100,7 +134,8 @@ function main() {
     console.log(`[backup-check] status=${state.status || '(missing)'} started_at=${state.started_at || '(missing)'} finished_at=${state.finished_at || '(missing)'}`)
     console.log(`[backup-check] no_fts_objects=${ftsObjects}`)
     for (const [table, count] of Object.entries(tableCounts)) {
-      console.log(`[backup-check] ${table}=${count}`)
+      const suffix = tableExists[table] ? count : '(missing)'
+      console.log(`[backup-check] ${table}=${suffix}`)
     }
     console.log(result.ok ? '[backup-check] OK' : `[backup-check] FAILED: ${errors.join('; ')}`)
   }
