@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DB_NAME="${D1_DATABASE_NAME:-jcourse-db}"
 WRANGLER_ENV="${WRANGLER_ENV:-}"
 BATCH_SIZE="${REFRESH_REVIEW_INDEX_BATCH_SIZE:-500}"
@@ -38,16 +39,47 @@ run_sql() {
   return 1
 }
 
+parse_count_json() {
+  local json="$1"
+  printf '%s' "$json" | node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+
+const utils = await import(pathToFileURL(process.argv[1]).href);
+let input = "";
+for await (const chunk of process.stdin) input += chunk;
+
+const statements = utils.normalizeWranglerD1Statements(utils.parseWranglerJson(input));
+const row = statements?.[0]?.results?.[0] || {};
+console.log(row.count || 0);
+' "$SCRIPT_DIR/d1-backup-utils.mjs"
+}
+
+parse_course_range_json() {
+  local json="$1"
+  printf '%s' "$json" | node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+
+const utils = await import(pathToFileURL(process.argv[1]).href);
+let input = "";
+for await (const chunk of process.stdin) input += chunk;
+
+const statements = utils.normalizeWranglerD1Statements(utils.parseWranglerJson(input));
+const row = statements?.[0]?.results?.[0] || {};
+console.log([row.min_id || 0, row.max_id || 0, row.course_count || 0].join(" "));
+' "$SCRIPT_DIR/d1-backup-utils.mjs"
+}
+
 query_count() {
   local sql="$1"
   local label="${2:-query-count}"
   local json
+  local count
   local attempt
 
   for attempt in 1 2 3; do
     echo "[$label] attempt $attempt" >&2
-    if json="$(npx wrangler "${wrangler_args[@]}" --json --command "$sql")"; then
-      node -e "const payload = JSON.parse(process.argv[1]); const row = payload?.[0]?.results?.[0] || {}; console.log(row.count || 0);" "$json"
+    if json="$(npx wrangler "${wrangler_args[@]}" --json --command "$sql")" && count="$(parse_count_json "$json")"; then
+      echo "$count"
       return 0
     fi
     sleep $((attempt * 2))
@@ -95,13 +127,7 @@ else
 fi
 
 range_json="$(npx wrangler "${wrangler_args[@]}" --json --command "SELECT MIN(id) AS min_id, MAX(id) AS max_id, COUNT(*) AS course_count FROM courses;")"
-read -r min_id max_id course_count < <(
-  node -e "
-const payload = JSON.parse(process.argv[1]);
-const row = payload?.[0]?.results?.[0] || {};
-console.log([row.min_id || 0, row.max_id || 0, row.course_count || 0].join(' '));
-" "$range_json"
-)
+read -r min_id max_id course_count < <(parse_course_range_json "$range_json")
 
 if [ "$course_count" -eq 0 ]; then
   cleanup_stale_review_index
