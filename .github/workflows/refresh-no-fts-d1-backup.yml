@@ -52,6 +52,8 @@ jobs:
           persist-credentials: false
 
       - name: Validate inputs and secrets
+        env:
+          INPUT_BATCH_SIZE: ${{ github.event.inputs.batchSize || '500' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -61,7 +63,7 @@ jobs:
           if [ -z "${D1_BACKUP_DATABASE_NAME:-}" ]; then echo "Missing D1_BACKUP_DATABASE_NAME" >&2; exit 1; fi
           if [ "$D1_PRIMARY_DATABASE_NAME" = "$D1_BACKUP_DATABASE_NAME" ]; then echo "Primary and backup database names must differ" >&2; exit 1; fi
 
-          batch_size="${{ github.event.inputs.batchSize || '500' }}"
+          batch_size="${INPUT_BATCH_SIZE}"
           if ! [[ "$batch_size" =~ ^[0-9]+$ ]]; then
             echo "batchSize must be numeric" >&2
             exit 1
@@ -79,19 +81,24 @@ jobs:
 
       - name: Refresh backup snapshot
         working-directory: backend
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_BATCH_SIZE: ${{ github.event.inputs.batchSize || '500' }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dryRun || 'false' }}
+          INPUT_SKIP_MATERIALIZE: ${{ github.event.inputs.skipMaterialize || 'false' }}
         shell: bash
         run: |
           set -euo pipefail
           args=(
             --source "$D1_PRIMARY_DATABASE_NAME"
             --target "$D1_BACKUP_DATABASE_NAME"
-            --batch-size "${{ github.event.inputs.batchSize || '500' }}"
+            --batch-size "$INPUT_BATCH_SIZE"
           )
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.dryRun }}" = "true" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_DRY_RUN" = "true" ]; then
             args+=(--dry-run)
           fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.skipMaterialize }}" = "true" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_SKIP_MATERIALIZE" = "true" ]; then
             args+=(--skip-materialize)
           fi
 
