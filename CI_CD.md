@@ -64,7 +64,7 @@ wrangler secret put ADMIN_SECRET
 ```bash
 cd backend
 npx wrangler d1 execute jcourse-db-backup --remote \
-  --command "SELECT status, started_at, finished_at, error FROM backup_refresh_state WHERE id = 1;"
+  --command "SELECT status, started_at, finished_at, error FROM backup_refresh_state WHERE id = 1; SELECT COUNT(*) AS course_search_objects FROM sqlite_master WHERE name LIKE 'course_search%';"
 ```
 
 状态为 `ready` 后，只导出备份库：
@@ -73,6 +73,19 @@ npx wrangler d1 execute jcourse-db-backup --remote \
 cd backend
 npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
 ```
+
+本地只检查复制计划和表计数时，可使用 Wrangler 登录态做 dry-run；如果本地 Wrangler 登录了多个账号，先在本地环境变量或 Wrangler 本地配置中选择账号：
+
+```bash
+cd backend
+node ./scripts/refresh-no-fts-backup.mjs --dry-run
+```
+
+正式全量刷新仍建议优先手动触发 GitHub Actions 的 `Refresh No-FTS D1 Backup` workflow。手动触发时可选择：
+
+- `dryRun`：只检查复制计划和表计数，不修改备份库。
+- `skipMaterialize`：只复制普通表，跳过 no-FTS 派生课程索引刷新，主要用于排查复制问题。
+- `exportSmoke`：刷新成功后对备份库执行一次导出 smoke test，并检查 dump 中不包含 FTS 对象。
 
 `jcourse-db-backup` 是定时快照，不是实时镜像；默认最多可能落后约 24 小时。该库用于导出、ETL 和分析，不替代完整生产灾备策略。
 

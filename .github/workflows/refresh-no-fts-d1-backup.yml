@@ -16,6 +16,16 @@ on:
         required: false
         default: "500"
         type: string
+      skipMaterialize:
+        description: "Skip no-FTS course auxiliary refresh after copying tables"
+        required: false
+        default: false
+        type: boolean
+      exportSmoke:
+        description: "Run a backup export smoke test after refresh"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -77,5 +87,27 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.dryRun }}" = "true" ]; then
             args+=(--dry-run)
           fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.skipMaterialize }}" = "true" ]; then
+            args+=(--skip-materialize)
+          fi
 
           node ./scripts/refresh-no-fts-backup.mjs "${args[@]}"
+
+      - name: Check backup status
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.dryRun == 'true') }}
+        working-directory: backend
+        run: node ./scripts/check-no-fts-backup.mjs
+
+      - name: Export backup smoke test
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.exportSmoke == 'true' && github.event.inputs.dryRun != 'true' }}
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/jcourse-db-backup-smoke.sql"
+          npx wrangler d1 export "$D1_BACKUP_DATABASE_NAME" --remote --output "$output"
+          if grep -Eiq "CREATE VIRTUAL TABLE|fts5|course_search" "$output"; then
+            echo "Backup export unexpectedly contains FTS objects" >&2
+            exit 1
+          fi
+          wc -c "$output"

@@ -211,6 +211,11 @@ function wranglerD1List() {
   return parseWranglerJson(output)
 }
 
+function toBashPath(path) {
+  if (process.platform !== 'win32') return path
+  return String(path).replace(/^([A-Za-z]):\\/, (_, drive) => `/${drive.toLowerCase()}/`).replace(/\\/g, '/')
+}
+
 async function runWranglerDryRun(args) {
   if (!process.env.CLOUDFLARE_ACCOUNT_ID) {
     throw new Error('Wrangler dry-run requires CLOUDFLARE_ACCOUNT_ID when multiple accounts are available')
@@ -423,11 +428,13 @@ async function copyTable({ accountId, sourceId, targetId, tableName, columns, re
 
 function runNoFtsMaterialize(targetName) {
   const scriptPath = resolve(dirname(fileURLToPath(import.meta.url)), 'refresh-review-index-remote.sh')
+  const nodeBinPath = toBashPath(dirname(process.execPath))
   console.log(`[materialize] refresh review index without FTS on ${targetName}`)
   const result = spawnSync('bash', [scriptPath, '--no-fts'], {
     stdio: 'inherit',
     env: {
       ...process.env,
+      PATH: [nodeBinPath, process.env.PATH].filter(Boolean).join(':'),
       D1_DATABASE_NAME: targetName
     }
   })
