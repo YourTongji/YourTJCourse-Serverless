@@ -46,9 +46,21 @@ function windowsShellQuote(value) {
 
 export function parseWranglerJson(output) {
   const text = String(output || '').trim()
-  const start = text.search(/[\[{]/)
-  if (start < 0) throw new Error(`Wrangler returned no JSON payload: ${text.slice(0, 300)}`)
-  return JSON.parse(text.slice(start))
+  const starts = []
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === '{' || text[index] === '[') starts.push(index)
+  }
+
+  for (let index = starts.length - 1; index >= 0; index -= 1) {
+    try {
+      return JSON.parse(text.slice(starts[index]))
+    } catch {
+      // Keep scanning; Wrangler may print bracketed logs before the JSON payload.
+    }
+  }
+
+  throw new Error(`Wrangler returned no JSON payload: ${text.slice(0, 300)}`)
 }
 
 export function normalizeWranglerD1Statements(payload) {

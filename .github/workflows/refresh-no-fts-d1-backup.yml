@@ -110,7 +110,7 @@ jobs:
           set -euo pipefail
           output="$RUNNER_TEMP/jcourse-db-backup-smoke.sql"
           npx wrangler d1 export "$D1_BACKUP_DATABASE_NAME" --remote --output "$output"
-          if grep -Eiq "CREATE VIRTUAL TABLE|fts5|course_search" "$output"; then
+          if grep -Eiq '^[[:space:]]*CREATE[[:space:]]+.*(VIRTUAL[[:space:]]+TABLE|fts5|course_search)' "$output"; then
             echo "Backup export unexpectedly contains FTS objects" >&2
             exit 1
           fi

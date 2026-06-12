@@ -40,17 +40,39 @@ run_sql() {
 
 query_count() {
   local sql="$1"
+  local label="${2:-query-count}"
   local json
-  json="$(npx wrangler "${wrangler_args[@]}" --json --command "$sql")"
-  node -e "const payload = JSON.parse(process.argv[1]); const row = payload?.[0]?.results?.[0] || {}; console.log(row.count || 0);" "$json"
+  local attempt
+
+  for attempt in 1 2 3; do
+    echo "[$label] attempt $attempt" >&2
+    if json="$(npx wrangler "${wrangler_args[@]}" --json --command "$sql")"; then
+      node -e "const payload = JSON.parse(process.argv[1]); const row = payload?.[0]?.results?.[0] || {}; console.log(row.count || 0);" "$json"
+      return 0
+    fi
+    sleep $((attempt * 2))
+  done
+
+  echo "[$label] failed after retries" >&2
+  return 1
 }
 
 assert_no_fts_objects() {
   local fts_count
-  fts_count="$(query_count "$NO_FTS_OBJECT_COUNT_SQL")"
+  if ! fts_count="$(query_count "$NO_FTS_OBJECT_COUNT_SQL" "assert-no-fts-objects")"; then
+    exit 1
+  fi
   if [ "$fts_count" -ne 0 ]; then
     echo "No-FTS mode found $fts_count course_search/FTS/virtual-table object(s)" >&2
     exit 1
+  fi
+}
+
+cleanup_stale_review_index() {
+  if [ "$NO_FTS" -eq 1 ]; then
+    run_sql "cleanup-stale-review-index-no-fts" "DELETE FROM course_semesters WHERE course_id NOT IN (SELECT id FROM courses); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+  else
+    run_sql "cleanup-stale-review-index" "DELETE FROM course_semesters WHERE course_id NOT IN (SELECT id FROM courses); DELETE FROM course_search WHERE course_id NOT IN (SELECT id FROM courses); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
   fi
 }
 
@@ -82,6 +104,7 @@ console.log([row.min_id || 0, row.max_id || 0, row.course_count || 0].join(' '))
 )
 
 if [ "$course_count" -eq 0 ]; then
+  cleanup_stale_review_index
   if [ "$NO_FTS" -eq 1 ]; then
     assert_no_fts_objects
   fi
@@ -100,11 +123,11 @@ while [ "$start" -le "$max_id" ]; do
 done
 
 if [ "$NO_FTS" -eq 1 ]; then
-  run_sql "cleanup-stale-review-index-no-fts" "DELETE FROM course_semesters WHERE course_id NOT IN (SELECT id FROM courses); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+  cleanup_stale_review_index
   assert_no_fts_objects
   npx wrangler "${wrangler_args[@]}" --command "SELECT key,value FROM settings WHERE key='aux_schema_version'; SELECT COUNT(*) AS course_count FROM courses; SELECT COUNT(*) AS course_semester_count FROM course_semesters; SELECT COUNT(*) AS nonempty_semester_count FROM course_semesters WHERE TRIM(COALESCE(semester_names,'')) != ''; SELECT COUNT(*) AS no_fts_object_count FROM sqlite_master WHERE name LIKE 'course_search%' OR LOWER(COALESCE(sql, '')) LIKE '%create virtual table%' OR LOWER(COALESCE(sql, '')) LIKE '%fts5%';"
   exit 0
 fi
 
-run_sql "cleanup-stale-review-index" "DELETE FROM course_semesters WHERE course_id NOT IN (SELECT id FROM courses); DELETE FROM course_search WHERE course_id NOT IN (SELECT id FROM courses); INSERT OR REPLACE INTO settings (key, value) VALUES ('aux_schema_version', '$AUX_SCHEMA_VERSION');"
+cleanup_stale_review_index
 npx wrangler "${wrangler_args[@]}" --command "SELECT key,value FROM settings WHERE key='aux_schema_version'; SELECT COUNT(*) AS course_count FROM courses; SELECT COUNT(*) AS course_semester_count FROM course_semesters; SELECT COUNT(*) AS course_search_count FROM course_search; SELECT COUNT(*) AS nonempty_semester_count FROM course_semesters WHERE TRIM(COALESCE(semester_names,'')) != '';"
