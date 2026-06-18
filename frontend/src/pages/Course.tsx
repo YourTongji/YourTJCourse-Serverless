@@ -54,6 +54,9 @@ interface RelatedCourseData {
 }
 
 const MOBILE_RELATED_BREAKPOINT = 1024
+const REPORT_DESCRIPTION_MIN_LENGTH = 40
+const REPORT_DESCRIPTION_MAX_LENGTH = 1000
+const REPORT_DESCRIPTION_TEMPLATE = '1. 被举报内容：\n2. 违规说明：\n3. 补充证据/链接：'
 
 type SharePreviewState = {
   review: Review
@@ -63,6 +66,26 @@ type SharePreviewState = {
 }
 
 const AVATAR_COLORS = ['#0f172a', '#38bdf8', '#f8fafc', '#f59e0b', '#22c55e']
+
+function countReportDescriptionChars(value: string): number {
+  return Array.from(String(value || '').replace(/\s/g, '')).length
+}
+
+function getReportDescriptionParts(value: string) {
+  const text = String(value || '')
+  const content = text.match(/(?:^|\n)\s*1[.．、]\s*被举报内容\s*[：:]\s*([\s\S]*?)(?=\n\s*2[.．、]\s*违规说明\s*[：:]|$)/)?.[1]?.trim() || ''
+  const violation = text.match(/(?:^|\n)\s*2[.．、]\s*违规说明\s*[：:]\s*([\s\S]*?)(?=\n\s*3[.．、]\s*补充证据\/链接\s*[：:]|$)/)?.[1]?.trim() || ''
+  const evidence = text.match(/(?:^|\n)\s*3[.．、]\s*补充证据\/链接\s*[：:]\s*([\s\S]*)$/)?.[1]?.trim() || ''
+
+  return {
+    content,
+    violation,
+    evidence,
+    formatValid: /(?:^|\n)\s*1[.．、]\s*被举报内容\s*[：:]/.test(text)
+      && /(?:^|\n)\s*2[.．、]\s*违规说明\s*[：:]/.test(text)
+      && /(?:^|\n)\s*3[.．、]\s*补充证据\/链接\s*[：:]/.test(text)
+  }
+}
 
 function formatRating(value: number) {
   return Number(value || 0) > 0 ? value.toFixed(1) : '-'
@@ -528,6 +551,8 @@ export default function Course() {
   const [shareBusyId, setShareBusyId] = useState<number | null>(null)
   const [reportTarget, setReportTarget] = useState<Review | null>(null)
   const [reportBusy, setReportBusy] = useState(false)
+  const [reportReason, setReportReason] = useState('')
+  const [reportDescription, setReportDescription] = useState(REPORT_DESCRIPTION_TEMPLATE)
 
   const REPORT_REASONS = [
     { key: 'spam', label: '垃圾广告' },
@@ -680,20 +705,54 @@ export default function Course() {
 
   const openReport = (review: Review) => {
     setReportTarget(review)
+    setReportReason('')
+    setReportDescription(REPORT_DESCRIPTION_TEMPLATE)
   }
 
-  const submitReport = async (reason: string) => {
+  const closeReport = () => {
+    if (reportBusy) return
+    setReportTarget(null)
+    setReportReason('')
+    setReportDescription(REPORT_DESCRIPTION_TEMPLATE)
+  }
+
+  const reportDescriptionParts = useMemo(() => getReportDescriptionParts(reportDescription), [reportDescription])
+  const reportDescriptionLength = useMemo(
+    () => countReportDescriptionChars(`${reportDescriptionParts.content}${reportDescriptionParts.violation}${reportDescriptionParts.evidence}`),
+    [reportDescriptionParts]
+  )
+  const reportDescriptionError = useMemo(() => {
+    if (!reportReason) return '请选择举报原因'
+    if (!reportDescriptionParts.formatValid) return '请保留固定格式'
+    if (!reportDescriptionParts.content || !reportDescriptionParts.violation) return '请填写被举报内容和违规说明'
+    if (reportDescriptionLength < REPORT_DESCRIPTION_MIN_LENGTH) {
+      return `举报说明至少需要 ${REPORT_DESCRIPTION_MIN_LENGTH} 字，还差 ${REPORT_DESCRIPTION_MIN_LENGTH - reportDescriptionLength} 字`
+    }
+    if (Array.from(reportDescription).length > REPORT_DESCRIPTION_MAX_LENGTH) {
+      return `举报说明不能超过 ${REPORT_DESCRIPTION_MAX_LENGTH} 字`
+    }
+    return ''
+  }, [reportDescription, reportDescriptionLength, reportDescriptionParts, reportReason])
+  const canSubmitReport = Boolean(reportTarget) && !reportBusy && !reportDescriptionError
+
+  const submitReport = async () => {
     const review = reportTarget
     if (!review || !review.id || reportBusy) return
+    if (reportDescriptionError) {
+      showToast(reportDescriptionError, 'error')
+      return
+    }
     setReportBusy(true)
     try {
-      await reportReview(review.id, clientId, reason)
+      await reportReview(review.id, clientId, reportReason, reportDescription.trim())
       showToast('举报已提交，感谢您的反馈', 'success')
+      setReportTarget(null)
+      setReportReason('')
+      setReportDescription(REPORT_DESCRIPTION_TEMPLATE)
     } catch (e: any) {
       showToast(e?.message || '提交失败', 'error')
     } finally {
       setReportBusy(false)
-      setReportTarget(null)
     }
   }
 
@@ -1232,31 +1291,67 @@ export default function Course() {
 
       {/* Report modal */}
       {reportTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setReportTarget(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={closeReport}>
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
-          <div className="relative w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="text-lg font-extrabold text-slate-800 mb-1">举报评价</div>
-            <p className="text-sm text-slate-500 mb-4">请选择举报原因：</p>
-            <div className="flex flex-col gap-2">
+            <p className="text-sm text-slate-500 mb-4">请选择举报原因并填写说明：</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {REPORT_REASONS.map((item) => (
                 <button
                   key={item.key}
                   type="button"
                   disabled={reportBusy}
-                  onClick={() => submitReport(item.key)}
-                  className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors disabled:opacity-50"
+                  onClick={() => setReportReason(item.key)}
+                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold transition-colors disabled:opacity-50 ${
+                    reportReason === item.key
+                      ? 'border-red-300 bg-red-50 text-red-700'
+                      : 'border-slate-200 text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700'
+                  }`}
                 >
                   {item.label}
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              className="mt-4 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
-              onClick={() => setReportTarget(null)}
-            >
-              取消
-            </button>
+            <label className="mt-4 block text-sm font-bold text-slate-700" htmlFor="report-description">
+              举报说明
+            </label>
+            <textarea
+              id="report-description"
+              className="mt-2 h-40 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100 disabled:bg-slate-50"
+              value={reportDescription}
+              maxLength={REPORT_DESCRIPTION_MAX_LENGTH}
+              disabled={reportBusy}
+              onChange={(e) => setReportDescription(e.target.value)}
+              onPaste={(e) => e.preventDefault()}
+              onDrop={(e) => e.preventDefault()}
+            />
+            <div className="mt-2 flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between">
+              <span className={reportDescriptionError ? 'font-semibold text-red-500' : 'text-slate-500'}>
+                {reportDescriptionError || '说明已符合提交要求'}
+              </span>
+              <span className={reportDescriptionLength >= REPORT_DESCRIPTION_MIN_LENGTH ? 'font-bold text-emerald-600' : 'font-bold text-slate-500'}>
+                {reportDescriptionLength}/{REPORT_DESCRIPTION_MIN_LENGTH}
+              </span>
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                disabled={reportBusy}
+                onClick={closeReport}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-xl border border-red-500 bg-red-500 py-2.5 text-sm font-bold text-white transition-colors hover:bg-red-600 disabled:border-slate-200 disabled:bg-slate-200 disabled:text-slate-500"
+                disabled={!canSubmitReport}
+                onClick={submitReport}
+              >
+                {reportBusy ? '提交中...' : '提交举报'}
+              </button>
+            </div>
           </div>
         </div>
       )}
