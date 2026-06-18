@@ -238,7 +238,7 @@ const REPORT_REASONS: Array<{ key: string; label: string }> = [
   { key: 'misinformation', label: '虚假信息' },
   { key: 'other', label: '其他' },
 ]
-const REPORT_DESCRIPTION_MIN_LENGTH = 40
+const REPORT_DESCRIPTION_MIN_LENGTH = 35
 const REPORT_DESCRIPTION_MAX_LENGTH = 1000
 const REPORT_DESCRIPTION_TEMPLATE = '1. 被举报内容：\n2. 违规说明：\n3. 补充证据/链接：'
 
