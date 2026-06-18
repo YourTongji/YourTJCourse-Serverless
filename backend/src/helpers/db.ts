@@ -513,6 +513,7 @@ export async function ensureReviewReportsTable(db: D1Database) {
             review_id INTEGER NOT NULL,
             client_id TEXT NOT NULL,
             reason TEXT NOT NULL,
+            description TEXT DEFAULT '',
             status TEXT DEFAULT 'open',
             admin_note TEXT,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
@@ -526,6 +527,7 @@ export async function ensureReviewReportsTable(db: D1Database) {
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_review_id ON review_reports(review_id)').run()
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_status ON review_reports(status)').run()
       // Migration: add columns if upgrading from v1 table
+      try { await db.prepare("ALTER TABLE review_reports ADD COLUMN description TEXT DEFAULT ''").run() } catch {}
       try { await db.prepare('ALTER TABLE review_reports ADD COLUMN admin_note TEXT').run() } catch {}
       try { await db.prepare('ALTER TABLE review_reports ADD COLUMN resolved_at INTEGER').run() } catch {}
     })().catch((err) => {

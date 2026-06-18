@@ -50,6 +50,14 @@ const publicRoutes = new Hono<{ Bindings: Bindings }>()
 type AppContext = Context<{ Bindings: Bindings }>
 
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'other'])
+const REPORT_DESCRIPTION_MAX_LENGTH = 1000
+
+function normalizeReportDescription(value: unknown): string {
+  return String(value ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim()
+}
 
 function containsLikePattern(value: string) {
   return `%${escapeLikePattern(value)}%`
@@ -1382,6 +1390,11 @@ publicRoutes.post('/review/:id/report', async (c) => {
   const requestedClientId = String(body?.clientId || '').trim()
   const rawReason = String(body?.reason || '').trim()
   const reason = REPORT_REASONS.has(rawReason) ? rawReason : 'other'
+  const description = normalizeReportDescription(body?.description)
+
+  if (Array.from(description).length > REPORT_DESCRIPTION_MAX_LENGTH) {
+    return c.json({ error: `举报说明不能超过 ${REPORT_DESCRIPTION_MAX_LENGTH} 字` }, 400)
+  }
 
   if (!requestedClientId) return c.json({ error: 'Missing clientId' }, 400)
 
@@ -1402,13 +1415,13 @@ publicRoutes.post('/review/:id/report', async (c) => {
 
   const report = await c.env.DB
     .prepare(
-      `INSERT INTO review_reports (review_id, client_id, reason, status, created_at, updated_at)
-       VALUES (?, ?, ?, 'open', strftime('%s', 'now'), strftime('%s', 'now'))
+      `INSERT INTO review_reports (review_id, client_id, reason, description, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'open', strftime('%s', 'now'), strftime('%s', 'now'))
        ON CONFLICT(review_id, client_id)
        DO NOTHING
        RETURNING id`
     )
-    .bind(id, clientId, reason)
+    .bind(id, clientId, reason, description)
     .first<{ id: number }>()
 
   const reportId = Number(report?.id || 0) || null
@@ -1425,10 +1438,10 @@ publicRoutes.post('/review/:id/report', async (c) => {
     await c.env.DB
       .prepare(
         `UPDATE review_reports
-         SET reason = ?, status = 'open', updated_at = strftime('%s', 'now')
+         SET reason = ?, description = ?, status = 'open', updated_at = strftime('%s', 'now')
          WHERE review_id = ? AND client_id = ?`
       )
-      .bind(reason, id, clientId)
+      .bind(reason, description, id, clientId)
       .run()
     effectiveReportId = Number(existing?.id || 0) || null
   }
@@ -1448,6 +1461,7 @@ publicRoutes.post('/review/:id/report', async (c) => {
         courseName: String(reviewRow.course_name || ''),
         courseId: Number(reviewRow.course_id),
         reason,
+        description,
         reporterClientId: clientId,
         reviewSnippet: String(reviewRow.comment || '').trim(),
         rating: Number(reviewRow.rating || 0),

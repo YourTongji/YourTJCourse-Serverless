@@ -93,6 +93,7 @@ CREATE TABLE review_reports (
     review_id INTEGER NOT NULL,
     client_id TEXT NOT NULL,
     reason TEXT NOT NULL,
+    description TEXT DEFAULT '',
     status TEXT DEFAULT 'open',
     admin_note TEXT,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
