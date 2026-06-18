@@ -20,6 +20,7 @@ export interface ReportNotificationPayload {
   courseName: string
   courseId: number
   reason: string
+  description?: string
   reporterClientId: string
   reviewSnippet: string
   rating: number
@@ -198,6 +199,11 @@ export async function notifyReportToFeishu(
         ? `${payload.reviewSnippet.slice(0, 198)}…`
         : payload.reviewSnippet
     )
+    const description = normalizeFeishuText(
+      String(payload.description || '').length > 600
+        ? `${String(payload.description || '').slice(0, 598)}…`
+        : String(payload.description || '')
+    ).trim()
     const stars = '★'.repeat(Math.round(payload.rating)) + '☆'.repeat(5 - Math.round(payload.rating))
 
     const body: any = {
@@ -231,6 +237,11 @@ export async function notifyReportToFeishu(
             {
               tag: 'markdown',
               content: `**评论内容**\n${snippet || '（无文本内容）'}`,
+              text_align: 'left' as const,
+            },
+            {
+              tag: 'markdown',
+              content: `**举报说明**\n${description || '（未填写）'}`,
               text_align: 'left' as const,
             },
             { tag: 'hr' },
