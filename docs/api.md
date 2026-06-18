@@ -114,6 +114,19 @@ DELETE /api/review/:id/like
 }
 ```
 
+举报评价请求体示例：
+
+```json
+{
+  "clientId": "浏览器生成的客户端标识",
+  "reason": "spam | harassment | misinformation | other",
+  "description": "1. 被举报内容：...\n2. 违规说明：...\n3. 补充证据/链接：..."
+}
+```
+
+- `description` 由前端按固定格式强制填写，提交前要求说明正文不少于 40 字且禁止粘贴。
+- 后端兼容旧客户端未传 `description` 的请求；传入时最多 1000 字，并会展示在飞书举报通知卡片中。
+
 点赞接口需要传入 `clientId`，后端会结合请求信息派生服务端识别键，避免直接信任前端指纹：
 
 ```json
