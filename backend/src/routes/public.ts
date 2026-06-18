@@ -50,7 +50,7 @@ const publicRoutes = new Hono<{ Bindings: Bindings }>()
 type AppContext = Context<{ Bindings: Bindings }>
 
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'other'])
-const REPORT_DESCRIPTION_MIN_LENGTH = 35
+const REPORT_DESCRIPTION_MIN_LENGTH = 50
 const REPORT_DESCRIPTION_MAX_LENGTH = 1000
 
 function normalizeReportDescription(value: unknown): string {
@@ -62,22 +62,6 @@ function normalizeReportDescription(value: unknown): string {
 
 function countReportDescriptionChars(value: string): number {
   return Array.from(String(value || '').replace(/\s/g, '')).length
-}
-
-function getReportDescriptionParts(value: string) {
-  const text = String(value || '')
-  const content = text.match(/(?:^|\n)\s*1[.．、]\s*被举报内容\s*[：:]\s*([\s\S]*?)(?=\n\s*2[.．、]\s*违规说明\s*[：:]|$)/)?.[1]?.trim() || ''
-  const violation = text.match(/(?:^|\n)\s*2[.．、]\s*违规说明\s*[：:]\s*([\s\S]*?)(?=\n\s*3[.．、]\s*补充证据\/链接\s*[：:]|$)/)?.[1]?.trim() || ''
-  const evidence = text.match(/(?:^|\n)\s*3[.．、]\s*补充证据\/链接\s*[：:]\s*([\s\S]*)$/)?.[1]?.trim() || ''
-
-  return {
-    content,
-    violation,
-    evidence,
-    formatValid: /(?:^|\n)\s*1[.．、]\s*被举报内容\s*[：:]/.test(text)
-      && /(?:^|\n)\s*2[.．、]\s*违规说明\s*[：:]/.test(text)
-      && /(?:^|\n)\s*3[.．、]\s*补充证据\/链接\s*[：:]/.test(text)
-  }
 }
 
 function containsLikePattern(value: string) {
@@ -1421,14 +1405,8 @@ publicRoutes.post('/review/:id/report', async (c) => {
     return c.json({ error: `举报说明不能超过 ${REPORT_DESCRIPTION_MAX_LENGTH} 字` }, 400)
   }
   if (hasDescription) {
-    const descriptionParts = getReportDescriptionParts(description)
-    const descriptionLength = countReportDescriptionChars(
-      `${descriptionParts.content}${descriptionParts.violation}${descriptionParts.evidence}`
-    )
-    if (!descriptionParts.formatValid) return c.json({ error: '请保留举报说明固定格式' }, 400)
-    if (!descriptionParts.content || !descriptionParts.violation) {
-      return c.json({ error: '请填写被举报内容和违规说明' }, 400)
-    }
+    const descriptionLength = countReportDescriptionChars(description)
+    if (!description) return c.json({ error: '请填写举报说明' }, 400)
     if (descriptionLength < REPORT_DESCRIPTION_MIN_LENGTH) {
       return c.json({ error: `举报说明至少需要 ${REPORT_DESCRIPTION_MIN_LENGTH} 字` }, 400)
     }

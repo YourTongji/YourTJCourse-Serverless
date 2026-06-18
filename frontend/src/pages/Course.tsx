@@ -54,9 +54,8 @@ interface RelatedCourseData {
 }
 
 const MOBILE_RELATED_BREAKPOINT = 1024
-const REPORT_DESCRIPTION_MIN_LENGTH = 35
+const REPORT_DESCRIPTION_MIN_LENGTH = 50
 const REPORT_DESCRIPTION_MAX_LENGTH = 1000
-const REPORT_DESCRIPTION_TEMPLATE = '1. 被举报内容：\n2. 违规说明：\n3. 补充证据/链接：'
 
 type SharePreviewState = {
   review: Review
@@ -69,22 +68,6 @@ const AVATAR_COLORS = ['#0f172a', '#38bdf8', '#f8fafc', '#f59e0b', '#22c55e']
 
 function countReportDescriptionChars(value: string): number {
   return Array.from(String(value || '').replace(/\s/g, '')).length
-}
-
-function getReportDescriptionParts(value: string) {
-  const text = String(value || '')
-  const content = text.match(/(?:^|\n)\s*1[.．、]\s*被举报内容\s*[：:]\s*([\s\S]*?)(?=\n\s*2[.．、]\s*违规说明\s*[：:]|$)/)?.[1]?.trim() || ''
-  const violation = text.match(/(?:^|\n)\s*2[.．、]\s*违规说明\s*[：:]\s*([\s\S]*?)(?=\n\s*3[.．、]\s*补充证据\/链接\s*[：:]|$)/)?.[1]?.trim() || ''
-  const evidence = text.match(/(?:^|\n)\s*3[.．、]\s*补充证据\/链接\s*[：:]\s*([\s\S]*)$/)?.[1]?.trim() || ''
-
-  return {
-    content,
-    violation,
-    evidence,
-    formatValid: /(?:^|\n)\s*1[.．、]\s*被举报内容\s*[：:]/.test(text)
-      && /(?:^|\n)\s*2[.．、]\s*违规说明\s*[：:]/.test(text)
-      && /(?:^|\n)\s*3[.．、]\s*补充证据\/链接\s*[：:]/.test(text)
-  }
 }
 
 function formatRating(value: number) {
@@ -552,7 +535,7 @@ export default function Course() {
   const [reportTarget, setReportTarget] = useState<Review | null>(null)
   const [reportBusy, setReportBusy] = useState(false)
   const [reportReason, setReportReason] = useState('')
-  const [reportDescription, setReportDescription] = useState(REPORT_DESCRIPTION_TEMPLATE)
+  const [reportDescription, setReportDescription] = useState('')
 
   const REPORT_REASONS = [
     { key: 'spam', label: '垃圾广告' },
@@ -706,25 +689,20 @@ export default function Course() {
   const openReport = (review: Review) => {
     setReportTarget(review)
     setReportReason('')
-    setReportDescription(REPORT_DESCRIPTION_TEMPLATE)
+    setReportDescription('')
   }
 
   const closeReport = () => {
     if (reportBusy) return
     setReportTarget(null)
     setReportReason('')
-    setReportDescription(REPORT_DESCRIPTION_TEMPLATE)
+    setReportDescription('')
   }
 
-  const reportDescriptionParts = useMemo(() => getReportDescriptionParts(reportDescription), [reportDescription])
-  const reportDescriptionLength = useMemo(
-    () => countReportDescriptionChars(`${reportDescriptionParts.content}${reportDescriptionParts.violation}${reportDescriptionParts.evidence}`),
-    [reportDescriptionParts]
-  )
+  const reportDescriptionLength = useMemo(() => countReportDescriptionChars(reportDescription), [reportDescription])
   const reportDescriptionError = useMemo(() => {
     if (!reportReason) return '请选择举报原因'
-    if (!reportDescriptionParts.formatValid) return '请保留固定格式'
-    if (!reportDescriptionParts.content || !reportDescriptionParts.violation) return '请填写被举报内容和违规说明'
+    if (!reportDescription.trim()) return '请填写举报说明'
     if (reportDescriptionLength < REPORT_DESCRIPTION_MIN_LENGTH) {
       return `举报说明至少需要 ${REPORT_DESCRIPTION_MIN_LENGTH} 字，还差 ${REPORT_DESCRIPTION_MIN_LENGTH - reportDescriptionLength} 字`
     }
@@ -732,7 +710,7 @@ export default function Course() {
       return `举报说明不能超过 ${REPORT_DESCRIPTION_MAX_LENGTH} 字`
     }
     return ''
-  }, [reportDescription, reportDescriptionLength, reportDescriptionParts, reportReason])
+  }, [reportDescription, reportDescriptionLength, reportReason])
   const canSubmitReport = Boolean(reportTarget) && !reportBusy && !reportDescriptionError
 
   const submitReport = async () => {
@@ -748,7 +726,7 @@ export default function Course() {
       showToast('举报已提交，感谢您的反馈', 'success')
       setReportTarget(null)
       setReportReason('')
-      setReportDescription(REPORT_DESCRIPTION_TEMPLATE)
+      setReportDescription('')
     } catch (e: any) {
       showToast(e?.message || '提交失败', 'error')
     } finally {
@@ -1314,7 +1292,7 @@ export default function Course() {
               ))}
             </div>
             <label className="mt-4 block text-sm font-bold text-slate-700" htmlFor="report-description">
-              举报说明
+              举报说明（包含举报原因和具体的违规内容）
             </label>
             <textarea
               id="report-description"

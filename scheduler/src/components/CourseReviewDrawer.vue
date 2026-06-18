@@ -184,7 +184,7 @@
         {{ item.label }}
       </button>
     </div>
-    <label class="mt-4 block text-sm font-bold text-slate-700" for="report-description">举报说明</label>
+    <label class="mt-4 block text-sm font-bold text-slate-700" for="report-description">举报说明（包含举报原因和具体的违规内容）</label>
     <textarea
       id="report-description"
       v-model="reportDescription"
@@ -238,28 +238,11 @@ const REPORT_REASONS: Array<{ key: string; label: string }> = [
   { key: 'misinformation', label: '虚假信息' },
   { key: 'other', label: '其他' },
 ]
-const REPORT_DESCRIPTION_MIN_LENGTH = 35
+const REPORT_DESCRIPTION_MIN_LENGTH = 50
 const REPORT_DESCRIPTION_MAX_LENGTH = 1000
-const REPORT_DESCRIPTION_TEMPLATE = '1. 被举报内容：\n2. 违规说明：\n3. 补充证据/链接：'
 
 function countReportDescriptionChars(value: string): number {
   return Array.from(String(value || '').replace(/\s/g, '')).length
-}
-
-function getReportDescriptionParts(value: string) {
-  const text = String(value || '')
-  const content = text.match(/(?:^|\n)\s*1[.．、]\s*被举报内容\s*[：:]\s*([\s\S]*?)(?=\n\s*2[.．、]\s*违规说明\s*[：:]|$)/)?.[1]?.trim() || ''
-  const violation = text.match(/(?:^|\n)\s*2[.．、]\s*违规说明\s*[：:]\s*([\s\S]*?)(?=\n\s*3[.．、]\s*补充证据\/链接\s*[：:]|$)/)?.[1]?.trim() || ''
-  const evidence = text.match(/(?:^|\n)\s*3[.．、]\s*补充证据\/链接\s*[：:]\s*([\s\S]*)$/)?.[1]?.trim() || ''
-
-  return {
-    content,
-    violation,
-    evidence,
-    formatValid: /(?:^|\n)\s*1[.．、]\s*被举报内容\s*[：:]/.test(text)
-      && /(?:^|\n)\s*2[.．、]\s*违规说明\s*[：:]/.test(text)
-      && /(?:^|\n)\s*3[.．、]\s*补充证据\/链接\s*[：:]/.test(text)
-  }
 }
 
 type Review = {
@@ -301,7 +284,7 @@ export default {
       reportModalVisible: false,
       reportTargetReview: null as any,
       reportReason: '',
-      reportDescription: REPORT_DESCRIPTION_TEMPLATE,
+      reportDescription: '',
     }
   },
   computed: {
@@ -337,16 +320,12 @@ export default {
     reportDescriptionMaxLength(): number {
       return REPORT_DESCRIPTION_MAX_LENGTH
     },
-    reportDescriptionParts() {
-      return getReportDescriptionParts(this.reportDescription)
-    },
     reportDescriptionLength(): number {
-      return countReportDescriptionChars(`${this.reportDescriptionParts.content}${this.reportDescriptionParts.violation}${this.reportDescriptionParts.evidence}`)
+      return countReportDescriptionChars(this.reportDescription)
     },
     reportDescriptionError(): string {
       if (!this.reportReason) return '请选择举报原因'
-      if (!this.reportDescriptionParts.formatValid) return '请保留固定格式'
-      if (!this.reportDescriptionParts.content || !this.reportDescriptionParts.violation) return '请填写被举报内容和违规说明'
+      if (!this.reportDescription.trim()) return '请填写举报说明'
       if (this.reportDescriptionLength < REPORT_DESCRIPTION_MIN_LENGTH) {
         return `举报说明至少需要 ${REPORT_DESCRIPTION_MIN_LENGTH} 字，还差 ${REPORT_DESCRIPTION_MIN_LENGTH - this.reportDescriptionLength} 字`
       }
@@ -445,7 +424,7 @@ export default {
     openReportModal(r: any) {
       this.reportTargetReview = r
       this.reportReason = ''
-      this.reportDescription = REPORT_DESCRIPTION_TEMPLATE
+      this.reportDescription = ''
       this.reportModalVisible = true
     },
     closeReportModal() {
@@ -456,7 +435,7 @@ export default {
       this.reportModalVisible = false
       this.reportTargetReview = null
       this.reportReason = ''
-      this.reportDescription = REPORT_DESCRIPTION_TEMPLATE
+      this.reportDescription = ''
     },
     async submitReport() {
       const r = this.reportTargetReview
