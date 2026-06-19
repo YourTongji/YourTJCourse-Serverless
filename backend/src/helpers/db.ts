@@ -500,6 +500,35 @@ export async function ensureReviewLikesTable(db: D1Database) {
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_likes_client_id ON review_likes(client_id)').run()
 }
 
+const reviewDislikesInitPromises = new WeakMap<D1Database, Promise<void>>()
+
+export async function ensureReviewDislikesTable(db: D1Database) {
+  let initPromise = reviewDislikesInitPromises.get(db)
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db
+        .prepare(
+          `CREATE TABLE IF NOT EXISTS review_dislikes (
+            review_id INTEGER NOT NULL,
+            client_id TEXT NOT NULL,
+            created_at INTEGER DEFAULT (strftime('%s', 'now')),
+            PRIMARY KEY (review_id, client_id),
+            FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
+          )`
+        )
+        .run()
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_dislikes_review_id ON review_dislikes(review_id)').run()
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_dislikes_client_id ON review_dislikes(client_id)').run()
+    })().catch((err) => {
+      reviewDislikesInitPromises.delete(db)
+      throw err
+    })
+    reviewDislikesInitPromises.set(db, initPromise)
+  }
+
+  await initPromise
+}
+
 const reviewReportsInitPromises = new WeakMap<D1Database, Promise<void>>()
 
 export async function ensureReviewReportsTable(db: D1Database) {

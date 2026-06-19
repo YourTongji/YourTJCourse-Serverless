@@ -17,6 +17,7 @@ import {
   Flag,
   Share2,
   Pencil,
+  ThumbsDown,
 } from "lucide-react";
 import { Card, CardContent } from "~/components/ui/card";
 import { Badge } from "~/components/ui/badge";
@@ -46,6 +47,8 @@ interface Review {
   reviewer_avatar: string;
   like_count: number;
   liked: boolean;
+  dislike_count: number;
+  disliked: boolean;
   can_edit?: boolean;
 }
 
@@ -165,6 +168,8 @@ function ReviewCard({
   const queryClient = useQueryClient();
   const [liked, setLiked] = useState(review.liked);
   const [likeCount, setLikeCount] = useState(review.like_count);
+  const [disliked, setDisliked] = useState(review.disliked);
+  const [dislikeCount, setDislikeCount] = useState(review.dislike_count);
 
   const likeMutation = useMutation({
     mutationFn: async ({ liked: wasLiked }: { liked: boolean }) => {
@@ -185,6 +190,40 @@ function ReviewCard({
     onError: (_err, { liked: wasLiked }) => {
       setLiked(wasLiked);
       setLikeCount((c) => (wasLiked ? c + 1 : c - 1));
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["course"] });
+    },
+  });
+
+  const dislikeMutation = useMutation({
+    mutationFn: async ({ disliked: wasDisliked }: { disliked: boolean }) => {
+      const clientId = getClientId();
+      const res = await fetch(`/api/review/${review.id}/dislike`, {
+        method: wasDisliked ? "DELETE" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId }),
+      });
+      if (!res.ok) throw new Error("Failed to toggle dislike");
+      return res.json();
+    },
+    onMutate: async ({ disliked: wasDisliked }) => {
+      await queryClient.cancelQueries({ queryKey: ["course"] });
+      const prevLiked = liked;
+      setDisliked((prev) => !prev);
+      setDislikeCount((c) => (wasDisliked ? c - 1 : c + 1));
+      if (!wasDisliked && prevLiked) {
+        setLiked(false);
+        setLikeCount((c) => Math.max(0, c - 1));
+      }
+    },
+    onError: (_err, { disliked: wasDisliked }) => {
+      setDisliked(wasDisliked);
+      setDislikeCount((c) => (wasDisliked ? c + 1 : c - 1));
+      if (!wasDisliked && liked) {
+        setLiked(true);
+        setLikeCount((c) => c + 1);
+      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["course"] });
@@ -253,6 +292,24 @@ function ReviewCard({
               className={`size-3.5 ${liked ? "fill-red-500 text-red-500" : ""}`}
             />
             {likeCount > 0 && <span>{likeCount}</span>}
+          </Button>
+
+          {/* Dislike */}
+          <Button
+            variant="ghost"
+            size="xs"
+            className={`gap-1 text-xs h-6 px-2 ${
+              disliked
+                ? "text-slate-700 hover:text-slate-800"
+                : "text-muted-foreground"
+            }`}
+            onClick={() => dislikeMutation.mutate({ disliked })}
+            disabled={dislikeMutation.isPending}
+          >
+            <ThumbsDown
+              className={`size-3.5 ${disliked ? "fill-slate-500 text-slate-600" : ""}`}
+            />
+            {dislikeCount > 0 && <span>{dislikeCount}</span>}
           </Button>
 
           {/* Share */}

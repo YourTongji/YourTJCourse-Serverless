@@ -98,6 +98,8 @@ export interface ReviewObject {
   reviewer_avatar: string | null;
   like_count: number;
   liked?: boolean;
+  dislike_count: number;
+  disliked?: boolean;
   can_edit?: boolean;
 }
 
@@ -388,6 +390,26 @@ export async function unlikeReview(reviewId: number, clientId: string): Promise<
   }, 15000);
   if (!res.ok) throw new Error("Failed to unlike review");
   return safeJson<{ liked: boolean; like_count: number }>(res);
+}
+
+export async function dislikeReview(reviewId: number, clientId: string): Promise<{ disliked: boolean; dislike_count: number }> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/dislike`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clientId }),
+  }, 15000);
+  if (!res.ok) throw new Error("Failed to dislike review");
+  return safeJson<{ disliked: boolean; dislike_count: number }>(res);
+}
+
+export async function undislikeReview(reviewId: number, clientId: string): Promise<{ disliked: boolean; dislike_count: number }> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/dislike`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clientId }),
+  }, 15000);
+  if (!res.ok) throw new Error("Failed to undislike review");
+  return safeJson<{ disliked: boolean; dislike_count: number }>(res);
 }
 
 export async function patchReviewEditToken(
