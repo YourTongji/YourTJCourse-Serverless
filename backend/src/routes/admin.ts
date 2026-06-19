@@ -18,6 +18,7 @@ import {
 import { adminAuthMiddleware } from '../middleware/admin-auth'
 import { addSqidToReviews, normalizeReviewerAvatar } from '../helpers/review'
 import { purgeRelatedCourseDetailCache } from '../helpers/cache'
+import { getFeishuConfigFromDb, sendFeishuTestCard } from '../helpers/feishu'
 
 const admin = new Hono<{ Bindings: Bindings }>()
 admin.use('/*', adminAuthMiddleware)
@@ -295,6 +296,34 @@ admin.put('/settings/:key', async (c) => {
   await c.env.DB.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(storageKey, value).run()
   invalidateSettingCaches(storageKey)
   return c.json({ success: true })
+})
+
+// 飞书 webhook 热更新配置 API
+admin.get('/feishu-webhook-config', async (c) => {
+  const { webhookUrl, webhookSecret } = await getFeishuConfigFromDb(c.env)
+  return c.json({ webhookUrl, hasSecret: !!webhookSecret })
+})
+
+admin.put('/feishu-webhook-config', async (c) => {
+  const body = await c.req.json().catch(() => ({} as any))
+  if (body.webhookUrl !== undefined) {
+    await c.env.DB
+      .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      .bind('feishu_report_webhook_url', String(body.webhookUrl ?? ''))
+      .run()
+  }
+  if (body.secret !== undefined) {
+    await c.env.DB
+      .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      .bind('feishu_report_webhook_secret', String(body.secret ?? ''))
+      .run()
+  }
+  return c.json({ success: true })
+})
+
+admin.post('/feishu-webhook-config/test', async (c) => {
+  const result = await sendFeishuTestCard(c.env)
+  return c.json(result)
 })
 
 export default admin

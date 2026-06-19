@@ -78,6 +78,7 @@ jobs:
       JCOURSE_INTEGRATION_SECRET: ${{ secrets.JCOURSE_INTEGRATION_SECRET }}
       TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
       TURNSTILE_SITEVERIFY_URL: ${{ secrets.TURNSTILE_SITEVERIFY_URL }}
+      CAPTCHA_SITEVERIFY_URL: ${{ secrets.CAPTCHA_SITEVERIFY_URL }}
       AI_SUMMARY_KEY: ${{ secrets.AI_SUMMARY_KEY }}
       AI_SUMMARY_MODEL: ${{ secrets.AI_SUMMARY_MODEL }}
       AI_SUMMARY_BASE_URL: ${{ secrets.AI_SUMMARY_BASE_URL }}
@@ -139,6 +140,12 @@ jobs:
             echo "turnstile siteverify url: set (dev)"
           else
             echo "turnstile siteverify url: default (dev)"
+          fi
+          if [ -n "${CAPTCHA_SITEVERIFY_URL:-}" ]; then
+            echo "$CAPTCHA_SITEVERIFY_URL" | npx wrangler versions secret put CAPTCHA_SITEVERIFY_URL --env dev
+            echo "captcha siteverify url: set (dev)"
+          else
+            echo "captcha siteverify url: missing (dev) — review submission will 403"
           fi
 
           if [ -n "${AI_SUMMARY_KEY:-}" ]; then
