@@ -30,6 +30,7 @@ import {
   postCreditJcourseEvent,
   ensureReviewsWalletColumn,
   ensureReviewLikesTable,
+  ensureReviewDislikesTable,
   ensureReviewReportsTable,
 } from '../helpers/db'
 import { verifyTurnstile, isAllowedTurnstileHostname } from '../helpers/turnstile'
@@ -100,6 +101,29 @@ async function loadReviewIdSetByClient(
     const placeholders = part.map(() => '?').join(',')
     const rows = await db
       .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders})`)
+      .bind(clientId, ...part)
+      .all<{ review_id: number }>()
+    for (const row of rows.results || []) {
+      result.add(Number((row as any).review_id))
+    }
+  }
+
+  return result
+}
+
+async function loadReviewDislikeIdSetByClient(
+  db: D1Database,
+  reviewIds: number[],
+  clientId: string
+) {
+  const result = new Set<number>()
+  const ids = Array.from(new Set(reviewIds.filter((id) => Number.isFinite(id) && id > 0)))
+  if (!clientId || ids.length === 0) return result
+
+  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '?').join(',')
+    const rows = await db
+      .prepare(`SELECT review_id FROM review_dislikes WHERE client_id = ? AND review_id IN (${placeholders})`)
       .bind(clientId, ...part)
       .all<{ review_id: number }>()
     for (const row of rows.results || []) {
@@ -664,6 +688,7 @@ publicRoutes.get('/course/:id', async (c) => {
           : []
 
         const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
+        const dislikedSet = await loadReviewDislikeIdSetByClient(c.env.DB, reviewIds, clientId)
         const editableSet = await loadEditableReviewIdSetByToken(c.env.DB, editProofs)
 
         const personalized = {
@@ -671,6 +696,7 @@ publicRoutes.get('/course/:id', async (c) => {
           reviews: ((basePayload as any).reviews || []).map((r: any) => ({
             ...r,
             liked: likedSet.has(Number(r?.id)),
+            disliked: dislikedSet.has(Number(r?.id)),
             can_edit: editableSet.has(Number(r?.id))
           }))
         }
@@ -742,14 +768,27 @@ publicRoutes.get('/course/:id', async (c) => {
     const reviewsWithSqid = addSqidToReviews(rawReviews).map((r: any) => ({
       ...stripWalletUserHash(r),
       like_count: Number(r?.approve_count || 0),
-      liked: false
+      dislike_count: Number(r?.disapprove_count || 0),
+      liked: false,
+      disliked: false
     }))
 
-    const reviewCount = rawReviews.length
-    const ratingNums = rawReviews
-      .map((r) => Number((r as any)?.rating ?? 0))
-      .filter((n) => Number.isFinite(n) && n > 0)
-    const reviewAvg = ratingNums.length > 0 ? ratingNums.reduce((a, b) => a + b, 0) / ratingNums.length : 0
+    const statsFilter = showIcu ? '' : ' AND is_icu = 0'
+    const statsRows = await c.env.DB
+      .prepare(
+        `SELECT
+           SUM(COALESCE(review_count, 0)) AS total_count,
+           CASE
+             WHEN SUM(COALESCE(review_count, 0)) > 0
+               THEN ROUND(SUM(COALESCE(review_avg, 0) * COALESCE(review_count, 0)) * 1.0 / SUM(COALESCE(review_count, 0)), 4)
+             ELSE 0
+           END AS avg_rating
+         FROM courses WHERE id IN (${placeholders})${statsFilter}`
+      )
+      .bind(...idList)
+      .first<{ total_count: number; avg_rating: number }>()
+    const reviewCount = Number(statsRows?.total_count || 0)
+    const reviewAvg = Number(statsRows?.avg_rating || 0)
 
     const semesters = await getCourseSemesters(c.env.DB, Number((course as any).id)).catch(() => [])
 
@@ -773,6 +812,7 @@ publicRoutes.get('/course/:id', async (c) => {
 
     const reviewIds = rawReviews.map((r) => Number(r?.id)).filter((n) => Number.isFinite(n))
     const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
+    const dislikedSet = await loadReviewDislikeIdSetByClient(c.env.DB, reviewIds, clientId)
     const editableSet = await loadEditableReviewIdSetByToken(c.env.DB, editProofs)
 
     const personalized = {
@@ -780,6 +820,7 @@ publicRoutes.get('/course/:id', async (c) => {
       reviews: (basePayload.reviews || []).map((r: any) => ({
         ...r,
         liked: likedSet.has(Number(r?.id)),
+        disliked: dislikedSet.has(Number(r?.id)),
         can_edit: editableSet.has(Number(r?.id))
       }))
     }
@@ -1106,15 +1147,19 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     const reviewsWithSqid = addSqidToReviews(reviews.results || [])
 
     let likedSet = new Set<number>()
+    let dislikedSet = new Set<number>()
     if (clientId && (reviewsWithSqid || []).length > 0) {
       const ids = (reviewsWithSqid || []).map((r: any) => Number(r?.id)).filter((n) => Number.isFinite(n))
       likedSet = await loadReviewIdSetByClient(c.env.DB, ids, clientId)
+      dislikedSet = await loadReviewDislikeIdSetByClient(c.env.DB, ids, clientId)
     }
 
     const mappedReviews = (reviewsWithSqid || []).map((r: any) => ({
       ...r,
       like_count: Number(r?.approve_count || 0),
-      liked: clientId ? likedSet.has(Number(r?.id)) : false
+      dislike_count: Number(r?.disapprove_count || 0),
+      liked: clientId ? likedSet.has(Number(r?.id)) : false,
+      disliked: clientId ? dislikedSet.has(Number(r?.id)) : false
     }))
 
     const reviewCount = mappedReviews.length
@@ -1505,6 +1550,7 @@ publicRoutes.post('/review/:id/like', async (c) => {
   if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
 
   await ensureReviewLikesTable(c.env.DB)
+  await ensureReviewDislikesTable(c.env.DB)
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))
@@ -1524,12 +1570,24 @@ publicRoutes.post('/review/:id/like', async (c) => {
     await c.env.DB.prepare('INSERT INTO review_likes (review_id, client_id) VALUES (?, ?)').bind(id, clientId).run()
     await c.env.DB.prepare('UPDATE reviews SET approve_count = approve_count + 1 WHERE id = ?').bind(id).run()
     changed = true
+
+    const existingDislike = await c.env.DB
+      .prepare('SELECT 1 as x FROM review_dislikes WHERE review_id = ? AND client_id = ? LIMIT 1')
+      .bind(id, clientId)
+      .first<{ x: number }>()
+    if (existingDislike) {
+      await c.env.DB.prepare('DELETE FROM review_dislikes WHERE review_id = ? AND client_id = ?').bind(id, clientId).run()
+      await c.env.DB
+        .prepare('UPDATE reviews SET disapprove_count = CASE WHEN disapprove_count > 0 THEN disapprove_count - 1 ELSE 0 END WHERE id = ?')
+        .bind(id)
+        .run()
+    }
   }
 
   const review = await c.env.DB
-    .prepare('SELECT approve_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .prepare('SELECT approve_count, disapprove_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
     .bind(id)
-    .first<{ approve_count: number; wallet_user_hash?: string | null }>()
+    .first<{ approve_count: number; disapprove_count: number; wallet_user_hash?: string | null }>()
   if (!review) return c.json({ error: 'Review not found' }, 404)
 
   const walletHash = String(review.wallet_user_hash || '').trim()
@@ -1543,7 +1601,7 @@ publicRoutes.post('/review/:id/like', async (c) => {
     })
   }
 
-  return c.json({ success: true, liked: true, like_count: Number(review.approve_count || 0) })
+  return c.json({ success: true, liked: true, like_count: Number(review.approve_count || 0), dislike_count: Number(review.disapprove_count || 0) })
 })
 
 publicRoutes.delete('/review/:id/like', async (c) => {
@@ -1576,9 +1634,9 @@ publicRoutes.delete('/review/:id/like', async (c) => {
   }
 
   const review = await c.env.DB
-    .prepare('SELECT approve_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .prepare('SELECT approve_count, disapprove_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
     .bind(id)
-    .first<{ approve_count: number; wallet_user_hash?: string | null }>()
+    .first<{ approve_count: number; disapprove_count: number; wallet_user_hash?: string | null }>()
   if (!review) return c.json({ error: 'Review not found' }, 404)
 
   const walletHash = String(review.wallet_user_hash || '').trim()
@@ -1592,7 +1650,90 @@ publicRoutes.delete('/review/:id/like', async (c) => {
     })
   }
 
-  return c.json({ success: true, liked: false, like_count: Number(review.approve_count || 0) })
+  return c.json({ success: true, liked: false, like_count: Number(review.approve_count || 0), dislike_count: Number(review.disapprove_count || 0) })
+})
+
+publicRoutes.post('/review/:id/dislike', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
+
+  await ensureReviewLikesTable(c.env.DB)
+  await ensureReviewDislikesTable(c.env.DB)
+  await ensureReviewsWalletColumn(c.env.DB)
+
+  const body = await c.req.json().catch(() => ({} as any))
+  const requestedClientId = String(body?.clientId || '').trim()
+  if (!requestedClientId) return c.json({ error: 'Missing clientId' }, 400)
+
+  const clientId = await getReviewLikeClientKey(c)
+  if (!clientId) return c.json({ error: 'Unable to identify client' }, 400)
+
+  const existing = await c.env.DB
+    .prepare('SELECT 1 as x FROM review_dislikes WHERE review_id = ? AND client_id = ? LIMIT 1')
+    .bind(id, clientId)
+    .first<{ x: number }>()
+
+  if (!existing) {
+    await c.env.DB.prepare('INSERT INTO review_dislikes (review_id, client_id) VALUES (?, ?)').bind(id, clientId).run()
+    await c.env.DB.prepare('UPDATE reviews SET disapprove_count = disapprove_count + 1 WHERE id = ?').bind(id).run()
+
+    const existingLike = await c.env.DB
+      .prepare('SELECT 1 as x FROM review_likes WHERE review_id = ? AND client_id = ? LIMIT 1')
+      .bind(id, clientId)
+      .first<{ x: number }>()
+    if (existingLike) {
+      await c.env.DB.prepare('DELETE FROM review_likes WHERE review_id = ? AND client_id = ?').bind(id, clientId).run()
+      await c.env.DB
+        .prepare('UPDATE reviews SET approve_count = CASE WHEN approve_count > 0 THEN approve_count - 1 ELSE 0 END WHERE id = ?')
+        .bind(id)
+        .run()
+    }
+  }
+
+  const review = await c.env.DB
+    .prepare('SELECT approve_count, disapprove_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<{ approve_count: number; disapprove_count: number; wallet_user_hash?: string | null }>()
+  if (!review) return c.json({ error: 'Review not found' }, 404)
+
+  return c.json({ success: true, disliked: true, dislike_count: Number(review.disapprove_count || 0), like_count: Number(review.approve_count || 0) })
+})
+
+publicRoutes.delete('/review/:id/dislike', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
+
+  await ensureReviewLikesTable(c.env.DB)
+  await ensureReviewDislikesTable(c.env.DB)
+  await ensureReviewsWalletColumn(c.env.DB)
+
+  const body = await c.req.json().catch(() => ({} as any))
+  const requestedClientId = String(body?.clientId || '').trim()
+  if (!requestedClientId) return c.json({ error: 'Missing clientId' }, 400)
+
+  const clientId = await getReviewLikeClientKey(c)
+  if (!clientId) return c.json({ error: 'Unable to identify client' }, 400)
+
+  const existing = await c.env.DB
+    .prepare('SELECT 1 as x FROM review_dislikes WHERE review_id = ? AND client_id = ? LIMIT 1')
+    .bind(id, clientId)
+    .first<{ x: number }>()
+
+  if (existing) {
+    await c.env.DB.prepare('DELETE FROM review_dislikes WHERE review_id = ? AND client_id = ?').bind(id, clientId).run()
+    await c.env.DB
+      .prepare('UPDATE reviews SET disapprove_count = CASE WHEN disapprove_count > 0 THEN disapprove_count - 1 ELSE 0 END WHERE id = ?')
+      .bind(id)
+      .run()
+  }
+
+  const review = await c.env.DB
+    .prepare('SELECT approve_count, disapprove_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<{ approve_count: number; disapprove_count: number; wallet_user_hash?: string | null }>()
+  if (!review) return c.json({ error: 'Review not found' }, 404)
+
+  return c.json({ success: true, disliked: false, dislike_count: Number(review.disapprove_count || 0), like_count: Number(review.approve_count || 0) })
 })
 
 function buildReportActionHtml(options: {

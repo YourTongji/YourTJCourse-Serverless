@@ -119,6 +119,11 @@ export default function Admin() {
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false)
   const [maintenanceConfig, setMaintenanceConfig] = useState<MaintenanceDraft>(DEFAULT_MAINTENANCE_CONFIG)
   const [isSavingMaintenance, setIsSavingMaintenance] = useState(false)
+  const [feishuWebhookUrl, setFeishuWebhookUrl] = useState('')
+  const [feishuWebhookHasSecret, setFeishuWebhookHasSecret] = useState(false)
+  const [feishuWebhookSecretInput, setFeishuWebhookSecretInput] = useState('')
+  const [isSavingFeishuWebhook, setIsSavingFeishuWebhook] = useState(false)
+  const [isTestingFeishuWebhook, setIsTestingFeishuWebhook] = useState(false)
 
   const getHeaders = () => ({ 'x-admin-secret': secret, 'Content-Type': 'application/json' })
 
@@ -321,6 +326,7 @@ export default function Admin() {
       setAnnouncements(parseAnnouncements(data.site_announcements))
       setMaintenanceEnabled(data.maintenance_mode === 'true')
       setMaintenanceConfig(parseMaintenanceConfig(data.maintenance_config))
+      void fetchFeishuWebhookConfig()
     } catch (error) {
       console.error(error)
     }
@@ -423,6 +429,63 @@ export default function Admin() {
       alert('保存维护页配置失败')
     } finally {
       setIsSavingMaintenance(false)
+    }
+  }
+
+  const fetchFeishuWebhookConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/feishu-webhook-config`, { headers: getHeaders() })
+      if (!res.ok) return
+      const data = await res.json()
+      setFeishuWebhookUrl(data.webhookUrl || '')
+      setFeishuWebhookHasSecret(!!data.hasSecret)
+      setFeishuWebhookSecretInput('')
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const saveFeishuWebhookConfig = async () => {
+    setIsSavingFeishuWebhook(true)
+    try {
+      const payload: Record<string, string> = { webhookUrl: feishuWebhookUrl }
+      if (feishuWebhookSecretInput !== '') {
+        payload.secret = feishuWebhookSecretInput
+      }
+      const res = await fetch(`${API_BASE}/api/admin/feishu-webhook-config`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) throw new Error('save feishu webhook failed')
+      setFeishuWebhookSecretInput('')
+      void fetchFeishuWebhookConfig()
+    } catch (error) {
+      console.error(error)
+      alert('保存飞书 webhook 配置失败')
+    } finally {
+      setIsSavingFeishuWebhook(false)
+    }
+  }
+
+  const testFeishuWebhook = async () => {
+    setIsTestingFeishuWebhook(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/feishu-webhook-config/test`, {
+        method: 'POST',
+        headers: getHeaders()
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert('测试消息已发送，请检查飞书群')
+      } else {
+        alert(`发送失败：${data.error || '未知错误'}`)
+      }
+    } catch (error) {
+      console.error(error)
+      alert('测试发送失败')
+    } finally {
+      setIsTestingFeishuWebhook(false)
     }
   }
 
@@ -770,6 +833,35 @@ export default function Admin() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="font-semibold text-slate-800">飞书机器人 webhook</h3>
+                  <p className="mt-1 text-sm text-slate-500">举报通知会发送到此 webhook。留空则回退到环境变量配置。签名密钥不会回显，仅在输入新值时更新。</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => void testFeishuWebhook()} disabled={isTestingFeishuWebhook} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+                    {isTestingFeishuWebhook ? '发送中...' : '发送测试'}
+                  </button>
+                  <button onClick={() => void saveFeishuWebhookConfig()} disabled={isSavingFeishuWebhook} className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-700 disabled:opacity-60">
+                    {isSavingFeishuWebhook ? '保存中...' : '保存'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-slate-600">Webhook URL</label>
+                  <input value={feishuWebhookUrl} onChange={(event) => setFeishuWebhookUrl(event.target.value)} placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-slate-600">
+                    签名密钥{feishuWebhookHasSecret ? '（已配置，留空则不修改）' : ''}
+                  </label>
+                  <input type="password" value={feishuWebhookSecretInput} onChange={(event) => setFeishuWebhookSecretInput(event.target.value)} placeholder={feishuWebhookHasSecret ? '••••••（如需更换请输入新密钥）' : '输入签名密钥（可选）'} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+                </div>
               </div>
             </div>
           </div>

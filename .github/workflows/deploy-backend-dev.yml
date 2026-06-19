@@ -26,6 +26,7 @@ jobs:
       JCOURSE_INTEGRATION_SECRET: ${{ secrets.JCOURSE_INTEGRATION_SECRET }}
       TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
       TURNSTILE_SITEVERIFY_URL: ${{ secrets.TURNSTILE_SITEVERIFY_URL }}
+      CAPTCHA_SITEVERIFY_URL: ${{ secrets.CAPTCHA_SITEVERIFY_URL }}
       FEISHU_REPORT_WEBHOOK_URL: ${{ secrets.FEISHU_REPORT_WEBHOOK_URL }}
       FEISHU_REPORT_WEBHOOK_SECRET: ${{ secrets.FEISHU_REPORT_WEBHOOK_SECRET }}
     steps:
@@ -65,6 +66,12 @@ jobs:
 
           if [ -n "${TURNSTILE_SITEVERIFY_URL:-}" ]; then
             echo "$TURNSTILE_SITEVERIFY_URL" | npx wrangler versions secret put TURNSTILE_SITEVERIFY_URL --env dev
+          fi
+          if [ -n "${CAPTCHA_SITEVERIFY_URL:-}" ]; then
+            echo "$CAPTCHA_SITEVERIFY_URL" | npx wrangler versions secret put CAPTCHA_SITEVERIFY_URL --env dev
+            echo "captcha siteverify url: set (dev)"
+          else
+            echo "captcha siteverify url: missing (dev) — review submission will 403"
           fi
 
           if [ -n "${FEISHU_REPORT_WEBHOOK_URL:-}" ]; then

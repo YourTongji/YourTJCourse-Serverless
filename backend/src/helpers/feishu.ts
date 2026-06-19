@@ -31,7 +31,10 @@ export interface ReportNotificationPayload {
 
 // ─── Feishu config & result types (aligned with Credit) ─────────
 
-type FeishuConfig = { webhookUrl: string; secret?: string }
+export interface FeishuWebhookConfig {
+  webhookUrl: string
+  webhookSecret: string
+}
 
 export type FeishuSendResult = {
   enabled: boolean
@@ -131,32 +134,94 @@ async function signFeishuWebhook(timestampSec: string, secret: string): Promise<
 
 // ─── Config hot update (aligned with Credit) ───────────────────
 
+async function readSetting(db: D1Database, key: string): Promise<string | null> {
+  try {
+    const row = await db
+      .prepare('SELECT value FROM settings WHERE key = ?')
+      .bind(key)
+      .first<{ value: string }>()
+    const value = row?.value
+    return value && value.trim() ? value : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Get Feishu webhook config from D1 settings table with hot-update support.
- * Source: DB settings table only. Env-var fallback is handled by the caller.
+ * Reads DB settings first (supports runtime hot update without redeploy),
+ * then falls back to env vars.
  */
-async function getFeishuConfigFromDb(db: D1Database): Promise<FeishuConfig | null> {
-  // Try DB settings first (supports runtime hot update without redeploy)
-  try {
-    const rowUrl = await db
-      .prepare('SELECT value FROM settings WHERE key = ? LIMIT 1')
-      .bind(FEISHU_SETTINGS_WEBHOOK_URL_KEY)
-      .first<{ value: string }>()
-    const dbUrl = rowUrl?.value ? String(rowUrl.value).trim() : ''
-    if (dbUrl) {
-      const rowSecret = await db
-        .prepare('SELECT value FROM settings WHERE key = ? LIMIT 1')
-        .bind(FEISHU_SETTINGS_WEBHOOK_SECRET_KEY)
-        .first<{ value: string }>()
-      const dbSecret = rowSecret?.value ? String(rowSecret.value).trim() : ''
-      return dbSecret ? { webhookUrl: dbUrl, secret: dbSecret } : { webhookUrl: dbUrl }
-    }
-  } catch {
-    // ignore: DB may be unavailable, or settings table missing
+export async function getFeishuConfigFromDb(env: Bindings): Promise<FeishuWebhookConfig> {
+  const [dbUrl, dbSecret] = await Promise.all([
+    readSetting(env.DB, FEISHU_SETTINGS_WEBHOOK_URL_KEY),
+    readSetting(env.DB, FEISHU_SETTINGS_WEBHOOK_SECRET_KEY),
+  ])
+  return {
+    webhookUrl: dbUrl ?? (env.FEISHU_REPORT_WEBHOOK_URL ?? ''),
+    webhookSecret: dbSecret ?? (env.FEISHU_REPORT_WEBHOOK_SECRET ?? ''),
+  }
+}
+
+// ─── Card sender ────────────────────────────────────────────────
+
+interface FeishuCardSendOutcome {
+  ok: boolean
+  status?: number
+  responseSnippet?: string
+  error?: string
+}
+
+async function sendFeishuCard(
+  webhookUrl: string,
+  webhookSecret: string,
+  cardBody: any,
+): Promise<FeishuCardSendOutcome> {
+  const body: any = { msg_type: 'interactive', card: cardBody }
+
+  if (webhookSecret) {
+    const timestamp = String(Math.floor(Date.now() / 1000))
+    body.timestamp = timestamp
+    body.sign = await signFeishuWebhook(timestamp, webhookSecret)
   }
 
-  // Fallback: env vars (requires redeploy to change)
-  return null
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FEISHU_WEBHOOK_TIMEOUT_MS)
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+
+    const text = await res.text().catch(() => '')
+    const snippet = text.slice(0, 200)
+
+    if (!res.ok) {
+      console.warn(`[feishu] webhook HTTP ${res.status}: ${snippet}`)
+      return { ok: false, status: res.status, responseSnippet: snippet }
+    }
+
+    // Feishu often responds HTTP 200 even when "code" indicates an error (e.g. rate limit).
+    try {
+      const parsed = JSON.parse(text || '{}') as any
+      if (typeof parsed?.code === 'number' && parsed.code !== 0) {
+        console.warn(`[feishu] webhook error code ${parsed.code}: ${String(parsed?.msg || parsed?.message || '').slice(0, 200)}`)
+        return { ok: false, status: res.status, responseSnippet: snippet }
+      }
+    } catch {
+      // ignore non-JSON success body
+    }
+
+    return { ok: true, status: res.status, responseSnippet: snippet }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.warn('[feishu] webhook send failed:', msg)
+    return { ok: false, error: msg }
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 // ─── Public API ─────────────────────────────────────────────────
@@ -174,9 +239,7 @@ export async function notifyReportToFeishu(
   const actionOrigin = publicUrl || origin
 
   // Config: try DB settings first (hot-update), then env vars as fallback
-  const dbConfig = await getFeishuConfigFromDb(env.DB)
-  const webhookUrl = dbConfig?.webhookUrl || env.FEISHU_REPORT_WEBHOOK_URL
-  const feishuSecret = dbConfig?.secret || env.FEISHU_REPORT_WEBHOOK_SECRET
+  const { webhookUrl, webhookSecret: feishuSecret } = await getFeishuConfigFromDb(env)
 
   if (!webhookUrl) return { enabled: false }
 
@@ -206,166 +269,161 @@ export async function notifyReportToFeishu(
     ).trim()
     const stars = '★'.repeat(Math.round(payload.rating)) + '☆'.repeat(5 - Math.round(payload.rating))
 
-    const body: any = {
-      msg_type: 'interactive',
-      card: {
-        schema: '2.0',
-        config: {
-          update_multi: true,
-          enable_forward: true,
-          width_mode: 'fill' as const,
-        },
-        header: {
-          template: 'wathet' as const,
-          title: { tag: 'plain_text', content: payload.reopened ? '🔁 YOURTJ 课程评价举报（重新打开）' : '🚨 YOURTJ 课程评价举报' },
-          subtitle: { tag: 'plain_text', content: `${reasonText} · ${payload.courseName}` },
-          padding: '12px 12px 12px 12px',
-        },
-        body: {
-          direction: 'vertical' as const,
-          padding: '12px 12px 12px 12px',
-          horizontal_spacing: '8px',
-          vertical_spacing: '8px',
-          horizontal_align: 'left' as const,
-          vertical_align: 'top' as const,
-          elements: [
-            {
-              tag: 'markdown',
-              content: `**${stars}  ${payload.rating.toFixed(1)}分** · ${payload.semester}`,
-              text_align: 'left' as const,
-            },
-            {
-              tag: 'markdown',
-              content: `**评论内容**\n${snippet || '（无文本内容）'}`,
-              text_align: 'left' as const,
-            },
-            {
-              tag: 'markdown',
-              content: `**举报说明**\n${description || '（未填写）'}`,
-              text_align: 'left' as const,
-            },
-            { tag: 'hr' },
-            {
-              tag: 'column_set',
-              horizontal_spacing: '8px',
-              columns: [
-                {
-                  tag: 'column',
-                  width: 'weighted',
-                  weight: 1,
-                  elements: [
-                    {
-                      tag: 'markdown',
-                      content: `**举报编号**\n\`${payload.reportId}\``,
-                      text_align: 'left' as const,
-                    },
-                  ],
-                },
-                {
-                  tag: 'column',
-                  width: 'weighted',
-                  weight: 1,
-                  elements: [
-                    {
-                      tag: 'markdown',
-                      content: `**评价编号**\n\`${payload.reviewSqid}\``,
-                      text_align: 'left' as const,
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              tag: 'column_set',
-              horizontal_spacing: '8px',
-              columns: [
-                {
-                  tag: 'column',
-                  width: 'weighted',
-                  weight: 1,
-                  elements: [
-                    {
-                      tag: 'markdown',
-                      content: `**课程**\n${payload.courseName} (ID: ${payload.courseId})`,
-                      text_align: 'left' as const,
-                    },
-                  ],
-                },
-                {
-                  tag: 'column',
-                  width: 'weighted',
-                  weight: 1,
-                  elements: [
-                    {
-                      tag: 'markdown',
-                      content: `**举报原因**\n${reasonText}`,
-                      text_align: 'left' as const,
-                    },
-                  ],
-                },
-              ],
-            },
-            { tag: 'hr' },
-            {
-              tag: 'markdown',
-              content: '**点击按钮后需在确认页提交处理**',
-              text_align: 'left' as const,
-            },
-            {
-              tag: 'button',
-              type: 'primary',
-              text: { tag: 'plain_text', content: '✅ 通过 (隐藏评价)' },
-              url: resolveUrl,
-            },
-            {
-              tag: 'button',
-              type: 'danger',
-              text: { tag: 'plain_text', content: '❌ 驳回 (保留评价)' },
-              url: rejectUrl,
-            },
-          ],
-        },
+    const cardBody = {
+      schema: '2.0',
+      config: {
+        update_multi: true,
+        enable_forward: true,
+        width_mode: 'fill' as const,
+      },
+      header: {
+        template: 'wathet' as const,
+        title: { tag: 'plain_text', content: payload.reopened ? '🔁 YOURTJ 课程评价举报（重新打开）' : '🚨 YOURTJ 课程评价举报' },
+        subtitle: { tag: 'plain_text', content: `${reasonText} · ${payload.courseName}` },
+        padding: '12px 12px 12px 12px',
+      },
+      body: {
+        direction: 'vertical' as const,
+        padding: '12px 12px 12px 12px',
+        horizontal_spacing: '8px',
+        vertical_spacing: '8px',
+        horizontal_align: 'left' as const,
+        vertical_align: 'top' as const,
+        elements: [
+          {
+            tag: 'markdown',
+            content: `**${stars}  ${payload.rating.toFixed(1)}分** · ${payload.semester}`,
+            text_align: 'left' as const,
+          },
+          {
+            tag: 'markdown',
+            content: `**评论内容**\n${snippet || '（无文本内容）'}`,
+            text_align: 'left' as const,
+          },
+          {
+            tag: 'markdown',
+            content: `**举报说明**\n${description || '（未填写）'}`,
+            text_align: 'left' as const,
+          },
+          { tag: 'hr' },
+          {
+            tag: 'column_set',
+            horizontal_spacing: '8px',
+            columns: [
+              {
+                tag: 'column',
+                width: 'weighted',
+                weight: 1,
+                elements: [
+                  {
+                    tag: 'markdown',
+                    content: `**举报编号**\n\`${payload.reportId}\``,
+                    text_align: 'left' as const,
+                  },
+                ],
+              },
+              {
+                tag: 'column',
+                width: 'weighted',
+                weight: 1,
+                elements: [
+                  {
+                    tag: 'markdown',
+                    content: `**评价编号**\n\`${payload.reviewSqid}\``,
+                    text_align: 'left' as const,
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            tag: 'column_set',
+            horizontal_spacing: '8px',
+            columns: [
+              {
+                tag: 'column',
+                width: 'weighted',
+                weight: 1,
+                elements: [
+                  {
+                    tag: 'markdown',
+                    content: `**课程**\n${payload.courseName} (ID: ${payload.courseId})`,
+                    text_align: 'left' as const,
+                  },
+                ],
+              },
+              {
+                tag: 'column',
+                width: 'weighted',
+                weight: 1,
+                elements: [
+                  {
+                    tag: 'markdown',
+                    content: `**举报原因**\n${reasonText}`,
+                    text_align: 'left' as const,
+                  },
+                ],
+              },
+            ],
+          },
+          { tag: 'hr' },
+          {
+            tag: 'markdown',
+            content: '**点击按钮后需在确认页提交处理**',
+            text_align: 'left' as const,
+          },
+          {
+            tag: 'button',
+            type: 'primary',
+            text: { tag: 'plain_text', content: '✅ 通过 (隐藏评价)' },
+            url: resolveUrl,
+          },
+          {
+            tag: 'button',
+            type: 'danger',
+            text: { tag: 'plain_text', content: '❌ 驳回 (保留评价)' },
+            url: rejectUrl,
+          },
+        ],
       },
     }
 
-    if (feishuSecret) {
-      const timestamp = String(Math.floor(Date.now() / 1000))
-      body.timestamp = timestamp
-      body.sign = await signFeishuWebhook(timestamp, feishuSecret)
-    }
-
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), FEISHU_WEBHOOK_TIMEOUT_MS)
-    const res = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout))
-
-    const text = await res.text().catch(() => '')
-    const snippet2 = text.slice(0, 200)
-
-    if (!res.ok) {
-      console.warn(`[feishu] webhook HTTP ${res.status}: ${snippet2}`)
-      return { enabled: true, ok: false, status: res.status, responseSnippet: snippet2 }
-    }
-
-    // Feishu often responds HTTP 200 even when "code" indicates an error (e.g. rate limit).
-    try {
-      const parsed = JSON.parse(text || '{}') as any
-      if (typeof parsed?.code === 'number' && parsed.code !== 0) {
-        console.warn(`[feishu] webhook error code ${parsed.code}: ${String(parsed?.msg || parsed?.message || '').slice(0, 200)}`)
-        return { enabled: true, ok: false, status: res.status, responseSnippet: snippet2 }
-      }
-    } catch {
-      // ignore non-JSON success body
-    }
-
-    return { enabled: true, ok: true, status: res.status, responseSnippet: snippet2 }
+    const result = await sendFeishuCard(webhookUrl, feishuSecret, cardBody)
+    return { enabled: true, ...result }
   } catch (e) {
     console.warn('[feishu] failed to send report notification:', e)
     return { enabled: true, ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export async function sendFeishuTestCard(env: Bindings): Promise<{ success: boolean; error?: string }> {
+  const { webhookUrl, webhookSecret } = await getFeishuConfigFromDb(env)
+  if (!webhookUrl) {
+    return { success: false, error: 'webhook URL 未配置' }
+  }
+
+  const cardBody = {
+    schema: '2.0',
+    config: { update_multi: true },
+    header: {
+      template: 'green',
+      title: { tag: 'plain_text', content: '✅ YourTJCourse webhook 测试' },
+    },
+    body: {
+      elements: [
+        {
+          tag: 'markdown',
+          content: 'YourTJCourse 举报通知测试 — webhook 配置正常',
+        },
+      ],
+    },
+  }
+
+  const outcome = await sendFeishuCard(webhookUrl, webhookSecret, cardBody)
+  if (outcome.ok) return { success: true }
+  return {
+    success: false,
+    error: outcome.error || (outcome.status ? `HTTP ${outcome.status}` : '发送失败'),
   }
 }
 
