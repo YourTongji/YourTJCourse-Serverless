@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import BoringAvatar from 'boring-avatars'
 import { toJpeg, toPng } from 'html-to-image'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
-import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview, reportReview } from '../services/api'
+import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview, dislikeReview, undislikeReview, reportReview } from '../services/api'
 import { showToast } from '../components/Toast'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
@@ -23,6 +23,8 @@ interface Review {
   reviewer_avatar?: string
   like_count?: number
   liked?: boolean
+  dislike_count?: number
+  disliked?: boolean
   can_edit?: boolean
 }
 
@@ -686,6 +688,65 @@ export default function Course() {
     }
   }
 
+  const toggleDislike = async (reviewId: number) => {
+    if (!course) return
+    const reviews = course.reviews || []
+    const target = reviews.find((r) => r.id === reviewId)
+    if (!target) return
+
+    const nextDisliked = !target.disliked
+
+    // optimistic
+    setCourse((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        reviews: prev.reviews.map((r) =>
+          r.id === reviewId
+            ? {
+                ...r,
+                disliked: nextDisliked,
+                dislike_count: Math.max(0, Number(r.dislike_count || 0) + (nextDisliked ? 1 : -1)),
+                // like-dislike mutual exclusion: undo like if disliking
+                liked: nextDisliked ? false : r.liked,
+                like_count: nextDisliked ? Math.max(0, Number(r.like_count || 0) - (r.liked ? 1 : 0)) : r.like_count,
+              }
+            : r
+        )
+      }
+    })
+
+    try {
+      const res = nextDisliked
+        ? await dislikeReview(reviewId, clientId)
+        : await undislikeReview(reviewId, clientId)
+      const dislikeCount = Number(res?.dislike_count ?? 0)
+      const likeCount = Number(res?.like_count ?? 0)
+      setCourse((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          reviews: prev.reviews.map((r) =>
+            r.id === reviewId
+              ? { ...r, disliked: nextDisliked, dislike_count: dislikeCount, liked: false, like_count: likeCount }
+              : r
+          )
+        }
+      })
+    } catch (_e) {
+      // revert
+      setCourse((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          reviews: prev.reviews.map((r) =>
+            r.id === reviewId ? { ...r, disliked: !nextDisliked } : r
+          )
+        }
+      })
+    }
+  }
+
   const openReport = (review: Review) => {
     setReportTarget(review)
     setReportReason('')
@@ -1138,6 +1199,35 @@ export default function Course() {
                     </svg>
                     <span className="tabular-nums">{Number(review.like_count || 0)}</span>
                     <span className="text-[10px] font-black opacity-80">点赞</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleDislike(review.id)}
+                    className={`inline-flex min-w-fit shrink-0 items-center whitespace-nowrap gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-extrabold leading-none transition-all duration-300 sm:gap-2 sm:px-3 ${
+                      review.disliked
+                        ? 'bg-red-50 border-red-200 text-red-700 hover:-translate-y-0.5'
+                        : 'bg-white border-slate-200/70 text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5'
+                    }`}
+                    title={review.disliked ? '????' : '??'}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      className={`w-4 h-4 ${review.disliked ? 'text-red-600' : 'text-slate-400'}`}
+                      viewBox="0 0 24 24"
+                      fill={review.disliked ? 'currentColor' : 'none'}
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 13V3h4v10h-4z" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M17 13l-5 7a2 2 0 01-3-2l1-5H5a2 2 0 01-2-2l2-7a2 2 0 012-2h10"
+                      />
+                    </svg>
+                    <span className="tabular-nums">{Number(review.dislike_count || 0)}</span>
+                    <span className="text-[10px] font-black opacity-80">??</span>
                   </button>
 
                   <button

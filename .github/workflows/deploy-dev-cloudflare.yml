@@ -140,6 +140,16 @@ jobs:
           else
             echo "turnstile siteverify url: default (dev)"
           fi
+<<<<<<< Updated upstream
+=======
+          if [ -n "${CAPTCHA_SITEVERIFY_URL:-}" ]; then
+            echo "$CAPTCHA_SITEVERIFY_URL" | npx wrangler secret put CAPTCHA_SITEVERIFY_URL --env dev
+            echo "captcha siteverify url: set (dev)"
+          else
+            echo "captcha siteverify url: missing (dev) - review submissions will return 403"
+            exit 1
+          fi
+>>>>>>> Stashed changes
 
           if [ -n "${AI_SUMMARY_KEY:-}" ]; then
             echo "$AI_SUMMARY_KEY" | npx wrangler versions secret put AI_SUMMARY_KEY --env dev

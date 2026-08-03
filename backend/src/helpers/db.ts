@@ -765,20 +765,32 @@ export async function upsertAuxiliaryCourseData(db: D1Database, courseIds?: numb
   const records = await buildCourseAuxiliaryRecords(db, courseIds)
   if (records.length === 0) return
 
-  for (const record of records) {
+  // Batch INSERT OR REPLACE for course_semesters
+  for (const part of chunkArray(records, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '(?, ?)').join(', ')
+    const values: any[] = []
+    for (const r of part) {
+      values.push(r.courseId, r.semesterNames)
+    }
     await db
       .prepare(
         `INSERT OR REPLACE INTO course_semesters (course_id, semester_names)
-         VALUES (?, ?)`
+         VALUES ${placeholders}`
       )
-      .bind(record.courseId, record.semesterNames)
+      .bind(...values)
       .run()
   }
 
-  for (const record of records) {
+  // Batch INSERT for course_search
+  for (const part of chunkArray(records, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '(?, ?)').join(', ')
+    const values: any[] = []
+    for (const r of part) {
+      values.push(r.courseId, r.searchDoc)
+    }
     await db
-      .prepare('INSERT INTO course_search (course_id, search_doc) VALUES (?, ?)')
-      .bind(record.courseId, record.searchDoc)
+      .prepare(`INSERT INTO course_search (course_id, search_doc) VALUES ${placeholders}`)
+      .bind(...values)
       .run()
   }
 }

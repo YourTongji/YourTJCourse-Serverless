@@ -3,6 +3,7 @@ import type { Bindings } from './helpers/types'
 import { registerPkRoutes } from './pk/routes'
 import { corsMiddleware } from './middleware/cors'
 import { cacheControlMiddleware } from './middleware/cache-control'
+import { rateLimitMiddleware } from './middleware/rate-limit'
 import publicRoutes from './routes/public'
 import adminRoutes from './routes/admin'
 import settingsRoutes from './routes/settings'
@@ -13,6 +14,7 @@ const app = new Hono<{ Bindings: Bindings }>()
 // Global middleware
 app.use('/*', corsMiddleware)
 app.use('/*', cacheControlMiddleware)
+app.use('/api/*', rateLimitMiddleware)
 
 // redeploy marker (no-op) v2
 
