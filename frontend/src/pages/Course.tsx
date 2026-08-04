@@ -700,6 +700,7 @@ export default function Course() {
         window.dispatchEvent(new CustomEvent('yourtj-tour-like-done'))
       }
     } catch (_e) {
+      showToast('操作失败，请稍后重试', 'error')
       setCourse((prev) => {
         if (!prev) return prev
         return {
@@ -774,6 +775,7 @@ export default function Course() {
       })
     } catch (_e) {
       // rollback to pre-request state
+      showToast('操作失败，请稍后重试', 'error')
       setCourse((prev) => {
         if (!prev) return prev
         return {

@@ -25,6 +25,7 @@ import {
   ensureReviewsWalletColumn,
   ensureReviewLikesTable,
   ensureReviewDislikesTable,
+  ensureReviewDislikeCountColumn,
   ensureReviewReportsTable,
 } from '../helpers/db'
 import { verifyTurnstile } from '../helpers/turnstile'
@@ -222,6 +223,10 @@ async function loadCourseReviewStats(
   const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
   if (ids.length === 0) return { review_count: 0, review_avg: 0 }
 
+  // Aggregate directly from reviews so the count/avg match exactly what the
+  // reviews list on this page shows (is_hidden + is_icu filters). Using the
+  // pre-aggregated courses.review_count/review_avg is inconsistent because
+  // those columns are maintained without the is_icu filter.
   const statsFilter = showIcu ? '' : ' AND is_icu = 0'
   let totalCount = 0
   let weightedRating = 0
@@ -231,13 +236,11 @@ async function loadCourseReviewStats(
     const row = await db
       .prepare(
         `SELECT
-           SUM(COALESCE(review_count, 0)) AS total_count,
-           CASE
-             WHEN SUM(COALESCE(review_count, 0)) > 0
-               THEN ROUND(SUM(COALESCE(review_avg, 0) * COALESCE(review_count, 0)) * 1.0 / SUM(COALESCE(review_count, 0)), 4)
-             ELSE 0
-           END AS avg_rating
-         FROM courses WHERE id IN (${placeholders})${statsFilter}`
+           COUNT(*) AS total_count,
+           COALESCE(AVG(CASE WHEN rating > 0 THEN rating END), 0) AS avg_rating
+         FROM reviews
+         WHERE course_id IN (${placeholders})
+           AND is_hidden = 0${statsFilter}`
       )
       .bind(...part)
       .first<{ total_count: number; avg_rating: number }>()
@@ -1570,6 +1573,7 @@ publicRoutes.post('/review/:id/like', async (c) => {
 
   await ensureReviewLikesTable(c.env.DB)
   await ensureReviewDislikesTable(c.env.DB)
+  await ensureReviewDislikeCountColumn(c.env.DB)
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))
@@ -1635,6 +1639,7 @@ publicRoutes.delete('/review/:id/like', async (c) => {
 
   await ensureReviewLikesTable(c.env.DB)
   await ensureReviewDislikesTable(c.env.DB)
+  await ensureReviewDislikeCountColumn(c.env.DB)
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))
@@ -1691,6 +1696,7 @@ publicRoutes.post('/review/:id/dislike', async (c) => {
 
   await ensureReviewLikesTable(c.env.DB)
   await ensureReviewDislikesTable(c.env.DB)
+  await ensureReviewDislikeCountColumn(c.env.DB)
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))
@@ -1756,6 +1762,7 @@ publicRoutes.delete('/review/:id/dislike', async (c) => {
 
   await ensureReviewLikesTable(c.env.DB)
   await ensureReviewDislikesTable(c.env.DB)
+  await ensureReviewDislikeCountColumn(c.env.DB)
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))

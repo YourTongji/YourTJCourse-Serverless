@@ -17,12 +17,14 @@ const READ_LIMITS = [
 ]
 
 const WRITE_LIMITS = [
-  { prefix: '/api/startup', bucket: 'startup', limit: 20 },
-  { prefix: '/api/findCourseByTime', bucket: 'find_course_by_time', limit: 30 }
+  { prefix: '/api/startup', bucket: 'startup', limit: 60 },
+  { prefix: '/api/findCourseByTime', bucket: 'find_course_by_time', limit: 60 }
 ]
 
 function getClientIp(c: Context<{ Bindings: Bindings }>): string | null {
-  const raw = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')
+  // Only trust the Cloudflare-provided header. x-forwarded-for is client
+  // controllable and would let attackers spoof their identity entirely.
+  const raw = c.req.header('cf-connecting-ip')
   if (!raw) return null
   return raw.split(',')[0].trim() || null
 }

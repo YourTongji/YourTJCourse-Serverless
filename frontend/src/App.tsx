@@ -1,4 +1,4 @@
-﻿import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import BottomNavigation from './components/BottomNavigation'
@@ -567,6 +567,9 @@ export default function App() {
 
     const data = await res.json().catch(() => null) as { success?: boolean; error?: string; codes?: string[] } | null
     if (!res.ok) {
+      if (res.status === 429) {
+        return { ok: false, error: 'rate_limited', codes: [] }
+      }
       return { ok: false, error: data?.error || 'network_error', codes: data?.codes || [] }
     }
     return {
@@ -580,6 +583,8 @@ export default function App() {
     switch (String(error || '')) {
       case 'missing_token':
         return '缺少验证信息，请重试'
+      case 'rate_limited':
+        return '请求过于频繁，请稍后重试'
       case 'missing_secret':
         return '验证服务配置异常，请联系管理员'
       case 'hostname_not_allowed':
@@ -599,14 +604,13 @@ export default function App() {
   }
 
   const shouldResetStartupTurnstile = (error: string, codes: string[]) => {
-    if (error === 'missing_token' || error === 'action_mismatch') return true
-    if (['missing_secret', 'hostname_not_allowed', 'siteverify_http_error', 'invalid_response', 'unknown_error', 'network_error'].includes(error)) {
-      return false
-    }
-    if (codes.some((code) => ['invalid-input-secret', 'invalid-input-response', 'bad-request'].includes(code))) {
-      return false
-    }
-    return false
+    // Permanent configuration problems will not clear on retry; resetting the
+    // widget would only churn tokens. Everything else (verify_failed, 429,
+    // network/5xx errors) should reset so the user gets a fresh challenge
+    // instead of being stuck behind a consumed token.
+    if (['missing_secret', 'hostname_not_allowed'].includes(error)) return false
+    if (codes.some((code) => ['invalid-input-secret', 'invalid-input-response', 'bad-request'].includes(code))) return false
+    return true
   }
 
   if (showMaintenanceGate) {

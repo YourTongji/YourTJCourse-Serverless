@@ -8,12 +8,14 @@ export async function verifyTongjiCaptcha(token: string, siteverifyUrl: string) 
   const url = /\/api\/siteverify$/i.test(normalized) ? normalized : `${normalized}/api/siteverify`
 
   // Captcha tokens are single-use, so we do NOT retry on abort/timeout.
-  const maxAttempts = 3
+  // Keep total worst-case time within the 15s frontend fetch timeout:
+  // 2 attempts x 5s + 0.5s backoff = 10.5s max.
+  const maxAttempts = 2
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
       const controller = new AbortController()
-      timeoutId = setTimeout(() => controller.abort(), 8000)
+      timeoutId = setTimeout(() => controller.abort(), 5000)
 
       const res = await fetch(url, {
         method: 'POST',
@@ -39,11 +41,12 @@ export async function verifyTongjiCaptcha(token: string, siteverifyUrl: string) 
       }
       return data.success === true
     } catch (e) {
-      const message = String(e instanceof Error ? e.message : e)
-      // Only retry on transient network errors, not abort/timeout
-      // (the token may already be consumed).
-      if (attempt < maxAttempts && message.includes('fetch') && !message.includes('abort') && !message.includes('timeout')) {
-        console.error(`Captcha fetch error (attempt ${attempt}/${maxAttempts}):`, message, 'retrying...')
+      const err = e instanceof Error ? e : new Error(String(e))
+      // Only retry on transient network errors, not abort/timeout:
+      // the token may already have been consumed by the first attempt.
+      const isAbortOrTimeout = err.name === 'AbortError' || /abort|timeout/i.test(err.message)
+      if (attempt < maxAttempts && !isAbortOrTimeout) {
+        console.error(`Captcha fetch error (attempt ${attempt}/${maxAttempts}):`, err.message, 'retrying...')
         await new Promise((r) => setTimeout(r, 500 * attempt))
         continue
       }

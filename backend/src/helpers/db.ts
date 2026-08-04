@@ -119,6 +119,7 @@ export async function ensureDbInitialized(db: D1Database) {
       await ensureCourseSearchIndexes(db)
       await ensureReviewLikesTable(db)
       await ensureReviewDislikesTable(db)
+      await ensureReviewDislikeCountColumn(db)
       await ensureReviewReportsTable(db)
       await ensureReviewsWalletColumn(db)
       await ensureLegacyAutoDocsPurged(db)
@@ -131,21 +132,21 @@ export async function ensureDbInitialized(db: D1Database) {
   await dbInitPromise
 }
 
-let publicReadSchemaChecked = false
+let publicReadCheckedDbs = new WeakSet<D1Database>()
 
 export async function ensurePublicReadReady(db: D1Database) {
-  if (publicReadSchemaChecked) return
+  if (publicReadCheckedDbs.has(db)) return
 
   // Read-only schema probe for public GET paths. This intentionally avoids
   // CREATE/DDL so public traffic cannot trigger D1 writes.
   const row = await db
     .prepare(
       `SELECT COUNT(*) AS cnt FROM sqlite_master
-       WHERE type IN ('table', 'view') AND name IN ('courses', 'reviews', 'teachers', 'settings')`
+       WHERE type IN ('table', 'view') AND name IN ('courses', 'reviews', 'teachers', 'settings', 'course_semesters')`
     )
     .first<{ cnt: number }>()
-  if (Number(row?.cnt || 0) < 4) throw new Error('Database schema is not initialized')
-  publicReadSchemaChecked = true
+  if (Number(row?.cnt || 0) < 5) throw new Error('Database schema is not initialized')
+  publicReadCheckedDbs.add(db)
 }
 
 export let showIcuCache: { value: boolean; expiresAt: number } | null = null
@@ -597,6 +598,14 @@ export async function ensureReviewsWalletColumn(db: D1Database) {
   }
   try {
     await db.prepare('ALTER TABLE reviews ADD COLUMN edit_token TEXT').run()
+  } catch {
+    // ignore: already exists
+  }
+}
+
+export async function ensureReviewDislikeCountColumn(db: D1Database) {
+  try {
+    await db.prepare('ALTER TABLE reviews ADD COLUMN disapprove_count INTEGER DEFAULT 0').run()
   } catch {
     // ignore: already exists
   }

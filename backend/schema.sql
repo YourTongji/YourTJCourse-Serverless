@@ -92,7 +92,7 @@ CREATE INDEX idx_review_likes_client_id ON review_likes(client_id);
 CREATE TABLE review_dislikes (
     review_id INTEGER NOT NULL,
     client_id TEXT NOT NULL,
-    created_at INTEGER DEFAULT (strftime(''%s'', ''now'')),
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
     PRIMARY KEY (review_id, client_id),
     FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
 );

@@ -56,10 +56,15 @@ export async function verifyTurnstile(token: string, env: Bindings, opts?: { exp
         if (!res.ok) {
           const text = await res.text().catch(() => '')
           // Retry on 5xx, fail fast on 4xx
-          if (res.status >= 500 && attempt < maxAttempts) {
-            console.error(`Turnstile siteverify HTTP ${res.status} (attempt ${attempt}/${maxAttempts}), retrying...`)
-            await new Promise((r) => setTimeout(r, 500 * attempt))
-            continue
+          if (res.status >= 500) {
+            if (attempt < maxAttempts) {
+              console.error(`Turnstile siteverify HTTP ${res.status} (attempt ${attempt}/${maxAttempts}), retrying...`)
+              await new Promise((r) => setTimeout(r, 500 * attempt))
+              continue
+            }
+            lastError = { ok: false, error: 'siteverify_http_error' as const }
+            console.error('Turnstile siteverify HTTP error:', res.status, text.slice(0, 200))
+            break
           }
           console.error('Turnstile siteverify HTTP error:', res.status, text.slice(0, 200))
           return { ok: false, error: 'siteverify_http_error' as const }
@@ -92,11 +97,12 @@ export async function verifyTurnstile(token: string, env: Bindings, opts?: { exp
 
         return { ok: true }
       } catch (e) {
-        const message = String(e instanceof Error ? e.message : e)
-        // Only retry on transient network errors, not abort/timeout
-        // (the token may already be consumed).
-        if (attempt < maxAttempts && message.includes('fetch') && !message.includes('abort') && !message.includes('timeout')) {
-          console.error(`Turnstile fetch error (attempt ${attempt}/${maxAttempts}):`, message, 'retrying...')
+        const err = e instanceof Error ? e : new Error(String(e))
+        // Only retry on transient network errors, not abort/timeout:
+        // the token may already have been consumed by the first attempt.
+        const isAbortOrTimeout = err.name === 'AbortError' || /abort|timeout/i.test(err.message)
+        if (attempt < maxAttempts && !isAbortOrTimeout) {
+          console.error(`Turnstile fetch error (attempt ${attempt}/${maxAttempts}):`, err.message, 'retrying...')
           await new Promise((r) => setTimeout(r, 500 * attempt))
           continue
         }
