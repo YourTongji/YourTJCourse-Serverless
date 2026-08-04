@@ -47,7 +47,7 @@
                 selectedRowKeys: localSelectedRowKeys,
                 onChange: (keys: any[]) => onOptionalSelectChange(keys) 
             }"
-            :row-key="(record: any) => 'opt_' + (Array.isArray(record.courseNature) ? record.courseNature.filter(Boolean).join('-') : String(record.courseNature || '')) + '_' + record.courseCode"
+            :row-key="(record: any) => courseKey(record)"
             :row-class-name="(_record: any, index: number) => index % 2 === 1 ? 'bg-gray-50' : ''"
         >
         </a-table>
@@ -146,7 +146,8 @@ export default {
             return formatCourseList(value);
         },
         courseKey(course: any) {
-            return 'opt_' + (Array.isArray(course.courseNature) ? course.courseNature.filter(Boolean).join('-') : String(course.courseNature || '')) + '_' + course.courseCode;
+            // key 首字符（必/选/查）是 App.vue stageCourses 的分类依据，改动前缀必须同步修改分类逻辑
+            return '选_' + (Array.isArray(course.courseNature) ? course.courseNature.filter(Boolean).join('-') : String(course.courseNature || '')) + '_' + course.courseCode;
         },
         isCourseSelected(course: any) {
             const key = this.courseKey(course);
