@@ -179,6 +179,27 @@ export async function unlikeReview(reviewId: number, clientId: string) {
   return res.json()
 }
 
+
+export async function dislikeReview(reviewId: number, clientId: string) {
+  const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/dislike`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId })
+  }, 15000)
+  if (!res.ok) throw new Error('Failed to dislike review')
+  return res.json()
+}
+
+export async function undislikeReview(reviewId: number, clientId: string) {
+  const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/dislike`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId })
+  }, 15000)
+  if (!res.ok) throw new Error('Failed to undislike review')
+  return res.json()
+}
+
 export async function reportReview(reviewId: number, clientId: string, reason: string, description = '') {
   const res = await fetchWithTimeout(`${API_BASE}/api/review/${reviewId}/report`, {
     method: 'POST',

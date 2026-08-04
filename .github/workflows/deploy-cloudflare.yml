@@ -78,6 +78,7 @@ jobs:
       JCOURSE_INTEGRATION_SECRET: ${{ secrets.JCOURSE_INTEGRATION_SECRET }}
       TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
       TURNSTILE_SITEVERIFY_URL: ${{ secrets.TURNSTILE_SITEVERIFY_URL }}
+      CAPTCHA_SITEVERIFY_URL: ${{ secrets.CAPTCHA_SITEVERIFY_URL }}
       AI_SUMMARY_KEY: ${{ secrets.AI_SUMMARY_KEY }}
       AI_SUMMARY_MODEL: ${{ secrets.AI_SUMMARY_MODEL }}
       AI_SUMMARY_BASE_URL: ${{ secrets.AI_SUMMARY_BASE_URL }}
@@ -101,6 +102,8 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/015_ai_summaries.sql"
+          npx wrangler d1 execute jcourse-db --remote --file="./migrations/018_review_dislikes.sql"
+          npx wrangler d1 execute jcourse-db --remote --file="./migrations/019_review_dislike_count.sql"
 
       - name: Ensure backend secrets
         run: |
@@ -137,7 +140,8 @@ jobs:
             echo "$TURNSTILE_SECRET_KEY" | npx wrangler secret put TURNSTILE_SECRET_KEY --env ""
             echo "turnstile secret: set"
           else
-            echo "turnstile secret: missing (TURNSTILE_SECRET_KEY)"
+            echo "turnstile secret: missing (TURNSTILE_SECRET_KEY)" >&2
+            exit 1
           fi
 
           if [ -n "${TURNSTILE_SITEVERIFY_URL:-}" ]; then
@@ -145,6 +149,14 @@ jobs:
             echo "turnstile siteverify url: set"
           else
             echo "turnstile siteverify url: default"
+          fi
+
+          if [ -n "${CAPTCHA_SITEVERIFY_URL:-}" ]; then
+            echo "$CAPTCHA_SITEVERIFY_URL" | npx wrangler versions secret put CAPTCHA_SITEVERIFY_URL --env ""
+            echo "captcha siteverify url: set"
+          else
+            echo "captcha siteverify url: missing" >&2
+            exit 1
           fi
 
           if [ -n "${AI_SUMMARY_KEY:-}" ]; then
@@ -228,6 +240,14 @@ jobs:
       - name: Install scheduler deps
         working-directory: scheduler
         run: npm ci
+
+      - name: Validate frontend secrets
+        run: |
+          set -euo pipefail
+          if [ -z "$VITE_TURNSTILE_SITE_KEY" ]; then
+            echo "Missing secrets.VITE_TURNSTILE_SITE_KEY" >&2
+            exit 1
+          fi
 
       - name: Build
         run: npm run build

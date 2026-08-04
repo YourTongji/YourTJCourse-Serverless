@@ -1,6 +1,7 @@
 DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS review_reports;
 DROP TABLE IF EXISTS review_likes;
+DROP TABLE IF EXISTS review_dislikes;
 DROP TABLE IF EXISTS courses;
 DROP TABLE IF EXISTS teachers;
 DROP TABLE IF EXISTS categories;
@@ -86,6 +87,18 @@ CREATE TABLE review_likes (
 );
 CREATE INDEX idx_review_likes_review_id ON review_likes(review_id);
 CREATE INDEX idx_review_likes_client_id ON review_likes(client_id);
+
+-- review dislikes
+CREATE TABLE review_dislikes (
+    review_id INTEGER NOT NULL,
+    client_id TEXT NOT NULL,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    PRIMARY KEY (review_id, client_id),
+    FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_review_dislikes_review_id ON review_dislikes(review_id);
+CREATE INDEX idx_review_dislikes_client_id ON review_dislikes(client_id);
+
 
 -- 评价举报记录（App Store UGC 合规）
 CREATE TABLE review_reports (
