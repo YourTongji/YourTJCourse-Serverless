@@ -649,6 +649,12 @@ export default function Course() {
     if (!target) return
 
     const nextLiked = !target.liked
+    const snapshot = {
+      liked: target.liked,
+      disliked: target.disliked,
+      like_count: target.like_count,
+      dislike_count: target.dislike_count
+    }
 
     // optimistic
     setCourse((prev) => {
@@ -657,7 +663,13 @@ export default function Course() {
         ...prev,
         reviews: prev.reviews.map((r) =>
           r.id === reviewId
-            ? { ...r, liked: nextLiked, like_count: Math.max(0, Number(r.like_count || 0) + (nextLiked ? 1 : -1)) }
+            ? {
+                ...r,
+                liked: nextLiked,
+                like_count: Math.max(0, Number(r.like_count || 0) + (nextLiked ? 1 : -1)),
+                disliked: nextLiked ? false : r.disliked,
+                dislike_count: nextLiked ? Math.max(0, Number(r.dislike_count || 0) - (r.disliked ? 1 : 0)) : r.dislike_count
+              }
             : r
         )
       }
@@ -665,24 +677,44 @@ export default function Course() {
 
     try {
       const res = nextLiked ? await likeReview(reviewId, clientId) : await unlikeReview(reviewId, clientId)
-      const likeCount = Number(res?.like_count ?? 0)
+      const likeCount = Number(res?.like_count ?? target.like_count ?? 0)
+      const dislikeCount = Number(res?.dislike_count ?? target.dislike_count ?? 0)
       setCourse((prev) => {
         if (!prev) return prev
         return {
           ...prev,
-          reviews: prev.reviews.map((r) => (r.id === reviewId ? { ...r, liked: nextLiked, like_count: likeCount } : r))
+          reviews: prev.reviews.map((r) =>
+            r.id === reviewId
+              ? {
+                  ...r,
+                  liked: nextLiked,
+                  disliked: nextLiked ? false : r.disliked,
+                  like_count: likeCount,
+                  dislike_count: dislikeCount
+                }
+              : r
+          )
         }
       })
       if (nextLiked) {
         window.dispatchEvent(new CustomEvent('yourtj-tour-like-done'))
       }
     } catch (_e) {
-      // revert
       setCourse((prev) => {
         if (!prev) return prev
         return {
           ...prev,
-          reviews: prev.reviews.map((r) => (r.id === reviewId ? { ...r, liked: !nextLiked } : r))
+          reviews: prev.reviews.map((r) =>
+            r.id === reviewId
+              ? {
+                  ...r,
+                  liked: snapshot.liked,
+                  disliked: snapshot.disliked,
+                  like_count: snapshot.like_count,
+                  dislike_count: snapshot.dislike_count
+                }
+              : r
+          )
         }
       })
     }
@@ -695,6 +727,8 @@ export default function Course() {
     if (!target) return
 
     const nextDisliked = !target.disliked
+    // Snapshot full review state for correct rollback
+    const snapshot = { liked: target.liked, disliked: target.disliked, like_count: target.like_count, dislike_count: target.dislike_count }
 
     // optimistic
     setCourse((prev) => {
@@ -707,7 +741,6 @@ export default function Course() {
                 ...r,
                 disliked: nextDisliked,
                 dislike_count: Math.max(0, Number(r.dislike_count || 0) + (nextDisliked ? 1 : -1)),
-                // like-dislike mutual exclusion: undo like if disliking
                 liked: nextDisliked ? false : r.liked,
                 like_count: nextDisliked ? Math.max(0, Number(r.like_count || 0) - (r.liked ? 1 : 0)) : r.like_count,
               }
@@ -720,27 +753,33 @@ export default function Course() {
       const res = nextDisliked
         ? await dislikeReview(reviewId, clientId)
         : await undislikeReview(reviewId, clientId)
-      const dislikeCount = Number(res?.dislike_count ?? 0)
-      const likeCount = Number(res?.like_count ?? 0)
+      const dislikeCount = Number(res?.dislike_count ?? target.dislike_count ?? 0)
+      const likeCount = Number(res?.like_count ?? target.like_count ?? 0)
       setCourse((prev) => {
         if (!prev) return prev
         return {
           ...prev,
           reviews: prev.reviews.map((r) =>
             r.id === reviewId
-              ? { ...r, disliked: nextDisliked, dislike_count: dislikeCount, liked: false, like_count: likeCount }
+              ? {
+                  ...r,
+                  disliked: nextDisliked,
+                  dislike_count: dislikeCount,
+                  liked: nextDisliked ? false : r.liked,
+                  like_count: likeCount
+                }
               : r
           )
         }
       })
     } catch (_e) {
-      // revert
+      // rollback to pre-request state
       setCourse((prev) => {
         if (!prev) return prev
         return {
           ...prev,
           reviews: prev.reviews.map((r) =>
-            r.id === reviewId ? { ...r, disliked: !nextDisliked } : r
+            r.id === reviewId ? { ...r, liked: snapshot.liked, disliked: snapshot.disliked, like_count: snapshot.like_count, dislike_count: snapshot.dislike_count } : r
           )
         }
       })
@@ -1209,7 +1248,7 @@ export default function Course() {
                         ? 'bg-red-50 border-red-200 text-red-700 hover:-translate-y-0.5'
                         : 'bg-white border-slate-200/70 text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5'
                     }`}
-                    title={review.disliked ? '????' : '??'}
+                    title={review.disliked ? '取消点踩' : '点踩'}
                   >
                     <svg
                       aria-hidden="true"
@@ -1227,7 +1266,7 @@ export default function Course() {
                       />
                     </svg>
                     <span className="tabular-nums">{Number(review.dislike_count || 0)}</span>
-                    <span className="text-[10px] font-black opacity-80">??</span>
+                    <span className="text-[10px] font-black opacity-80">点踩</span>
                   </button>
 
                   <button

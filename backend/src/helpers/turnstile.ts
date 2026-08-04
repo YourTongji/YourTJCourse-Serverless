@@ -34,14 +34,17 @@ export async function verifyTurnstile(token: string, env: Bindings, opts?: { exp
     body.set('response', response)
     if (opts?.remoteip) body.set('remoteip', String(opts.remoteip))
 
-    // Retry loop for transient network / 5xx errors
+    // Retry loop for transient network / 5xx errors.
+    // Turnstile tokens are single-use, so we do NOT retry on abort/timeout
+    // (the token may have been consumed by the first attempt).
     const maxAttempts = 3
     let lastError: { ok: false; error: string; codes?: string[] } | null = null
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
       try {
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 8000)
+        timeoutId = setTimeout(() => controller.abort(), 8000)
 
         const res = await fetch(url, {
           method: 'POST',
@@ -49,8 +52,6 @@ export async function verifyTurnstile(token: string, env: Bindings, opts?: { exp
           body,
           signal: controller.signal
         })
-
-        clearTimeout(timeoutId)
 
         if (!res.ok) {
           const text = await res.text().catch(() => '')
@@ -73,6 +74,7 @@ export async function verifyTurnstile(token: string, env: Bindings, opts?: { exp
         if (!data.success) {
           const codes = Array.isArray(data['error-codes']) ? data['error-codes'] : []
           // Don't retry on token validation failures (they won't pass on retry)
+          console.error('Turnstile verify failed:', { error: 'verify_failed', codes })
           return { ok: false, error: 'verify_failed' as const, codes }
         }
 
@@ -91,13 +93,17 @@ export async function verifyTurnstile(token: string, env: Bindings, opts?: { exp
         return { ok: true }
       } catch (e) {
         const message = String(e instanceof Error ? e.message : e)
-        if (attempt < maxAttempts && (message.includes('abort') || message.includes('timeout') || message.includes('fetch'))) {
+        // Only retry on transient network errors, not abort/timeout
+        // (the token may already be consumed).
+        if (attempt < maxAttempts && message.includes('fetch') && !message.includes('abort') && !message.includes('timeout')) {
           console.error(`Turnstile fetch error (attempt ${attempt}/${maxAttempts}):`, message, 'retrying...')
           await new Promise((r) => setTimeout(r, 500 * attempt))
           continue
         }
         lastError = { ok: false, error: 'unknown_error' as const }
         console.error('Turnstile service error:', e)
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
       }
     }
 

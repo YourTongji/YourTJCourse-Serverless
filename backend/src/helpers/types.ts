@@ -5,6 +5,7 @@ export type Bindings = {
   ADMIN_SECRET: string
   TURNSTILE_SECRET_KEY?: string
   TURNSTILE_SITEVERIFY_URL?: string
+  TURNSTILE_SEND_REMOTEIP?: string
   ONESYSTEM_COOKIE?: string
   CREDIT_API_BASE?: string
   CREDIT_JCOURSE_SECRET?: string

@@ -2,15 +2,18 @@ export async function verifyTongjiCaptcha(token: string, siteverifyUrl: string) 
   const raw = String(siteverifyUrl || '').trim()
   if (!raw) return false
 
-  // ??????????? base??? https://captcha.xxx.com??????? /api/siteverify
+  // The siteverify URL can be provided with or without the /api/siteverify suffix.
+  // We normalize by stripping trailing slashes and appending /api/siteverify if missing.
   const normalized = raw.replace(/\/+$/, '')
   const url = /\/api\/siteverify$/i.test(normalized) ? normalized : `${normalized}/api/siteverify`
 
+  // Captcha tokens are single-use, so we do NOT retry on abort/timeout.
   const maxAttempts = 3
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 8000)
+      timeoutId = setTimeout(() => controller.abort(), 8000)
 
       const res = await fetch(url, {
         method: 'POST',
@@ -18,8 +21,6 @@ export async function verifyTongjiCaptcha(token: string, siteverifyUrl: string) 
         body: JSON.stringify({ token }),
         signal: controller.signal
       })
-
-      clearTimeout(timeoutId)
 
       if (!res.ok) {
         const text = await res.text().catch(() => '')
@@ -39,13 +40,17 @@ export async function verifyTongjiCaptcha(token: string, siteverifyUrl: string) 
       return data.success === true
     } catch (e) {
       const message = String(e instanceof Error ? e.message : e)
-      if (attempt < maxAttempts && (message.includes('abort') || message.includes('timeout') || message.includes('fetch'))) {
+      // Only retry on transient network errors, not abort/timeout
+      // (the token may already be consumed).
+      if (attempt < maxAttempts && message.includes('fetch') && !message.includes('abort') && !message.includes('timeout')) {
         console.error(`Captcha fetch error (attempt ${attempt}/${maxAttempts}):`, message, 'retrying...')
         await new Promise((r) => setTimeout(r, 500 * attempt))
         continue
       }
       console.error('Captcha service error:', e)
       return false
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
     }
   }
 

@@ -187,9 +187,13 @@ async function isPkAuxiliaryReady(db: D1Database) {
   const now = Date.now()
   if (pkAuxReadyCache && pkAuxReadyCache.expiresAt > now) return pkAuxReadyCache.value
 
-  await ensurePkAuxiliarySchema(db)
-  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('pk_aux_schema_version').first<{ value: string }>()
-  const ready = row?.value === PK_AUX_SCHEMA_VERSION
+  let ready = false
+  try {
+    const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('pk_aux_schema_version').first<{ value: string }>()
+    ready = row?.value === PK_AUX_SCHEMA_VERSION
+  } catch {
+    ready = false
+  }
   pkAuxReadyCache = { value: ready, expiresAt: now + 30_000 }
   return ready
 }

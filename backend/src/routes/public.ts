@@ -4,7 +4,7 @@ import type { Bindings } from '../helpers/types'
 import { encodeReviewId, decodeReviewId } from '../sqids'
 import { refreshCourseStats } from '../courseStats'
 import {
-  ensureDbInitialized,
+  ensurePublicReadReady,
   getShowIcuSetting,
   COURSE_LIST_CACHE_SECONDS,
   COURSE_LIST_CACHE_SWR_SECONDS,
@@ -16,12 +16,6 @@ import {
   buildCourseSearchMatchQuery,
   buildKeywordSearchVariants,
   buildLooseSqlExpr,
-  combineSemesterNames,
-  buildCourseAuxiliaryRecords,
-  deleteAuxiliaryCourseData,
-  upsertAuxiliaryCourseData,
-  refreshAuxiliaryCourseData,
-  rebuildAllAuxiliaryCourseData,
   isAuxiliaryCourseDataReady,
   getCourseSemesters,
   getMaintenanceModeSetting,
@@ -30,9 +24,10 @@ import {
   postCreditJcourseEvent,
   ensureReviewsWalletColumn,
   ensureReviewLikesTable,
+  ensureReviewDislikesTable,
   ensureReviewReportsTable,
 } from '../helpers/db'
-import { verifyTurnstile, isAllowedTurnstileHostname } from '../helpers/turnstile'
+import { verifyTurnstile } from '../helpers/turnstile'
 import { verifyTongjiCaptcha } from '../helpers/captcha'
 import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar, sha256Hex } from '../helpers/review'
 import { notifyReportToFeishu, verifyActionToken } from '../helpers/feishu'
@@ -100,6 +95,29 @@ async function loadReviewIdSetByClient(
     const placeholders = part.map(() => '?').join(',')
     const rows = await db
       .prepare(`SELECT review_id FROM review_likes WHERE client_id = ? AND review_id IN (${placeholders})`)
+      .bind(clientId, ...part)
+      .all<{ review_id: number }>()
+    for (const row of rows.results || []) {
+      result.add(Number((row as any).review_id))
+    }
+  }
+
+  return result
+}
+
+async function loadReviewDislikedSetByClient(
+  db: D1Database,
+  reviewIds: number[],
+  clientId: string
+) {
+  const result = new Set<number>()
+  const ids = Array.from(new Set(reviewIds.filter((id) => Number.isFinite(id) && id > 0)))
+  if (!clientId || ids.length === 0) return result
+
+  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '?').join(',')
+    const rows = await db
+      .prepare('SELECT review_id FROM review_dislikes WHERE client_id = ? AND review_id IN (' + placeholders + ')')
       .bind(clientId, ...part)
       .all<{ review_id: number }>()
     for (const row of rows.results || []) {
@@ -196,9 +214,48 @@ async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
   return creditById
 }
 
+async function loadCourseReviewStats(
+  db: D1Database,
+  courseIds: number[],
+  showIcu: boolean
+) {
+  const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
+  if (ids.length === 0) return { review_count: 0, review_avg: 0 }
+
+  const statsFilter = showIcu ? '' : ' AND is_icu = 0'
+  let totalCount = 0
+  let weightedRating = 0
+
+  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '?').join(',')
+    const row = await db
+      .prepare(
+        `SELECT
+           SUM(COALESCE(review_count, 0)) AS total_count,
+           CASE
+             WHEN SUM(COALESCE(review_count, 0)) > 0
+               THEN ROUND(SUM(COALESCE(review_avg, 0) * COALESCE(review_count, 0)) * 1.0 / SUM(COALESCE(review_count, 0)), 4)
+             ELSE 0
+           END AS avg_rating
+         FROM courses WHERE id IN (${placeholders})${statsFilter}`
+      )
+      .bind(...part)
+      .first<{ total_count: number; avg_rating: number }>()
+
+    const chunkCount = Number(row?.total_count || 0)
+    const chunkAvg = Number(row?.avg_rating || 0)
+    totalCount += chunkCount
+    weightedRating += chunkCount * chunkAvg
+  }
+
+  return {
+    review_count: totalCount,
+    review_avg: totalCount > 0 ? weightedRating / totalCount : 0
+  }
+}
+
 // 启动前检查：服务端验证 Turnstile token（避免纯前端放行被自动化绕过）
 publicRoutes.post('/startup/verify', async (c) => {
-  await ensureDbInitialized(c.env.DB)
   const maintenanceMode = await getMaintenanceModeSetting(c.env.DB, c.env)
   if (maintenanceMode) {
     return c.json({ success: true, bypassed: 'maintenance_mode' })
@@ -208,8 +265,12 @@ publicRoutes.post('/startup/verify', async (c) => {
   const token = String(body?.token || '').trim()
   if (!token) return c.json({ success: false, error: 'missing_token' }, 400)
 
-  const remoteip = String(c.req.header('CF-Connecting-IP') || '').trim()
-  const result = await verifyTurnstile(token, c.env, { expectedAction: 'startup_gate', remoteip })
+  const sendRemoteIp = String(c.env.TURNSTILE_SEND_REMOTEIP || '').trim().toLowerCase() === 'true'
+  const remoteip = sendRemoteIp ? String(c.req.header('CF-Connecting-IP') || '').trim() : ''
+  const result = await verifyTurnstile(token, c.env, {
+    expectedAction: 'startup_gate',
+    ...(remoteip ? { remoteip } : {})
+  })
 
   if (!result.ok) {
     return c.json({ success: false, error: result.error, codes: (result as any).codes || [] }, 403)
@@ -221,7 +282,7 @@ publicRoutes.post('/startup/verify', async (c) => {
 // 获取开课单位列表
 publicRoutes.get('/departments', async (c) => {
   try {
-    await ensureDbInitialized(c.env.DB)
+    await ensurePublicReadReady(c.env.DB)
 
     const showIcu = await getShowIcuSetting(c.env.DB)
 
@@ -246,7 +307,7 @@ publicRoutes.get('/departments', async (c) => {
 
 publicRoutes.get('/courses', async (c) => {
   try {
-    await ensureDbInitialized(c.env.DB)
+    await ensurePublicReadReady(c.env.DB)
     const keyword = (c.req.query('q') || '').trim()
     const departments = c.req.query('departments')
     const onlyWithReviews = c.req.query('onlyWithReviews') === 'true'
@@ -601,7 +662,7 @@ publicRoutes.get('/courses', async (c) => {
 
 publicRoutes.get('/course/:id', async (c) => {
   try {
-    await ensureDbInitialized(c.env.DB)
+    await ensurePublicReadReady(c.env.DB)
     const id = c.req.param('id')
 
     const showIcu = await getShowIcuSetting(c.env.DB)
@@ -664,6 +725,7 @@ publicRoutes.get('/course/:id', async (c) => {
           : []
 
         const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
+        const dislikedSet = await loadReviewDislikedSetByClient(c.env.DB, reviewIds, clientId)
         const editableSet = await loadEditableReviewIdSetByToken(c.env.DB, editProofs)
 
         const personalized = {
@@ -671,6 +733,7 @@ publicRoutes.get('/course/:id', async (c) => {
           reviews: ((basePayload as any).reviews || []).map((r: any) => ({
             ...r,
             liked: likedSet.has(Number(r?.id)),
+            disliked: dislikedSet.has(Number(r?.id)),
             can_edit: editableSet.has(Number(r?.id))
           }))
         }
@@ -704,18 +767,25 @@ publicRoutes.get('/course/:id', async (c) => {
         const rows = await c.env.DB
           .prepare(
             `SELECT id FROM courses
-             WHERE name = ?
+             WHERE code = ?
+               AND name = ?
                AND teacher_id IN (${placeholdersT})
                AND NOT (is_legacy = 1 AND code LIKE '%AUTO%')`
           )
-          .bind((course as any).name, ...teacherIds)
+          .bind((course as any).code, (course as any).name, ...teacherIds)
           .all<{ id: number }>()
         for (const r of rows.results || []) matchedIds.add(Number((r as any).id))
       }
     } else {
       const rows = await c.env.DB
-        .prepare(`SELECT id FROM courses WHERE code = ? AND NOT (is_legacy = 1 AND code LIKE '%AUTO%')`)
-        .bind((course as any).code)
+        .prepare(
+          `SELECT id FROM courses
+           WHERE code = ?
+             AND name = ?
+             AND COALESCE(teacher_id, -1) = COALESCE(?, -1)
+             AND NOT (is_legacy = 1 AND code LIKE '%AUTO%')`
+        )
+        .bind((course as any).code, (course as any).name, (course as any).teacher_id ?? -1)
         .all<{ id: number }>()
       for (const r of rows.results || []) matchedIds.add(Number((r as any).id))
     }
@@ -742,14 +812,14 @@ publicRoutes.get('/course/:id', async (c) => {
     const reviewsWithSqid = addSqidToReviews(rawReviews).map((r: any) => ({
       ...stripWalletUserHash(r),
       like_count: Number(r?.approve_count || 0),
-      liked: false
+      liked: false,
+      dislike_count: Number(r?.disapprove_count || 0),
+      disliked: false
     }))
 
-    const reviewCount = rawReviews.length
-    const ratingNums = rawReviews
-      .map((r) => Number((r as any)?.rating ?? 0))
-      .filter((n) => Number.isFinite(n) && n > 0)
-    const reviewAvg = ratingNums.length > 0 ? ratingNums.reduce((a, b) => a + b, 0) / ratingNums.length : 0
+    const courseStats = await loadCourseReviewStats(c.env.DB, idList, showIcu)
+    const reviewCount = courseStats.review_count
+    const reviewAvg = courseStats.review_avg
 
     const semesters = await getCourseSemesters(c.env.DB, Number((course as any).id)).catch(() => [])
 
@@ -773,6 +843,7 @@ publicRoutes.get('/course/:id', async (c) => {
 
     const reviewIds = rawReviews.map((r) => Number(r?.id)).filter((n) => Number.isFinite(n))
     const likedSet = await loadReviewIdSetByClient(c.env.DB, reviewIds, clientId)
+    const dislikedSet = await loadReviewDislikedSetByClient(c.env.DB, reviewIds, clientId)
     const editableSet = await loadEditableReviewIdSetByToken(c.env.DB, editProofs)
 
     const personalized = {
@@ -780,6 +851,7 @@ publicRoutes.get('/course/:id', async (c) => {
       reviews: (basePayload.reviews || []).map((r: any) => ({
         ...r,
         liked: likedSet.has(Number(r?.id)),
+        disliked: dislikedSet.has(Number(r?.id)),
         can_edit: editableSet.has(Number(r?.id))
       }))
     }
@@ -797,7 +869,7 @@ publicRoutes.get('/course/:id', async (c) => {
 
 publicRoutes.get('/course/:id/related', async (c) => {
   try {
-    await ensureDbInitialized(c.env.DB)
+    await ensurePublicReadReady(c.env.DB)
     const id = Number(c.req.param('id') || '0')
     if (!Number.isFinite(id) || id <= 0) return c.json({ error: 'Invalid course id' }, 400)
 
@@ -899,7 +971,7 @@ publicRoutes.get('/course/:id/related', async (c) => {
 // 给排课模拟器侧边弹窗使用：按课号/新课号查找课程评价
 publicRoutes.get('/course/by-code/:code', async (c) => {
   try {
-    await ensureDbInitialized(c.env.DB)
+    await ensurePublicReadReady(c.env.DB)
     const code = (c.req.param('code') || '').trim()
     if (!code) return c.json({ error: 'Missing code' }, 400)
     const teacherName = (c.req.query('teacherName') || '').trim()
@@ -1006,18 +1078,6 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
 
     if (!courseId) return c.json({ error: 'Course not found' }, 404)
 
-    if (!aliasRow?.id && directRow?.id) {
-      await c.env.DB
-        .prepare(
-          `INSERT INTO course_aliases (system, alias, course_id)
-           VALUES ('onesystem', ?, ?)
-           ON CONFLICT(system, alias) DO UPDATE SET course_id=excluded.course_id`
-        )
-        .bind(code, courseId)
-        .run()
-      await refreshAuxiliaryCourseData(c.env.DB, [Number(courseId)])
-    }
-
     let course = await c.env.DB.prepare(
       `SELECT c.*, t.name as teacher_name FROM courses c
        LEFT JOIN teachers t ON c.teacher_id = t.id
@@ -1106,22 +1166,24 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     const reviewsWithSqid = addSqidToReviews(reviews.results || [])
 
     let likedSet = new Set<number>()
+    let dislikedSet = new Set<number>()
     if (clientId && (reviewsWithSqid || []).length > 0) {
       const ids = (reviewsWithSqid || []).map((r: any) => Number(r?.id)).filter((n) => Number.isFinite(n))
       likedSet = await loadReviewIdSetByClient(c.env.DB, ids, clientId)
+      dislikedSet = await loadReviewDislikedSetByClient(c.env.DB, ids, clientId)
     }
 
     const mappedReviews = (reviewsWithSqid || []).map((r: any) => ({
       ...r,
       like_count: Number(r?.approve_count || 0),
-      liked: clientId ? likedSet.has(Number(r?.id)) : false
+      liked: clientId ? likedSet.has(Number(r?.id)) : false,
+      dislike_count: Number(r?.disapprove_count || 0),
+      disliked: clientId ? dislikedSet.has(Number(r?.id)) : false
     }))
 
-    const reviewCount = mappedReviews.length
-    const ratingNums = mappedReviews
-      .map((r: any) => Number(r?.rating ?? 0))
-      .filter((n) => Number.isFinite(n) && n > 0)
-    const reviewAvg = ratingNums.length > 0 ? ratingNums.reduce((a, b) => a + b, 0) / ratingNums.length : 0
+    const courseStats = await loadCourseReviewStats(c.env.DB, idList, showIcu)
+    const reviewCount = courseStats.review_count
+    const reviewAvg = courseStats.review_avg
 
     const semesters = await getCourseSemesters(c.env.DB, Number(courseId)).catch(() => [])
     const fallbackCredits = await loadPkCreditFallbacks(c.env.DB, [Number((course as any).id)])
@@ -1164,7 +1226,7 @@ function checkReviewRateLimit(ip: string): boolean {
 
 publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
   try {
-    await ensureDbInitialized(c.env.DB)
+    await ensurePublicReadReady(c.env.DB)
 
     const userHash = String(c.req.param('userHash') || '').trim().toLowerCase()
     if (!/^[a-f0-9]{64}$/.test(userHash)) {
@@ -1204,7 +1266,9 @@ publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
     const hasMore = results.length > limit
     const reviews = addSqidToReviews(results.slice(0, limit)).map((review: any) => ({
       ...review,
-      like_count: Number(review?.approve_count || 0)
+      like_count: Number(review?.approve_count || 0),
+      dislike_count: Number(review?.disapprove_count || 0),
+      disliked: false
     }))
 
     c.header('Cache-Control', 'no-store')
@@ -1505,6 +1569,7 @@ publicRoutes.post('/review/:id/like', async (c) => {
   if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
 
   await ensureReviewLikesTable(c.env.DB)
+  await ensureReviewDislikesTable(c.env.DB)
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))
@@ -1526,10 +1591,22 @@ publicRoutes.post('/review/:id/like', async (c) => {
     changed = true
   }
 
+  const existingDislike = await c.env.DB
+    .prepare('SELECT 1 as x FROM review_dislikes WHERE review_id = ? AND client_id = ? LIMIT 1')
+    .bind(id, clientId)
+    .first<{ x: number }>()
+  if (existingDislike) {
+    await c.env.DB.prepare('DELETE FROM review_dislikes WHERE review_id = ? AND client_id = ?').bind(id, clientId).run()
+    await c.env.DB
+      .prepare('UPDATE reviews SET disapprove_count = CASE WHEN disapprove_count > 0 THEN disapprove_count - 1 ELSE 0 END WHERE id = ?')
+      .bind(id)
+      .run()
+  }
+
   const review = await c.env.DB
-    .prepare('SELECT approve_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .prepare('SELECT approve_count, disapprove_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
     .bind(id)
-    .first<{ approve_count: number; wallet_user_hash?: string | null }>()
+    .first<{ approve_count: number; disapprove_count: number; wallet_user_hash?: string | null }>()
   if (!review) return c.json({ error: 'Review not found' }, 404)
 
   const walletHash = String(review.wallet_user_hash || '').trim()
@@ -1543,7 +1620,13 @@ publicRoutes.post('/review/:id/like', async (c) => {
     })
   }
 
-  return c.json({ success: true, liked: true, like_count: Number(review.approve_count || 0) })
+  return c.json({
+    success: true,
+    liked: true,
+    disliked: false,
+    like_count: Number(review.approve_count || 0),
+    dislike_count: Number(review.disapprove_count || 0)
+  })
 })
 
 publicRoutes.delete('/review/:id/like', async (c) => {
@@ -1551,6 +1634,7 @@ publicRoutes.delete('/review/:id/like', async (c) => {
   if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
 
   await ensureReviewLikesTable(c.env.DB)
+  await ensureReviewDislikesTable(c.env.DB)
   await ensureReviewsWalletColumn(c.env.DB)
 
   const body = await c.req.json().catch(() => ({} as any))
@@ -1576,9 +1660,9 @@ publicRoutes.delete('/review/:id/like', async (c) => {
   }
 
   const review = await c.env.DB
-    .prepare('SELECT approve_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .prepare('SELECT approve_count, disapprove_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
     .bind(id)
-    .first<{ approve_count: number; wallet_user_hash?: string | null }>()
+    .first<{ approve_count: number; disapprove_count: number; wallet_user_hash?: string | null }>()
   if (!review) return c.json({ error: 'Review not found' }, 404)
 
   const walletHash = String(review.wallet_user_hash || '').trim()
@@ -1592,7 +1676,134 @@ publicRoutes.delete('/review/:id/like', async (c) => {
     })
   }
 
-  return c.json({ success: true, liked: false, like_count: Number(review.approve_count || 0) })
+  return c.json({
+    success: true,
+    liked: false,
+    disliked: false,
+    like_count: Number(review.approve_count || 0),
+    dislike_count: Number(review.disapprove_count || 0)
+  })
+})
+
+publicRoutes.post('/review/:id/dislike', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
+
+  await ensureReviewLikesTable(c.env.DB)
+  await ensureReviewDislikesTable(c.env.DB)
+  await ensureReviewsWalletColumn(c.env.DB)
+
+  const body = await c.req.json().catch(() => ({} as any))
+  const requestedClientId = String(body?.clientId || '').trim()
+  if (!requestedClientId) return c.json({ error: 'Missing clientId' }, 400)
+
+  const clientId = await getReviewLikeClientKey(c)
+  if (!clientId) return c.json({ error: 'Unable to identify client' }, 400)
+
+  const existing = await c.env.DB
+    .prepare('SELECT 1 as x FROM review_dislikes WHERE review_id = ? AND client_id = ? LIMIT 1')
+    .bind(id, clientId)
+    .first<{ x: number }>()
+
+  let changed = false
+  if (!existing) {
+    await c.env.DB.prepare('INSERT INTO review_dislikes (review_id, client_id) VALUES (?, ?)').bind(id, clientId).run()
+    await c.env.DB.prepare('UPDATE reviews SET disapprove_count = disapprove_count + 1 WHERE id = ?').bind(id).run()
+    changed = true
+  }
+
+  const existingLike = await c.env.DB
+    .prepare('SELECT 1 as x FROM review_likes WHERE review_id = ? AND client_id = ? LIMIT 1')
+    .bind(id, clientId)
+    .first<{ x: number }>()
+  if (existingLike) {
+    await c.env.DB.prepare('DELETE FROM review_likes WHERE review_id = ? AND client_id = ?').bind(id, clientId).run()
+    await c.env.DB
+      .prepare('UPDATE reviews SET approve_count = CASE WHEN approve_count > 0 THEN approve_count - 1 ELSE 0 END WHERE id = ?')
+      .bind(id)
+      .run()
+  }
+
+  const review = await c.env.DB
+    .prepare('SELECT approve_count, disapprove_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<{ approve_count: number; disapprove_count: number; wallet_user_hash?: string | null }>()
+  if (!review) return c.json({ error: 'Review not found' }, 404)
+
+  const walletHash = String(review.wallet_user_hash || '').trim()
+  if (changed && walletHash && /^[a-f0-9]{64}$/i.test(walletHash)) {
+    await postCreditJcourseEvent(c.env, {
+      kind: 'dislike',
+      reviewId: String(id),
+      actorId: clientId,
+      targetUserHash: walletHash,
+      metadata: { reviewId: id }
+    })
+  }
+
+  return c.json({
+    success: true,
+    liked: false,
+    disliked: true,
+    like_count: Number(review.approve_count || 0),
+    dislike_count: Number(review.disapprove_count || 0)
+  })
+})
+
+publicRoutes.delete('/review/:id/dislike', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'Invalid review id' }, 400)
+
+  await ensureReviewLikesTable(c.env.DB)
+  await ensureReviewDislikesTable(c.env.DB)
+  await ensureReviewsWalletColumn(c.env.DB)
+
+  const body = await c.req.json().catch(() => ({} as any))
+  const requestedClientId = String(body?.clientId || '').trim()
+  if (!requestedClientId) return c.json({ error: 'Missing clientId' }, 400)
+
+  const clientId = await getReviewLikeClientKey(c)
+  if (!clientId) return c.json({ error: 'Unable to identify client' }, 400)
+
+  const existing = await c.env.DB
+    .prepare('SELECT 1 as x FROM review_dislikes WHERE review_id = ? AND client_id = ? LIMIT 1')
+    .bind(id, clientId)
+    .first<{ x: number }>()
+
+  let changed = false
+  if (existing) {
+    await c.env.DB.prepare('DELETE FROM review_dislikes WHERE review_id = ? AND client_id = ?').bind(id, clientId).run()
+    await c.env.DB
+      .prepare('UPDATE reviews SET disapprove_count = CASE WHEN disapprove_count > 0 THEN disapprove_count - 1 ELSE 0 END WHERE id = ?')
+      .bind(id)
+      .run()
+    changed = true
+  }
+
+  const review = await c.env.DB
+    .prepare('SELECT approve_count, disapprove_count, wallet_user_hash FROM reviews WHERE id = ? LIMIT 1')
+    .bind(id)
+    .first<{ approve_count: number; disapprove_count: number; wallet_user_hash?: string | null }>()
+  if (!review) return c.json({ error: 'Review not found' }, 404)
+
+  const walletHash = String(review.wallet_user_hash || '').trim()
+  if (changed && walletHash && /^[a-f0-9]{64}$/i.test(walletHash)) {
+    await postCreditJcourseEvent(c.env, {
+      kind: 'undislike',
+      reviewId: String(id),
+      actorId: clientId,
+      targetUserHash: walletHash,
+      metadata: { reviewId: id }
+    })
+  }
+
+  return c.json({
+    success: true,
+    liked: false,
+    disliked: false,
+    like_count: Number(review.approve_count || 0),
+    dislike_count: Number(review.disapprove_count || 0)
+  })
 })
 
 function buildReportActionHtml(options: {
