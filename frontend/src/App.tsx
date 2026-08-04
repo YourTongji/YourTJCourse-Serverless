@@ -734,13 +734,11 @@ export default function App() {
         announcementCollapsed={announcementCollapsed}
         onToggleAnnouncementCollapsed={() => setAnnouncementCollapsedPersist(false)}
       />
-      {isHome && (
-        <AnnouncementBar
-          announcements={announcements}
-          collapsed={announcementCollapsed}
-          onCollapsedChange={setAnnouncementCollapsedPersist}
-        />
-      )}
+      <AnnouncementBar
+        announcements={announcements}
+        collapsed={announcementCollapsed}
+        onCollapsedChange={setAnnouncementCollapsedPersist}
+      />
       <main
         className={`${isSchedule ? 'max-w-none px-4 mt-4' : `max-w-7xl px-4 ${isHome ? 'mt-2 md:mt-2' : 'mt-6 md:mt-8'}`} mx-auto flex-1 w-full ${isHome ? 'pb-12' : 'pb-20'} md:pb-0`}
       >

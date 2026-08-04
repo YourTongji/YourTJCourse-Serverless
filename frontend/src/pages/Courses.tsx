@@ -37,6 +37,57 @@ const SEARCH_PLACEHOLDERS = [
 
 const PAGE_SIZE = 20
 
+const SEARCH_STATE_KEY = 'yourtj_course_search_state_v1'
+const SEARCH_STATE_TTL = 10 * 60 * 1000
+
+interface SavedCourseSearchState {
+  keyword: string
+  page: number
+  courses: CourseItem[]
+  hasMore: boolean
+  filters: FilterState
+  savedAt: number
+  scrollY: number
+}
+
+function sameFilterState(left: FilterState, right: FilterState) {
+  return left.selectedDepartments.join('\u0000') === right.selectedDepartments.join('\u0000')
+    && left.onlyWithReviews === right.onlyWithReviews
+    && left.courseName === right.courseName
+    && left.courseCode === right.courseCode
+    && left.teacherCode === right.teacherCode
+    && left.teacherName === right.teacherName
+    && left.campus === right.campus
+}
+
+function loadCourseSearchState(): SavedCourseSearchState | null {
+  try {
+    const raw = sessionStorage.getItem(SEARCH_STATE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as SavedCourseSearchState
+    if (!parsed || !Array.isArray(parsed.courses) || Date.now() - Number(parsed.savedAt || 0) > SEARCH_STATE_TTL) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function saveCourseSearchState(state: SavedCourseSearchState) {
+  try {
+    sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(state))
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function clearCourseSearchState() {
+  try {
+    sessionStorage.removeItem(SEARCH_STATE_KEY)
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function parseSearchState(search: string) {
   const params = new URLSearchParams(search)
 
@@ -140,6 +191,8 @@ export default function Courses() {
   const [typingPlaceholder, setTypingPlaceholder] = useState('')
   const [expandedSemesterCourseId, setExpandedSemesterCourseId] = useState<number | null>(null)
   const [sessionShuffleSeed] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  const coursesRef = useRef<CourseItem[]>([])
+  const pageRef = useRef(1)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const syncUrl = (nextKeyword: string, nextPage: number, nextFilters: FilterState) => {
@@ -160,6 +213,7 @@ export default function Courses() {
   const search = async (nextPage = 1, nextKeyword = keyword, nextFilters = filters) => {
     setLoading(true)
     setError('')
+    if (nextPage === 1) clearCourseSearchState()
     syncUrl(nextKeyword, nextPage, nextFilters)
 
     try {
@@ -177,19 +231,30 @@ export default function Courses() {
 
       const nextCourses = Array.isArray(data.data) ? data.data : []
       const shouldShuffle = !nextKeyword.trim() && nextPage === 1 && !hasActiveFilters(nextFilters)
-
-      if (nextPage > 1) {
-        setCourses((prev) => [...prev, ...(shouldShuffle ? shuffleCoursesForSession(nextCourses, sessionShuffleSeed) : nextCourses)])
-      } else {
-        setCourses(shouldShuffle ? shuffleCoursesForSession(nextCourses, sessionShuffleSeed) : nextCourses)
-      }
+      const batch = shouldShuffle ? shuffleCoursesForSession(nextCourses, sessionShuffleSeed) : nextCourses
+      const previousCourses = nextPage > pageRef.current ? coursesRef.current : []
+      const finalCourses = nextPage > 1 ? [...previousCourses, ...batch] : batch
+      setCourses(finalCourses)
+      coursesRef.current = finalCourses
+      pageRef.current = nextPage
       const total = typeof data.total === 'number' ? data.total : null
-      setHasMore(total != null ? nextPage * PAGE_SIZE < total : Boolean(data.hasMore))
+      const nextHasMore = total != null ? nextPage * PAGE_SIZE < total : Boolean(data.hasMore)
+      setHasMore(nextHasMore)
       setPage(nextPage)
+      saveCourseSearchState({
+        keyword: nextKeyword,
+        page: nextPage,
+        courses: finalCourses,
+        hasMore: nextHasMore,
+        filters: nextFilters,
+        savedAt: Date.now(),
+        scrollY: window.scrollY
+      })
     } catch (err) {
       console.error('Failed to fetch courses:', err)
       setError('加载失败，请稍后重试')
       setCourses([])
+      coursesRef.current = []
       setHasMore(false)
     } finally {
       setLoading(false)
@@ -197,7 +262,6 @@ export default function Courses() {
       setHasLoadedOnce(true)
     }
   }
-
   const loadDepartments = async () => {
     try {
       const data = await fetchDepartments(undefined)
@@ -328,7 +392,24 @@ export default function Courses() {
 
   useEffect(() => {
     void loadDepartments()
-    void search(initialStateRef.current.page, initialStateRef.current.keyword, initialStateRef.current.filters)
+    const initial = initialStateRef.current
+    const saved = loadCourseSearchState()
+    if (saved && saved.keyword === initial.keyword && saved.page === initial.page && sameFilterState(saved.filters, initial.filters)) {
+      setKeyword(saved.keyword)
+      setFilters(saved.filters)
+      setCourses(saved.courses)
+      coursesRef.current = saved.courses
+      pageRef.current = saved.page
+      setPage(saved.page)
+      setHasMore(saved.hasMore)
+      setHasLoadedOnce(true)
+      window.requestAnimationFrame(() => {
+        window.scrollTo(0, saved.scrollY)
+      })
+    } else {
+      clearCourseSearchState()
+      void search(initial.page, initial.keyword, initial.filters)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
