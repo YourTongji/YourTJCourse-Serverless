@@ -216,6 +216,7 @@ export default {
       const compulsoryCourses: string[] = [];
 
       // 第一步：分类所有选中的课程
+      // key 首字符（必/选/查）由 CourseOverview / OptionalCourseTimeOverview / AdvancedSearch 的 row-key 生成，是跨组件约定
       for (const key of this.selectedRowKeys) {
         const type = key[0];
 
