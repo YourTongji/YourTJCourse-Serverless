@@ -1,5 +1,6 @@
--- Ensure reviews.disapprove_count exists for the dislike feature.
--- The column is only defined in schema.sql (full re-init); environments that
--- were bootstrapped purely from migrations may lack it, which would break the
--- like/dislike endpoints' SELECT/UPDATE statements.
-ALTER TABLE reviews ADD COLUMN disapprove_count INTEGER DEFAULT 0;
+-- reviews.disapprove_count is guaranteed at runtime by
+-- ensureReviewDislikeCountColumn() (wired into ensureDbInitialized and all
+-- four like/dislike routes). A real ALTER TABLE here would break deployments
+-- on databases where the column already exists (schema.sql full init defines
+-- it), since SQLite ADD COLUMN is not idempotent. This file is intentionally
+-- a no-op to keep the migration ID sequence contiguous.
