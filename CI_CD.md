@@ -12,10 +12,35 @@
 - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare Account ID
 - `CLOUDFLARE_API_TOKEN`：Cloudflare API Token（用于 CI 部署）
 - `VITE_API_URL`：前端调用后端的 API Base URL（例如 `https://jcourse-backend.<your-subdomain>.workers.dev` 或你的自定义域名）
+- `BACKEND_URL_DEV`：dev 前端预览站点指向的 dev 后端 URL（`deploy-dev-cloudflare.yml` 使用）
 - `VITE_TURNSTILE_SITE_KEY`：如果你仍然使用 Turnstile，可以填站点 Key（不需要的话也可以填任意占位字符串）
 - `VITE_CAPTCHA_URL`：TongjiCaptcha 服务的 URL（例如 `https://captcha.xxx.com`）
 - `VITE_WALINE_SERVER_URL`：Waline 服务端地址（例如 `https://waline.xxx.com`）
 - `VITE_CREDIT_API_BASE`：YOURTJ 社区积分站后端 Core API Base（建议 `https://core.credit.yourtj.de`）
+- `JCOURSE_ADMIN_SECRET`：后端 `ADMIN_SECRET` 来源（CI 写入 Worker）
+- `TURNSTILE_SECRET_KEY`：Turnstile 服务端密钥（CI 写入 Worker；缺失会 fail-fast）
+- `CREDIT_JCOURSE_SECRET`：积分站为选课站分配的密钥（可与 `JCOURSE_INTEGRATION_SECRET` 二选一）
+
+### 可选 / 有回退的 secrets
+
+| Secret | 用途 | 回退 / 说明 |
+| --- | --- | --- |
+| `CAPTCHA_SITEVERIFY_URL` | 后端评测人机验证 siteverify | **可缺省**。CI 使用 `CAPTCHA_SITEVERIFY_URL` 或回退 `VITE_CAPTCHA_URL` 写入 Worker；两者都空时 deploy 硬失败（避免发帖 403） |
+| `CREDIT_API_BASE` | 积分站 Core API Base | 可缺省，回退 `VITE_CREDIT_API_BASE` |
+| `JCOURSE_INTEGRATION_SECRET` | 积分集成密钥别名 | 可缺省，回退 `CREDIT_JCOURSE_SECRET` |
+| `TURNSTILE_SITEVERIFY_URL` | Turnstile siteverify 自定义 URL | 可缺省，使用 Cloudflare 默认 |
+| `AI_SUMMARY_KEY` / `AI_SUMMARY_MODEL` / `AI_SUMMARY_BASE_URL` | AI 摘要 | 可缺省（功能降级） |
+| `FEISHU_REPORT_WEBHOOK_URL` / `FEISHU_REPORT_WEBHOOK_SECRET` | 飞书举报推送 | 可缺省 |
+
+### CAPTCHA 同步说明（#167 后）
+
+部署 workflow（`deploy-dev-cloudflare.yml` / `deploy-cloudflare.yml`）在 **Ensure backend secrets** 步骤会把 captcha URL 同步到 Worker secret `CAPTCHA_SITEVERIFY_URL`：
+
+1. 优先使用 GitHub secret `CAPTCHA_SITEVERIFY_URL`（可填 captcha 服务基址，或带 `/api/siteverify` 的完整 URL；后端 `captcha.ts` 会归一化）。
+2. 若未配置，回退使用已有的 `VITE_CAPTCHA_URL`（前端 captcha 基址）。
+3. 两者皆空 → 步骤 `exit 1`，阻止部署（评测提交在无 siteverify URL 时会 403）。
+
+因此**不必**单独再配 `CAPTCHA_SITEVERIFY_URL`，只要 `VITE_CAPTCHA_URL` 正确即可；若希望前后端 secret 名语义分离，可额外配置同值的 `CAPTCHA_SITEVERIFY_URL`。
 
 ## 2) Cloudflare API Token 推荐权限
 
@@ -31,9 +56,10 @@
 
 后端 Worker `jcourse-backend` 依赖以下 secrets（本地或 Cloudflare Dashboard / wrangler 设置均可）：
 
-- `CAPTCHA_SITEVERIFY_URL`
-- `ADMIN_SECRET`
-- `CREDIT_API_BASE`：积分站 Core API Base（建议 `https://core.credit.yourtj.de`；不要填 `https://credit.yourtj.de`）
+- `CAPTCHA_SITEVERIFY_URL`（必填运行时；CI 可由 `VITE_CAPTCHA_URL` 回退写入）
+- `ADMIN_SECRET`（CI 来源：`JCOURSE_ADMIN_SECRET`）
+- `TURNSTILE_SECRET_KEY`
+- `CREDIT_API_BASE`：积分站 Core API Base（建议 `https://core.credit.yourtj.de`；不要填 `https://credit.yourtj.de`；CI 可回退 `VITE_CREDIT_API_BASE`）
 - `CREDIT_JCOURSE_SECRET`：积分站为选课站分配的密钥（用于积分事件上报）
 
 本地可用：
@@ -42,11 +68,13 @@
 cd backend
 wrangler secret put CAPTCHA_SITEVERIFY_URL
 wrangler secret put ADMIN_SECRET
+wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
 ## 4) 工作流文件位置
 
 - `.github/workflows/deploy-cloudflare.yml`
+- `.github/workflows/deploy-dev-cloudflare.yml`（`dev` 分支推送 / 手动触发）
 
 ## 5) 一系统同步与 D1 导出规范
 
