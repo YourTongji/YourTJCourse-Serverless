@@ -47,7 +47,7 @@
                 selectedRowKeys: localSelectedRowKeys,
                 onChange: (keys: any[]) => onOptionalSelectChange(keys) 
             }"
-            :row-key="(record: any) => 'opt_' + (Array.isArray(record.courseNature) ? record.courseNature.filter(Boolean).join('-') : String(record.courseNature || '')) + '_' + record.courseCode"
+            :row-key="(record: any) => '选_' + (Array.isArray(record.courseNature) ? record.courseNature.filter(Boolean).join('-') : String(record.courseNature || '')) + '_' + record.courseCode"
             :row-class-name="(_record: any, index: number) => index % 2 === 1 ? 'bg-gray-50' : ''"
         >
         </a-table>
@@ -146,7 +146,7 @@ export default {
             return formatCourseList(value);
         },
         courseKey(course: any) {
-            return 'opt_' + (Array.isArray(course.courseNature) ? course.courseNature.filter(Boolean).join('-') : String(course.courseNature || '')) + '_' + course.courseCode;
+            return '选_' + (Array.isArray(course.courseNature) ? course.courseNature.filter(Boolean).join('-') : String(course.courseNature || '')) + '_' + course.courseCode;
         },
         isCourseSelected(course: any) {
             const key = this.courseKey(course);
