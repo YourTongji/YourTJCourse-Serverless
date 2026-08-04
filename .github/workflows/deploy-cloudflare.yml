@@ -103,7 +103,6 @@ jobs:
           set -euo pipefail
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/015_ai_summaries.sql"
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/018_review_dislikes.sql"
-          npx wrangler d1 execute jcourse-db --remote --file="./migrations/019_review_dislike_count.sql"
 
       - name: Ensure backend secrets
         run: |
