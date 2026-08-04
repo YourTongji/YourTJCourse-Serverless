@@ -140,12 +140,11 @@ export async function ensurePublicReadReady(db: D1Database) {
   // CREATE/DDL so public traffic cannot trigger D1 writes.
   const row = await db
     .prepare(
-      `SELECT name FROM sqlite_master
-       WHERE type IN ('table', 'view') AND name IN ('courses', 'reviews', 'teachers', 'settings')
-       LIMIT 1`
+      `SELECT COUNT(*) AS cnt FROM sqlite_master
+       WHERE type IN ('table', 'view') AND name IN ('courses', 'reviews', 'teachers', 'settings')`
     )
-    .first<{ name: string }>()
-  if (!row) throw new Error('Database schema is not initialized')
+    .first<{ cnt: number }>()
+  if (Number(row?.cnt || 0) < 4) throw new Error('Database schema is not initialized')
   publicReadSchemaChecked = true
 }
 
@@ -802,6 +801,10 @@ export async function deleteAuxiliaryCourseData(db: D1Database, courseIds: numbe
 export async function upsertAuxiliaryCourseData(db: D1Database, courseIds?: number[]) {
   const records = await buildCourseAuxiliaryRecords(db, courseIds)
   if (records.length === 0) return
+
+  // This helper assumes stale auxiliary rows were removed before calling it.
+  // Public read paths must never invoke it; only refresh/rebuild/admin/sync
+  // flows may write course_semesters or the FTS course_search table.
 
   // Batch INSERT OR REPLACE for course_semesters
   for (const part of chunkArray(records, D1_SAFE_BATCH_SIZE)) {
