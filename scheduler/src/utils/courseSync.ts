@@ -531,6 +531,19 @@ export function detectCourseChanges(
     };
 }
 
+// 将课程重置为未选状态：传 selectedCode 时只重置对应班级，否则重置全部班级
+function resetCourseSelection(course: stagedCourse, selectedCode?: string) {
+    course.status = 0;
+    if (selectedCode === undefined) {
+        course.courseDetail.forEach(d => { d.status = 0; });
+        return;
+    }
+    const detail = course.courseDetail.find(d => d.code === selectedCode);
+    if (detail) {
+        detail.status = 0;
+    }
+}
+
 // 应用课程同步（更新缓存）
 export function applyCourseSync(
     changes: CourseChangeInfo[],
@@ -565,19 +578,11 @@ export function applyCourseSync(
             if (newCourse) {
                 if (change.changeType === CourseChangeType.ClassClosed) {
                     // 所选班级已关闭：课程保留，整体重置为未选（含全部 detail，防止残留旧选中状态）
-                    newCourse.status = 0;
-                    newCourse.courseDetail.forEach(d => { d.status = 0; });
+                    resetCourseSelection(newCourse);
                 } else if (change.changeType === CourseChangeType.ConflictAfterUpdate) {
-                    // 冲突课程需要将状态改为未选（status=0）
-                    newCourse.status = 0;
-                    // 找到对应的 courseDetail 并设置为未选状态
+                    // 冲突课程重置为未选（仅重置选中的 detail）
                     const selectedCode = oldSelectedCodes.find(code => code.startsWith(oldCourse.courseCode));
-                    if (selectedCode) {
-                        const detail = newCourse.courseDetail.find(d => d.code === selectedCode);
-                        if (detail) {
-                            detail.status = 0;
-                        }
-                    }
+                    resetCourseSelection(newCourse, selectedCode);
                 }
                 newStagedCourses.push(newCourse);
             }
