@@ -126,6 +126,7 @@ export interface rawFaculty {
 export enum CourseChangeType {
     NoChange = 'noChange', // 无变化
     Closed = 'closed', // 课程关课
+    ClassClosed = 'classClosed', // 所选班级关闭（课程本身仍开课）
     InfoChanged = 'infoChanged', // 信息变更
     ConflictAfterUpdate = 'conflictAfterUpdate' // 更新后发生冲突
 }
