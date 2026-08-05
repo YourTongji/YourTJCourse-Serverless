@@ -613,6 +613,13 @@ export default function App() {
     return true
   }
 
+  // Non-home pages keep their original top spacing while the announcement bar
+  // is collapsed; once it is expanded (the bar carries its own mt-7), use the
+  // compact home spacing so the page does not gain an extra gap.
+  const mainLayoutClass = isSchedule
+    ? 'max-w-none px-4 mt-4'
+    : `max-w-7xl px-4 ${!announcementCollapsed || isHome ? 'mt-2 md:mt-2' : 'mt-6 md:mt-8'}`
+
   if (showMaintenanceGate) {
     return <MaintenancePage announcements={announcements} maintenanceConfig={maintenanceConfig} />
   }
@@ -734,15 +741,13 @@ export default function App() {
         announcementCollapsed={announcementCollapsed}
         onToggleAnnouncementCollapsed={() => setAnnouncementCollapsedPersist(false)}
       />
-      {isHome && (
-        <AnnouncementBar
-          announcements={announcements}
-          collapsed={announcementCollapsed}
-          onCollapsedChange={setAnnouncementCollapsedPersist}
-        />
-      )}
+      <AnnouncementBar
+        announcements={announcements}
+        collapsed={announcementCollapsed}
+        onCollapsedChange={setAnnouncementCollapsedPersist}
+      />
       <main
-        className={`${isSchedule ? 'max-w-none px-4 mt-4' : `max-w-7xl px-4 ${isHome ? 'mt-2 md:mt-2' : 'mt-6 md:mt-8'}`} mx-auto flex-1 w-full ${isHome ? 'pb-12' : 'pb-20'} md:pb-0`}
+        className={`${mainLayoutClass} mx-auto flex-1 w-full ${isHome ? 'pb-12' : 'pb-20'} md:pb-0`}
       >
         <Suspense
           fallback={
