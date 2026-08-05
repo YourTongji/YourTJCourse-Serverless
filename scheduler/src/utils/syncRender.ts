@@ -10,6 +10,7 @@ import { CourseChangeType } from './myInterface';
  */
 export function renderSyncChanges(changes: CourseChangeInfo[]) {
     const closedCourses = changes.filter(c => c.changeType === CourseChangeType.Closed);
+    const classClosedCourses = changes.filter(c => c.changeType === CourseChangeType.ClassClosed);
     const conflictCourses = changes.filter(c => c.changeType === CourseChangeType.ConflictAfterUpdate);
     const changedCourses = changes.filter(c => c.changeType === CourseChangeType.InfoChanged);
 
@@ -42,6 +43,39 @@ export function renderSyncChanges(changes: CourseChangeInfo[]) {
                                 marginTop: '4px'
                             } 
                         }, c.details) : null
+                    ])
+                )
+            ])
+        );
+    }
+
+    // 所选班级已关闭部分（课程仍开课，需重新选班）
+    if (classClosedCourses.length > 0) {
+        sections.push(
+            h('div', { style: { marginBottom: '16px' } }, [
+                h('div', { style: { marginBottom: '8px', fontSize: '14px', fontWeight: 600, color: '#333' } }, [
+                    h('span', { style: { color: '#fa8c16' } }, '■ '),
+                    `所选班级已关闭 (${classClosedCourses.length}门)`
+                ]),
+                ...classClosedCourses.map(c =>
+                    h('div', {
+                        style: {
+                            padding: '8px 12px',
+                            marginBottom: '6px',
+                            marginLeft: '12px',
+                            border: '1px solid #f0f0f0',
+                            borderRadius: '4px',
+                            backgroundColor: '#fafafa'
+                        }
+                    }, [
+                        h('div', { style: { fontSize: '13px', fontWeight: 500 } }, c.courseName),
+                        h('div', {
+                            style: {
+                                fontSize: '12px',
+                                color: '#666',
+                                marginTop: '4px'
+                            }
+                        }, `${c.details || '所选班级已关闭'}，课程已保留为未选状态，请重新选择班级`)
                     ])
                 )
             ])
