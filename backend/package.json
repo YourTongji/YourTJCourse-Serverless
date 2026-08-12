@@ -11,6 +11,8 @@
     "db:seed:pk:local": "wrangler d1 execute jcourse-db --local --file=./sample_pk_data.sql",
     "db:merge:icu": "python3 ./scripts/merge_icu_d1.py",
     "db:verify:icu": "python3 ./scripts/verify_merged_d1.py",
+    "db:export:legacy": "python3 ./scripts/export_legacy_course_package.py",
+    "db:test:export:legacy": "python3 -m unittest ./scripts/test_export_legacy_course_package.py",
     "search:index:build": "node ./scripts/build-course-mini-search-index.mjs",
     "pk:sync:local": "node ./scripts/pk-sync-local.mjs",
     "pk:sync:login": "python ./scripts/pk-login-and-sync.py"
