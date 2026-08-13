@@ -1,4 +1,4 @@
-﻿import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import BottomNavigation from './components/BottomNavigation'
@@ -465,6 +465,7 @@ export default function App() {
   const slogan = useTypewriterText('你的，同济的', 55, showStartupGate)
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()
   const startupVerifyRequestRef = useRef(0)
+  const verifiedStartupTokensRef = useRef(new Set<string>())
 
   useEffect(() => {
     if (hardMaintenanceMode) {
@@ -564,13 +565,17 @@ export default function App() {
       body: JSON.stringify({ token })
     })
 
-    const data = await res.json().catch(() => null) as { success?: boolean; error?: string } | null
+    const data = await res.json().catch(() => null) as { success?: boolean; error?: string; codes?: string[] } | null
     if (!res.ok) {
-      return { ok: false, error: data?.error || 'network_error' }
+      if (res.status === 429) {
+        return { ok: false, error: 'rate_limited', codes: [] }
+      }
+      return { ok: false, error: data?.error || 'network_error', codes: data?.codes || [] }
     }
     return {
       ok: data?.success === true,
-      error: data?.success === true ? undefined : (data?.error || 'verify_failed')
+      error: data?.success === true ? undefined : (data?.error || 'verify_failed'),
+      codes: data?.codes || []
     }
   }
 
@@ -578,6 +583,10 @@ export default function App() {
     switch (String(error || '')) {
       case 'missing_token':
         return '缺少验证信息，请重试'
+      case 'rate_limited':
+        return '请求过于频繁，请稍后重试'
+      case 'missing_secret':
+        return '验证服务配置异常，请联系管理员'
       case 'hostname_not_allowed':
         return '当前访问域名的验证配置未对上'
       case 'action_mismatch':
@@ -593,6 +602,23 @@ export default function App() {
         return '验证未通过，请重试'
     }
   }
+
+  const shouldResetStartupTurnstile = (error: string, codes: string[]) => {
+    // Permanent configuration problems will not clear on retry; resetting the
+    // widget would only churn tokens. Everything else (verify_failed, 429,
+    // network/5xx errors) should reset so the user gets a fresh challenge
+    // instead of being stuck behind a consumed token.
+    if (['missing_secret', 'hostname_not_allowed'].includes(error)) return false
+    if (codes.some((code) => ['invalid-input-secret', 'invalid-input-response', 'bad-request'].includes(code))) return false
+    return true
+  }
+
+  // Non-home pages keep their original top spacing while the announcement bar
+  // is collapsed; once it is expanded (the bar carries its own mt-7), use the
+  // compact home spacing so the page does not gain an extra gap.
+  const mainLayoutClass = isSchedule
+    ? 'max-w-none px-4 mt-4'
+    : `max-w-7xl px-4 ${!announcementCollapsed || isHome ? 'mt-2 md:mt-2' : 'mt-6 md:mt-8'}`
 
   if (showMaintenanceGate) {
     return <MaintenancePage announcements={announcements} maintenanceConfig={maintenanceConfig} />
@@ -654,12 +680,14 @@ export default function App() {
                           refreshExpired="auto"
                           action="startup_gate"
                           onVerify={(token, boundTurnstile) => {
+                            if (verifiedStartupTokensRef.current.has(token)) return
+                            verifiedStartupTokensRef.current.add(token)
                             const requestId = (startupVerifyRequestRef.current += 1)
                             setStartupError('')
                             setStartupVerifying(true)
 
                             void (async () => {
-                              const result = await verifyStartupToken(token).catch(() => ({ ok: false, error: 'network_error' }))
+                              const result = await verifyStartupToken(token).catch(() => ({ ok: false, error: 'network_error', codes: [] }))
                               if (startupVerifyRequestRef.current !== requestId) return
 
                               setStartupVerifying(false)
@@ -669,10 +697,12 @@ export default function App() {
                               }
 
                               setStartupError(formatStartupError(result.error))
-                              try {
-                                boundTurnstile?.reset?.()
-                              } catch {
-                                // ignore
+                              if (shouldResetStartupTurnstile(result.error || '', result.codes || [])) {
+                                try {
+                                  boundTurnstile?.reset?.()
+                                } catch {
+                                  // ignore
+                                }
                               }
                             })()
                           }}
@@ -711,15 +741,13 @@ export default function App() {
         announcementCollapsed={announcementCollapsed}
         onToggleAnnouncementCollapsed={() => setAnnouncementCollapsedPersist(false)}
       />
-      {isHome && (
-        <AnnouncementBar
-          announcements={announcements}
-          collapsed={announcementCollapsed}
-          onCollapsedChange={setAnnouncementCollapsedPersist}
-        />
-      )}
+      <AnnouncementBar
+        announcements={announcements}
+        collapsed={announcementCollapsed}
+        onCollapsedChange={setAnnouncementCollapsedPersist}
+      />
       <main
-        className={`${isSchedule ? 'max-w-none px-4 mt-4' : `max-w-7xl px-4 ${isHome ? 'mt-2 md:mt-2' : 'mt-6 md:mt-8'}`} mx-auto flex-1 w-full ${isHome ? 'pb-12' : 'pb-20'} md:pb-0`}
+        className={`${mainLayoutClass} mx-auto flex-1 w-full ${isHome ? 'pb-12' : 'pb-20'} md:pb-0`}
       >
         <Suspense
           fallback={

@@ -1,99 +1,114 @@
-# CI/CD说明
+# CI/CD 说明
 
-这个仓库使用 GitHub Actions 在 `main` 分支更新后自动部署：
+`server` 分支更新后自动部署：
 
-- `backend/` -> Cloudflare Workers (`wrangler deploy`)
-- `frontend/` -> Cloudflare Pages (`wrangler pages deploy`)
+- `backend/` → VPS（SSH → Docker compose 构建/重启）
+- `frontend/` + `scheduler/` + `wlc/` → Netlify（`netlify.toml` 定义构建命令）
 
-## 1) 需要在 GitHub Repo Secrets 配置的变量
+> 说明：迁移前 `main` 分支的 Cloudflare Workers/Pages 部署工作流（`deploy-cloudflare.yml`、`deploy-dev-cloudflare.yml`）在回滚期内保留，正式切换完成后停用。
 
-在 GitHub 仓库 -> Settings -> Secrets and variables -> Actions -> New repository secret，添加：
+## 1) 需要配置的 GitHub Repository Secrets
 
+在 GitHub 仓库 -> Settings -> Secrets and variables -> Actions -> New repository secret 配置：
+
+### 部署与外部服务
+
+- `CLOUDFLARE_API_TOKEN`：Cloudflare API Token（保留给 `refresh-no-fts-d1-backup.yml` 与回滚期）
 - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare Account ID
-- `CLOUDFLARE_API_TOKEN`：Cloudflare API Token（用于 CI 部署）
-- `VITE_API_URL`：前端调用后端的 API Base URL（例如 `https://jcourse-backend.<your-subdomain>.workers.dev` 或你的自定义域名）
-- `VITE_TURNSTILE_SITE_KEY`：如果你仍然使用 Turnstile，可以填站点 Key（不需要的话也可以填任意占位字符串）
-- `VITE_CAPTCHA_URL`：TongjiCaptcha 服务的 URL（例如 `https://captcha.xxx.com`）
-- `VITE_WALINE_SERVER_URL`：Waline 服务端地址（例如 `https://waline.xxx.com`）
-- `VITE_CREDIT_API_BASE`：YOURTJ 社区积分站后端 Core API Base（建议 `https://core.credit.yourtj.de`）
+- `NETLIFY_AUTH_TOKEN`：Netlify Personal Access Token（`deploy-netlify.yml` 使用）
+- `VPS_HOST`：VPS 公网 IP 或域名（填实际服务器的值，不要提交到仓库）
+- `VPS_PORT`：VPS SSH 端口（默认 `22`）
+- `VPS_USER`：VPS SSH 用户（例如 `root`）
+- `VPS_SSH_KEY`：VPS SSH 私钥（GitHub Actions 用，对应已部署到 VPS `~/.ssh/authorized_keys` 的公钥）
 
-## 2) Cloudflare API Token 推荐权限
+### 前端构建变量（Netlify / Vite）
 
-在 Cloudflare Dashboard -> My Profile -> API Tokens -> Create Token，建议创建 Custom Token：
+- `VITE_API_URL`：`https://jcourse.yourtj.de`
+- `VITE_TURNSTILE_SITE_KEY`
+- `VITE_CAPTCHA_URL`
+- `VITE_WALINE_SERVER_URL`
+- `VITE_CREDIT_API_BASE`：`https://core.credit.yourtj.de`
 
-- Account permissions：
-  - Workers Scripts: Edit
-  - Pages: Edit
-  - D1: Edit（或至少 Read；看你是否在 CI 里做 D1 变更）
-- Account resources：选择你的账号（All accounts 或指定账号）
+### 后端环境变量（写入 VPS `backend.env`）
 
-## 3) 后端运行所需的 Workers Secrets（一次性设置）
-
-后端 Worker `jcourse-backend` 依赖以下 secrets（本地或 Cloudflare Dashboard / wrangler 设置均可）：
-
+- `JCOURSE_ADMIN_SECRET`：后端管理员密钥（写入 `ADMIN_SECRET`）
 - `CAPTCHA_SITEVERIFY_URL`
-- `ADMIN_SECRET`
-- `CREDIT_API_BASE`：积分站 Core API Base（建议 `https://core.credit.yourtj.de`；不要填 `https://credit.yourtj.de`）
-- `CREDIT_JCOURSE_SECRET`：积分站为选课站分配的密钥（用于积分事件上报）
+- `TURNSTILE_SECRET_KEY`、`TURNSTILE_SITEVERIFY_URL`
+- `CREDIT_API_BASE`、`CREDIT_JCOURSE_SECRET`（及兼容名 `VITE_CREDIT_API_BASE`、`JCOURSE_INTEGRATION_SECRET`）
+- `AI_SUMMARY_KEY`、`AI_SUMMARY_MODEL`、`AI_SUMMARY_BASE_URL`
+- `FEISHU_REPORT_WEBHOOK_URL`、`FEISHU_REPORT_WEBHOOK_SECRET`
+- `PUBLIC_URL`（变量，默认 `https://jcourse.yourtj.de`）
+- `MIGRATION_READONLY`（变量，迁移期设 `1`，稳定后置 `0`）
 
-本地可用：
+注意：`backend.env` 由 `deploy-vps.yml` 在 CI 中动态生成并 `chmod 600`，**不要提交到 Git**。
 
-```bash
-cd backend
-wrangler secret put CAPTCHA_SITEVERIFY_URL
-wrangler secret put ADMIN_SECRET
+### 一系统同步
+
+- `ONESYSTEM_SNO`、`ONESYSTEM_PASSWORD`
+- `ONESYSTEM_IMAP_SERVER`、`ONESYSTEM_IMAP_PORT`、`ONESYSTEM_IMAP_EMAIL`、`ONESYSTEM_IMAP_GRANTCODE`（可选）
+
+### CAPTCHA 变量回退说明
+
+后端评测人机验证需要 `CAPTCHA_SITEVERIFY_URL`。CI 使用 `CAPTCHA_SITEVERIFY_URL`，未配置时回退 `VITE_CAPTCHA_URL`；两者都空时后端评测提交会 403。`VITE_CAPTCHA_URL` 是前端 captcha 基址，建议与 `CAPTCHA_SITEVERIFY_URL` 配同值或保持 `VITE_CAPTCHA_URL` 正确即可。
+
+## 2) 工作流文件
+
+| 文件 | 触发 | 作用 |
+|---|---|---|
+| `.github/workflows/deploy-vps.yml` | `server` push（backend/** 或 docker-compose.yml） | 后端代码与 `backend.env` → VPS → `docker compose up -d --build backend` → healthz 检查 |
+| `.github/workflows/deploy-netlify.yml` | `server` push（frontend/scheduler/wlc/netlify.toml） | 构建前端（注入 VITE_*）→ `netlify deploy --prod` |
+| `.github/workflows/sync-onesystem-login.yml` | 手动 / `dev` push 含 `[pk-sync]` | 登录一系统 → 生成 SQL → SCP 到 VPS → `apply-pk-sync-to-sqlite.sh` → 重建索引 → 重启 backend |
+| `.github/workflows/refresh-no-fts-d1-backup.yml` | 每日 04:00 (Asia/Shanghai) / 手动 | 维护 D1 `jcourse-db-backup` no-FTS 快照（迁移与导出用） |
+| `.github/workflows/pr-checks.yml` | PR 到 `dev`/`main` | type-check + build，不部署 |
+| `.github/workflows/deploy-cloudflare.yml` | `main` push | **旧架构部署，回滚期保留，正式切换完成后停用** |
+| `.github/workflows/deploy-dev-cloudflare.yml` | `dev` 分支推送 / 手动 | dev 预览环境部署（回滚期保留） |
+
+## 3) 后端环境变量（VPS `backend.env`）
+
+`deploy-vps.yml` 会生成：
+
+```text
+APP_ENV=production
+PORT=8787
+DATABASE_URL=file:/data/jcourse.db
+CAPTCHA_SITEVERIFY_URL=...
+ADMIN_SECRET=...
+TURNSTILE_SECRET_KEY=...
+TURNSTILE_SITEVERIFY_URL=...
+CREDIT_API_BASE=...
+CREDIT_JCOURSE_SECRET=...
+AI_SUMMARY_KEY=...
+AI_SUMMARY_MODEL=...
+AI_SUMMARY_BASE_URL=...
+FEISHU_REPORT_WEBHOOK_URL=...
+FEISHU_REPORT_WEBHOOK_SECRET=...
+PUBLIC_URL=https://jcourse.yourtj.de
+MIGRATION_READONLY=0
 ```
 
-## 4) 工作流文件位置
+## 4) 一系统同步与 D1 导出规范（迁移/回滚期）
 
-- `.github/workflows/deploy-cloudflare.yml`
+一系统/PK 数据同步统一使用 `.github/workflows/sync-onesystem-login.yml`。迁移后流程：GitHub Actions 登录一系统生成 SQL → SCP 到 VPS → `apply-pk-sync-to-sqlite.sh` 应用到 SQLite → 管理接口重建评课/搜索索引 → 重启 backend。
 
-## 5) 一系统同步与 D1 导出规范
+迁移期 D1 相关规范：
 
-一系统/PK 数据同步统一使用 `.github/workflows/sync-onesystem-login.yml`。该流程只将生成的 SQL 写入生产查询库：
-
-- `jcourse-db`：生产查询库，会刷新评课站检索索引，可能包含 `course_search` FTS5 虚拟表。
-- `jcourse-db-backup`：由 `.github/workflows/refresh-no-fts-d1-backup.yml` 每日刷新，是生产库的 no-FTS 快照，用于导出、ETL 和分析，不应创建 `course_search%` / FTS5 对象。
-
-旧的 `.github/workflows/sync-onesystem.yml` Cookie 同步流程已停用，执行时会立即失败并提示使用 Login 同步流程。
-
-初始化 `jcourse-db-backup` 时，通过 Cloudflare Dashboard 或 `npx wrangler d1 create jcourse-db-backup` 创建 D1 数据库；如果本地 Wrangler 登录了多个 Cloudflare 账号，请只在本地环境变量或 Wrangler 本地配置中选择账号，不要把具体账号 ID 或备份库 database_id 写入公开仓库。创建后可手动触发 `Refresh No-FTS D1 Backup` workflow 做首次全量刷新。
-
-请不要对生产库执行 `wrangler d1 export`。需要导出数据时，先确认最近一次 `Refresh No-FTS D1 Backup` workflow 成功，或用和检查脚本一致的 SQL 查询备份库状态：
+- 生产查询数据库 D1 `jcourse-db` 可能包含 `course_search` FTS5 虚拟表，**禁止对其执行 `wrangler d1 export`**。
+- `jcourse-db-backup` 是每日 no-FTS 快照，仅此库可用于导出。导出前确认：
 
 ```bash
 cd backend
-npx wrangler d1 execute jcourse-db-backup --remote \
-  --command "SELECT status, started_at, finished_at, error FROM backup_refresh_state WHERE id = 1; SELECT COUNT(*) AS no_fts_objects FROM sqlite_master WHERE name LIKE 'course_search%' OR LOWER(COALESCE(sql, '')) LIKE '%create virtual table%' OR LOWER(COALESCE(sql, '')) LIKE '%fts5%';"
+node ./scripts/check-no-fts-backup.mjs --json
 ```
 
-只有 `status = 'ready'`、`error` 为空、`no_fts_objects = 0` 时，才只导出备份库：
+只有 `status='ready'`、`error` 为空、`no_fts_objects=0` 时：
 
 ```bash
-cd backend
 npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
 ```
 
-本地只检查复制计划和表计数时，可使用 Wrangler 登录态做 dry-run；如果本地 Wrangler 登录了多个账号，先在本地环境变量或 Wrangler 本地配置中选择账号：
+初始化 `jcourse-db-backup` 时，通过 Cloudflare Dashboard 或 `npx wrangler d1 create jcourse-db-backup` 创建 D1 数据库；不要把具体 account id 或备份库 database id 写入公开仓库。
 
-```bash
-cd backend
-node ./scripts/refresh-no-fts-backup.mjs --dry-run
-```
+## 5) 自定义域名
 
-正式全量刷新仍建议优先手动触发 GitHub Actions 的 `Refresh No-FTS D1 Backup` workflow。手动触发时可选择：
-
-- `dryRun`：只检查复制计划和表计数，不修改备份库。
-- `skipMaterialize`：只复制普通表，跳过 no-FTS 派生课程索引刷新，主要用于排查复制问题。
-- `exportSmoke`：刷新成功后对备份库执行一次导出 smoke test，并检查 dump 中不包含 FTS 对象。
-
-`jcourse-db-backup` 是定时快照，不是实时镜像；默认最多可能落后约 24 小时。该库用于导出、ETL 和分析，不替代完整生产灾备策略。
-
-## 6) 自定义域名（xk.yourtj.de）为什么没更新？
-
-GitHub Actions 里 `wrangler pages deploy` 打印出来的 `*.pages.dev` 只是 Pages 的默认访问地址。
-要让生产域名 `https://xk.yourtj.de` 指向本仓库的 Pages 项目，需要在 Cloudflare 侧绑定域名：
-
-1) Cloudflare Pages -> 项目 `jcourse-web` -> Custom domains：添加 `xk.yourtj.de`
-2) Cloudflare DNS：把 `xk` 的记录指向本 Pages 项目（常见做法是 `CNAME xk -> jcourse-web.pages.dev`）
-3) 如果 `xk.yourtj.de` 之前绑定在别的 Pages 项目上，需要先在旧项目里移除该域名，否则新项目无法添加
+- `xk.yourtj.de`：Netlify 站点自定义域名（原 Cloudflare Pages 绑定已移除）。
+- `jcourse.yourtj.de`：Cloudflare DNS A 记录指向 VPS，由 1Panel OpenResty 反代到 `127.0.0.1:8787` 并提供 Let's Encrypt 证书。

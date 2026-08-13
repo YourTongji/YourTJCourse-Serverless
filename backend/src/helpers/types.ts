@@ -5,6 +5,7 @@ export type Bindings = {
   ADMIN_SECRET: string
   TURNSTILE_SECRET_KEY?: string
   TURNSTILE_SITEVERIFY_URL?: string
+  TURNSTILE_SEND_REMOTEIP?: string
   ONESYSTEM_COOKIE?: string
   CREDIT_API_BASE?: string
   CREDIT_JCOURSE_SECRET?: string
@@ -19,4 +20,6 @@ export type Bindings = {
   AI_SUMMARY_KEY?: string
   AI_SUMMARY_MODEL?: string
   AI_SUMMARY_BASE_URL?: string
+  // Node/VPS 运行环境：=1 时中间件拒绝用户写请求，用于正式切流期间的数据一致性
+  MIGRATION_READONLY?: string
 }

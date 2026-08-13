@@ -113,21 +113,20 @@ aiSummary.get('/course/:id/summary', async (c) => {
     const model = String(c.env.AI_SUMMARY_MODEL || '').trim() || 'qwen3.6-flash-2026-04-16'
 
     // Persist to DB
-    c.executionCtx.waitUntil(
-      db
-        .prepare(
-          `INSERT OR REPLACE INTO ai_summaries (course_id, summary_json, rating_consensus, model, generated_at)
-           VALUES (?, ?, ?, ?, ?)`
-        )
-        .bind(
-          courseId,
-          JSON.stringify(data),
-          data.rating_consensus || '',
-          model,
-          nowUnix
-        )
-        .run()
-    )
+    // Node 环境无 executionCtx：改为 await 落库，优先保证数据一致性
+    await db
+      .prepare(
+        `INSERT OR REPLACE INTO ai_summaries (course_id, summary_json, rating_consensus, model, generated_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .bind(
+        courseId,
+        JSON.stringify(data),
+        data.rating_consensus || '',
+        model,
+        nowUnix
+      )
+      .run()
 
     return c.json({ data, generatedAt: nowUnix * 1000, cache: 'miss' })
   } catch (err: any) {

@@ -1,4 +1,4 @@
-name: Sync Onesystem (Login) To D1
+name: Sync Onesystem (Login) To VPS SQLite
 
 on:
   workflow_dispatch:
@@ -88,11 +88,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then echo "Missing secrets.CLOUDFLARE_API_TOKEN" >&2; exit 1; fi
-          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then echo "Missing secrets.CLOUDFLARE_ACCOUNT_ID" >&2; exit 1; fi
+          if [ -z "${{ secrets.VPS_HOST }}" ]; then echo "Missing secrets.VPS_HOST" >&2; exit 1; fi
+          if [ -z "${{ secrets.VPS_PORT }}" ]; then echo "Missing secrets.VPS_PORT" >&2; exit 1; fi
+          if [ -z "${{ secrets.VPS_USER }}" ]; then echo "Missing secrets.VPS_USER" >&2; exit 1; fi
+          if [ -z "${{ secrets.VPS_SSH_KEY }}" ]; then echo "Missing secrets.VPS_SSH_KEY" >&2; exit 1; fi
           if [ -z "${ONESYSTEM_SNO:-}" ]; then echo "Missing secrets.ONESYSTEM_SNO" >&2; exit 1; fi
           if [ -z "${ONESYSTEM_PASSWORD:-}" ]; then echo "Missing secrets.ONESYSTEM_PASSWORD" >&2; exit 1; fi
-          if [ -z "${D1_PRIMARY_DATABASE_NAME:-}" ]; then echo "Missing D1_PRIMARY_DATABASE_NAME" >&2; exit 1; fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -142,20 +143,35 @@ jobs:
             --config "./config.onesystem.ini" \
             2>&1 | tee pk-sync-summary.log
 
-      - name: Apply SQL to primary D1 (remote)
-        working-directory: backend
-        shell: bash
-        run: |
-          set -euo pipefail
-          ls -la .tmp/pk-sync
-          bash ./scripts/apply-pk-sync-to-d1.sh "$D1_PRIMARY_DATABASE_NAME" ".tmp/pk-sync" | tee -a pk-apply-primary.log
+      - name: Upload PK SQL to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "backend/.tmp/pk-sync/"
+          target: /opt/yourtjcourse/incoming/
 
-      - name: Materialize pk courses to review site tables (remote)
-        working-directory: backend
-        shell: bash
-        run: |
-          set -euo pipefail
-          D1_DATABASE_NAME="$D1_PRIMARY_DATABASE_NAME" bash ./scripts/refresh-review-index-remote.sh
+      - name: Apply PK SQL to VPS SQLite & rebuild search index
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            ls -la /opt/yourtjcourse/incoming/pk-sync/
+            ADMIN_SECRET='${{ secrets.JCOURSE_ADMIN_SECRET }}'
+            bash /opt/yourtjcourse/repo/YourTJCourse-Serverless/backend/scripts/apply-pk-sync-to-sqlite.sh \
+              /opt/yourtjcourse/data/jcourse.db \
+              /opt/yourtjcourse/incoming/pk-sync
+            curl -fsS -X POST http://127.0.0.1:8787/api/admin/pk/refresh-review-index \
+              -H "x-admin-secret: ${ADMIN_SECRET}"
+            docker compose -f /opt/yourtjcourse/docker-compose.yml restart backend
+            sleep 5
+            curl -fsS http://127.0.0.1:8787/healthz
 
       - name: Post-check via backend API
         shell: bash

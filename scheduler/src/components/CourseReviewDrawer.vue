@@ -168,19 +168,56 @@
     :footer="null"
     :closable="true"
     @cancel="closeReportModal"
-    :width="380"
+    :width="520"
   >
-    <div class="text-sm text-slate-600 mb-3">请选择举报原因：</div>
-    <div class="flex flex-col gap-2">
+    <div class="text-sm text-slate-600 mb-3">请选择举报原因并填写说明：</div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <button
         v-for="item in reportReasons"
         :key="item.key"
         type="button"
-        class="w-full text-left px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors"
+        class="w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold transition-colors"
+        :class="reportReason === item.key ? 'border-red-300 bg-red-50 text-red-700' : 'border-slate-200 text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700'"
         :disabled="reportBusy"
-        @click="submitReport(item.key)"
+        @click="reportReason = item.key"
       >
         {{ item.label }}
+      </button>
+    </div>
+    <label class="mt-4 block text-sm font-bold text-slate-700" for="report-description">举报说明（包含举报原因和具体的违规内容）</label>
+    <textarea
+      id="report-description"
+      v-model="reportDescription"
+      class="mt-2 h-40 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100 disabled:bg-slate-50"
+      :maxlength="reportDescriptionMaxLength"
+      :disabled="reportBusy"
+      @paste.prevent
+      @drop.prevent
+    />
+    <div class="mt-2 flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between">
+      <span :class="reportDescriptionError ? 'font-semibold text-red-500' : 'text-slate-500'">
+        {{ reportDescriptionError || '说明已符合提交要求' }}
+      </span>
+      <span :class="reportDescriptionLength >= reportDescriptionMinLength ? 'font-bold text-emerald-600' : 'font-bold text-slate-500'">
+        {{ reportDescriptionLength }}/{{ reportDescriptionMinLength }}
+      </span>
+    </div>
+    <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+      <button
+        type="button"
+        class="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+        :disabled="reportBusy"
+        @click="closeReportModal"
+      >
+        取消
+      </button>
+      <button
+        type="button"
+        class="w-full rounded-xl border border-red-500 bg-red-500 py-2.5 text-sm font-bold text-white transition-colors hover:bg-red-600 disabled:border-slate-200 disabled:bg-slate-200 disabled:text-slate-500"
+        :disabled="!canSubmitReport"
+        @click="submitReport"
+      >
+        {{ reportBusy ? '提交中...' : '提交举报' }}
       </button>
     </div>
   </a-modal>
@@ -201,6 +238,12 @@ const REPORT_REASONS: Array<{ key: string; label: string }> = [
   { key: 'misinformation', label: '虚假信息' },
   { key: 'other', label: '其他' },
 ]
+const REPORT_DESCRIPTION_MIN_LENGTH = 50
+const REPORT_DESCRIPTION_MAX_LENGTH = 1000
+
+function countReportDescriptionChars(value: string): number {
+  return Array.from(String(value || '').replace(/\s/g, '')).length
+}
 
 type Review = {
   id?: number
@@ -240,6 +283,8 @@ export default {
       reportBusy: false,
       reportModalVisible: false,
       reportTargetReview: null as any,
+      reportReason: '',
+      reportDescription: '',
     }
   },
   computed: {
@@ -268,6 +313,29 @@ export default {
     },
     reportReasons(): Array<{ key: string; label: string }> {
       return REPORT_REASONS
+    },
+    reportDescriptionMinLength(): number {
+      return REPORT_DESCRIPTION_MIN_LENGTH
+    },
+    reportDescriptionMaxLength(): number {
+      return REPORT_DESCRIPTION_MAX_LENGTH
+    },
+    reportDescriptionLength(): number {
+      return countReportDescriptionChars(this.reportDescription)
+    },
+    reportDescriptionError(): string {
+      if (!this.reportReason) return '请选择举报原因'
+      if (!this.reportDescription.trim()) return '请填写举报说明'
+      if (this.reportDescriptionLength < REPORT_DESCRIPTION_MIN_LENGTH) {
+        return `举报说明至少需要 ${REPORT_DESCRIPTION_MIN_LENGTH} 字，还差 ${REPORT_DESCRIPTION_MIN_LENGTH - this.reportDescriptionLength} 字`
+      }
+      if (Array.from(this.reportDescription).length > REPORT_DESCRIPTION_MAX_LENGTH) {
+        return `举报说明不能超过 ${REPORT_DESCRIPTION_MAX_LENGTH} 字`
+      }
+      return ''
+    },
+    canSubmitReport(): boolean {
+      return Boolean(this.reportTargetReview) && !this.reportBusy && !this.reportDescriptionError
     },
   },
   watch: {
@@ -355,25 +423,38 @@ export default {
     },
     openReportModal(r: any) {
       this.reportTargetReview = r
+      this.reportReason = ''
+      this.reportDescription = ''
       this.reportModalVisible = true
     },
     closeReportModal() {
+      if (this.reportBusy) return
+      this.resetReportModal()
+    },
+    resetReportModal() {
       this.reportModalVisible = false
       this.reportTargetReview = null
+      this.reportReason = ''
+      this.reportDescription = ''
     },
-    async submitReport(reason: string) {
+    async submitReport() {
       const r = this.reportTargetReview
       if (!r || !r.id) return
       if (!this.clientId) this.clientId = getOrCreateClientId()
       if (this.reportBusy) return
+      if (this.reportDescriptionError) {
+        errorNotify(this.reportDescriptionError)
+        return
+      }
       this.reportBusy = true
       try {
         await axios.post(`/api/review/${Number(r.id)}/report`, {
           clientId: this.clientId,
-          reason,
+          reason: this.reportReason,
+          description: this.reportDescription.trim(),
         })
         successNotify('举报已提交，感谢您的反馈')
-        this.closeReportModal()
+        this.resetReportModal()
       } catch (e: any) {
         const msg = e?.response?.data?.error || e?.message || '提交失败'
         errorNotify(msg)

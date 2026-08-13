@@ -78,6 +78,9 @@ jobs:
       JCOURSE_INTEGRATION_SECRET: ${{ secrets.JCOURSE_INTEGRATION_SECRET }}
       TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
       TURNSTILE_SITEVERIFY_URL: ${{ secrets.TURNSTILE_SITEVERIFY_URL }}
+      CAPTCHA_SITEVERIFY_URL: ${{ secrets.CAPTCHA_SITEVERIFY_URL }}
+      # Fallback source when CAPTCHA_SITEVERIFY_URL is unset (same captcha service base).
+      VITE_CAPTCHA_URL: ${{ secrets.VITE_CAPTCHA_URL }}
       AI_SUMMARY_KEY: ${{ secrets.AI_SUMMARY_KEY }}
       AI_SUMMARY_MODEL: ${{ secrets.AI_SUMMARY_MODEL }}
       AI_SUMMARY_BASE_URL: ${{ secrets.AI_SUMMARY_BASE_URL }}
@@ -101,10 +104,24 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler d1 execute jcourse-db --remote --file="./migrations/015_ai_summaries.sql"
+          npx wrangler d1 execute jcourse-db --remote --file="./migrations/018_review_dislikes.sql"
+          npx wrangler d1 execute jcourse-db --remote --file="./migrations/019_review_dislike_count.sql"
 
       - name: Ensure backend secrets
         run: |
           set -euo pipefail
+          # Presence checklist only (never print secret values).
+          echo "secret presence:"
+          echo "  ADMIN_SECRET: $([ -n "${ADMIN_SECRET:-}" ] && echo set || echo missing)"
+          echo "  CREDIT_API_BASE / VITE_CREDIT_API_BASE: $([ -n "${CREDIT_API_BASE:-}${VITE_CREDIT_API_BASE:-}" ] && echo set || echo missing)"
+          echo "  CREDIT_JCOURSE_SECRET / JCOURSE_INTEGRATION_SECRET: $([ -n "${CREDIT_JCOURSE_SECRET:-}${JCOURSE_INTEGRATION_SECRET:-}" ] && echo set || echo missing)"
+          echo "  TURNSTILE_SECRET_KEY: $([ -n "${TURNSTILE_SECRET_KEY:-}" ] && echo set || echo missing)"
+          echo "  TURNSTILE_SITEVERIFY_URL: $([ -n "${TURNSTILE_SITEVERIFY_URL:-}" ] && echo set || echo missing)"
+          echo "  CAPTCHA_SITEVERIFY_URL: $([ -n "${CAPTCHA_SITEVERIFY_URL:-}" ] && echo set || echo missing)"
+          echo "  VITE_CAPTCHA_URL: $([ -n "${VITE_CAPTCHA_URL:-}" ] && echo set || echo missing)"
+          echo "  AI_SUMMARY_*: $([ -n "${AI_SUMMARY_KEY:-}${AI_SUMMARY_MODEL:-}${AI_SUMMARY_BASE_URL:-}" ] && echo set || echo missing)"
+          echo "  FEISHU_REPORT_WEBHOOK_*: $([ -n "${FEISHU_REPORT_WEBHOOK_URL:-}${FEISHU_REPORT_WEBHOOK_SECRET:-}" ] && echo set || echo missing)"
+
 
           # ADMIN_SECRET is required (Bindings type). Fail fast before anything else.
           if [ -z "$ADMIN_SECRET" ]; then
@@ -137,7 +154,8 @@ jobs:
             echo "$TURNSTILE_SECRET_KEY" | npx wrangler secret put TURNSTILE_SECRET_KEY --env ""
             echo "turnstile secret: set"
           else
-            echo "turnstile secret: missing (TURNSTILE_SECRET_KEY)"
+            echo "turnstile secret: missing (TURNSTILE_SECRET_KEY)" >&2
+            exit 1
           fi
 
           if [ -n "${TURNSTILE_SITEVERIFY_URL:-}" ]; then
@@ -145,6 +163,17 @@ jobs:
             echo "turnstile siteverify url: set"
           else
             echo "turnstile siteverify url: default"
+          fi
+
+          # Prefer dedicated CAPTCHA_SITEVERIFY_URL; fall back to frontend VITE_CAPTCHA_URL
+          # (backend captcha.ts normalizes base URL or full /api/siteverify path).
+          CAPTCHA_URL="${CAPTCHA_SITEVERIFY_URL:-${VITE_CAPTCHA_URL:-}}"
+          if [ -n "${CAPTCHA_URL}" ]; then
+            echo "$CAPTCHA_URL" | npx wrangler versions secret put CAPTCHA_SITEVERIFY_URL --env ""
+            echo "captcha siteverify url: set"
+          else
+            echo "captcha siteverify url: missing - need CAPTCHA_SITEVERIFY_URL or VITE_CAPTCHA_URL" >&2
+            exit 1
           fi
 
           if [ -n "${AI_SUMMARY_KEY:-}" ]; then
@@ -228,6 +257,14 @@ jobs:
       - name: Install scheduler deps
         working-directory: scheduler
         run: npm ci
+
+      - name: Validate frontend secrets
+        run: |
+          set -euo pipefail
+          if [ -z "$VITE_TURNSTILE_SITE_KEY" ]; then
+            echo "Missing secrets.VITE_TURNSTILE_SITE_KEY" >&2
+            exit 1
+          fi
 
       - name: Build
         run: npm run build

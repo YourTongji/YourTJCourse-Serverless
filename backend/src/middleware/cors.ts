@@ -13,6 +13,8 @@ export const corsMiddleware = cors({
     if (!origin) return '*'
     if (ALLOWED_ORIGINS.includes(origin)) return origin
     if (/^https:\/\/[a-z0-9-]+\.jcourse-web\.pages\.dev$/i.test(origin)) return origin
+    // Netlify 临时域名（迁移测试期；正式绑定 xk.yourtj.de 后保留无害）
+    if (/^https:\/\/[a-z0-9-]+\.netlify\.app$/i.test(origin)) return origin
     try {
       const u = new URL(origin)
       if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return origin

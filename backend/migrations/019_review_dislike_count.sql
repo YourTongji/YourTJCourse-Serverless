@@ -1,0 +1,6 @@
+-- reviews.disapprove_count is guaranteed at runtime by
+-- ensureReviewDislikeCountColumn() (wired into ensureDbInitialized and all
+-- four like/dislike routes). A real ALTER TABLE here would break deployments
+-- on databases where the column already exists (schema.sql full init defines
+-- it), since SQLite ADD COLUMN is not idempotent. This file is intentionally
+-- a no-op to keep the migration ID sequence contiguous.

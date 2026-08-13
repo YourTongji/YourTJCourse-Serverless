@@ -187,9 +187,13 @@ async function isPkAuxiliaryReady(db: D1Database) {
   const now = Date.now()
   if (pkAuxReadyCache && pkAuxReadyCache.expiresAt > now) return pkAuxReadyCache.value
 
-  await ensurePkAuxiliarySchema(db)
-  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('pk_aux_schema_version').first<{ value: string }>()
-  const ready = row?.value === PK_AUX_SCHEMA_VERSION
+  let ready = false
+  try {
+    const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('pk_aux_schema_version').first<{ value: string }>()
+    ready = row?.value === PK_AUX_SCHEMA_VERSION
+  } catch {
+    ready = false
+  }
   pkAuxReadyCache = { value: ready, expiresAt: now + 30_000 }
   return ready
 }
@@ -870,7 +874,8 @@ export function registerPkRoutes<T extends PkBindings>(app: Hono<{ Bindings: T }
     const labelPlaceholders = OPTIONAL_LABEL_NAMES.map(() => '?').join(',')
     const pkAuxReady = await isPkAuxiliaryReady(c.env.DB)
     if (!pkAuxReady) {
-      c.executionCtx.waitUntil(triggerPkAuxiliaryBuild(c.env.DB))
+      // Node 常驻进程无 executionCtx：直接触发后台构建（内部已 catch 错误）
+      triggerPkAuxiliaryBuild(c.env.DB).catch(() => {})
     }
 
     let results: any[] = []

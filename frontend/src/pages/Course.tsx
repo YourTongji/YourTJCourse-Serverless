@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import BoringAvatar from 'boring-avatars'
 import { toJpeg, toPng } from 'html-to-image'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
-import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview, reportReview } from '../services/api'
+import { fetchCourse, fetchCourseRelated, likeReview, unlikeReview, dislikeReview, undislikeReview, reportReview } from '../services/api'
 import { showToast } from '../components/Toast'
 import GlassCard from '../components/GlassCard'
 import CollapsibleMarkdown, { markdownContentClassName, renderMarkdownHtml } from '../components/CollapsibleMarkdown'
@@ -23,6 +23,8 @@ interface Review {
   reviewer_avatar?: string
   like_count?: number
   liked?: boolean
+  dislike_count?: number
+  disliked?: boolean
   can_edit?: boolean
 }
 
@@ -54,6 +56,8 @@ interface RelatedCourseData {
 }
 
 const MOBILE_RELATED_BREAKPOINT = 1024
+const REPORT_DESCRIPTION_MIN_LENGTH = 50
+const REPORT_DESCRIPTION_MAX_LENGTH = 1000
 
 type SharePreviewState = {
   review: Review
@@ -63,6 +67,10 @@ type SharePreviewState = {
 }
 
 const AVATAR_COLORS = ['#0f172a', '#38bdf8', '#f8fafc', '#f59e0b', '#22c55e']
+
+function countReportDescriptionChars(value: string): number {
+  return Array.from(String(value || '').replace(/\s/g, '')).length
+}
 
 function formatRating(value: number) {
   return Number(value || 0) > 0 ? value.toFixed(1) : '-'
@@ -528,6 +536,8 @@ export default function Course() {
   const [shareBusyId, setShareBusyId] = useState<number | null>(null)
   const [reportTarget, setReportTarget] = useState<Review | null>(null)
   const [reportBusy, setReportBusy] = useState(false)
+  const [reportReason, setReportReason] = useState('')
+  const [reportDescription, setReportDescription] = useState('')
 
   const REPORT_REASONS = [
     { key: 'spam', label: '垃圾广告' },
@@ -639,6 +649,12 @@ export default function Course() {
     if (!target) return
 
     const nextLiked = !target.liked
+    const snapshot = {
+      liked: target.liked,
+      disliked: target.disliked,
+      like_count: target.like_count,
+      dislike_count: target.dislike_count
+    }
 
     // optimistic
     setCourse((prev) => {
@@ -647,7 +663,13 @@ export default function Course() {
         ...prev,
         reviews: prev.reviews.map((r) =>
           r.id === reviewId
-            ? { ...r, liked: nextLiked, like_count: Math.max(0, Number(r.like_count || 0) + (nextLiked ? 1 : -1)) }
+            ? {
+                ...r,
+                liked: nextLiked,
+                like_count: Math.max(0, Number(r.like_count || 0) + (nextLiked ? 1 : -1)),
+                disliked: nextLiked ? false : r.disliked,
+                dislike_count: nextLiked ? Math.max(0, Number(r.dislike_count || 0) - (r.disliked ? 1 : 0)) : r.dislike_count
+              }
             : r
         )
       }
@@ -655,24 +677,112 @@ export default function Course() {
 
     try {
       const res = nextLiked ? await likeReview(reviewId, clientId) : await unlikeReview(reviewId, clientId)
-      const likeCount = Number(res?.like_count ?? 0)
+      const likeCount = Number(res?.like_count ?? target.like_count ?? 0)
+      const dislikeCount = Number(res?.dislike_count ?? target.dislike_count ?? 0)
       setCourse((prev) => {
         if (!prev) return prev
         return {
           ...prev,
-          reviews: prev.reviews.map((r) => (r.id === reviewId ? { ...r, liked: nextLiked, like_count: likeCount } : r))
+          reviews: prev.reviews.map((r) =>
+            r.id === reviewId
+              ? {
+                  ...r,
+                  liked: nextLiked,
+                  disliked: nextLiked ? false : r.disliked,
+                  like_count: likeCount,
+                  dislike_count: dislikeCount
+                }
+              : r
+          )
         }
       })
       if (nextLiked) {
         window.dispatchEvent(new CustomEvent('yourtj-tour-like-done'))
       }
     } catch (_e) {
-      // revert
+      showToast('操作失败，请稍后重试', 'error')
       setCourse((prev) => {
         if (!prev) return prev
         return {
           ...prev,
-          reviews: prev.reviews.map((r) => (r.id === reviewId ? { ...r, liked: !nextLiked } : r))
+          reviews: prev.reviews.map((r) =>
+            r.id === reviewId
+              ? {
+                  ...r,
+                  liked: snapshot.liked,
+                  disliked: snapshot.disliked,
+                  like_count: snapshot.like_count,
+                  dislike_count: snapshot.dislike_count
+                }
+              : r
+          )
+        }
+      })
+    }
+  }
+
+  const toggleDislike = async (reviewId: number) => {
+    if (!course) return
+    const reviews = course.reviews || []
+    const target = reviews.find((r) => r.id === reviewId)
+    if (!target) return
+
+    const nextDisliked = !target.disliked
+    // Snapshot full review state for correct rollback
+    const snapshot = { liked: target.liked, disliked: target.disliked, like_count: target.like_count, dislike_count: target.dislike_count }
+
+    // optimistic
+    setCourse((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        reviews: prev.reviews.map((r) =>
+          r.id === reviewId
+            ? {
+                ...r,
+                disliked: nextDisliked,
+                dislike_count: Math.max(0, Number(r.dislike_count || 0) + (nextDisliked ? 1 : -1)),
+                liked: nextDisliked ? false : r.liked,
+                like_count: nextDisliked ? Math.max(0, Number(r.like_count || 0) - (r.liked ? 1 : 0)) : r.like_count,
+              }
+            : r
+        )
+      }
+    })
+
+    try {
+      const res = nextDisliked
+        ? await dislikeReview(reviewId, clientId)
+        : await undislikeReview(reviewId, clientId)
+      const dislikeCount = Number(res?.dislike_count ?? target.dislike_count ?? 0)
+      const likeCount = Number(res?.like_count ?? target.like_count ?? 0)
+      setCourse((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          reviews: prev.reviews.map((r) =>
+            r.id === reviewId
+              ? {
+                  ...r,
+                  disliked: nextDisliked,
+                  dislike_count: dislikeCount,
+                  liked: nextDisliked ? false : r.liked,
+                  like_count: likeCount
+                }
+              : r
+          )
+        }
+      })
+    } catch (_e) {
+      // rollback to pre-request state
+      showToast('操作失败，请稍后重试', 'error')
+      setCourse((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          reviews: prev.reviews.map((r) =>
+            r.id === reviewId ? { ...r, liked: snapshot.liked, disliked: snapshot.disliked, like_count: snapshot.like_count, dislike_count: snapshot.dislike_count } : r
+          )
         }
       })
     }
@@ -680,20 +790,49 @@ export default function Course() {
 
   const openReport = (review: Review) => {
     setReportTarget(review)
+    setReportReason('')
+    setReportDescription('')
   }
 
-  const submitReport = async (reason: string) => {
+  const closeReport = () => {
+    if (reportBusy) return
+    setReportTarget(null)
+    setReportReason('')
+    setReportDescription('')
+  }
+
+  const reportDescriptionLength = useMemo(() => countReportDescriptionChars(reportDescription), [reportDescription])
+  const reportDescriptionError = useMemo(() => {
+    if (!reportReason) return '请选择举报原因'
+    if (!reportDescription.trim()) return '请填写举报说明'
+    if (reportDescriptionLength < REPORT_DESCRIPTION_MIN_LENGTH) {
+      return `举报说明至少需要 ${REPORT_DESCRIPTION_MIN_LENGTH} 字，还差 ${REPORT_DESCRIPTION_MIN_LENGTH - reportDescriptionLength} 字`
+    }
+    if (Array.from(reportDescription).length > REPORT_DESCRIPTION_MAX_LENGTH) {
+      return `举报说明不能超过 ${REPORT_DESCRIPTION_MAX_LENGTH} 字`
+    }
+    return ''
+  }, [reportDescription, reportDescriptionLength, reportReason])
+  const canSubmitReport = Boolean(reportTarget) && !reportBusy && !reportDescriptionError
+
+  const submitReport = async () => {
     const review = reportTarget
     if (!review || !review.id || reportBusy) return
+    if (reportDescriptionError) {
+      showToast(reportDescriptionError, 'error')
+      return
+    }
     setReportBusy(true)
     try {
-      await reportReview(review.id, clientId, reason)
+      await reportReview(review.id, clientId, reportReason, reportDescription.trim())
       showToast('举报已提交，感谢您的反馈', 'success')
+      setReportTarget(null)
+      setReportReason('')
+      setReportDescription('')
     } catch (e: any) {
       showToast(e?.message || '提交失败', 'error')
     } finally {
       setReportBusy(false)
-      setReportTarget(null)
     }
   }
 
@@ -1105,6 +1244,35 @@ export default function Course() {
 
                   <button
                     type="button"
+                    onClick={() => toggleDislike(review.id)}
+                    className={`inline-flex min-w-fit shrink-0 items-center whitespace-nowrap gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-extrabold leading-none transition-all duration-300 sm:gap-2 sm:px-3 ${
+                      review.disliked
+                        ? 'bg-red-50 border-red-200 text-red-700 hover:-translate-y-0.5'
+                        : 'bg-white border-slate-200/70 text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5'
+                    }`}
+                    title={review.disliked ? '取消点踩' : '点踩'}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      className={`w-4 h-4 ${review.disliked ? 'text-red-600' : 'text-slate-400'}`}
+                      viewBox="0 0 24 24"
+                      fill={review.disliked ? 'currentColor' : 'none'}
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 13V3h4v10h-4z" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M17 13l-5 7a2 2 0 01-3-2l1-5H5a2 2 0 01-2-2l2-7a2 2 0 012-2h10"
+                      />
+                    </svg>
+                    <span className="tabular-nums">{Number(review.dislike_count || 0)}</span>
+                    <span className="text-[10px] font-black opacity-80">点踩</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => void openSharePreview(review)}
                     data-tour={index === 0 ? 'tour-share-button' : undefined}
                     className="inline-flex min-w-fit shrink-0 items-center whitespace-nowrap gap-1.5 px-2.5 py-1.5 rounded-full border bg-white border-slate-200/70 text-xs font-extrabold leading-none text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5 transition-all duration-300 sm:gap-2 sm:px-3"
@@ -1232,31 +1400,67 @@ export default function Course() {
 
       {/* Report modal */}
       {reportTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setReportTarget(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={closeReport}>
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
-          <div className="relative w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="text-lg font-extrabold text-slate-800 mb-1">举报评价</div>
-            <p className="text-sm text-slate-500 mb-4">请选择举报原因：</p>
-            <div className="flex flex-col gap-2">
+            <p className="text-sm text-slate-500 mb-4">请选择举报原因并填写说明：</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {REPORT_REASONS.map((item) => (
                 <button
                   key={item.key}
                   type="button"
                   disabled={reportBusy}
-                  onClick={() => submitReport(item.key)}
-                  className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700 transition-colors disabled:opacity-50"
+                  onClick={() => setReportReason(item.key)}
+                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold transition-colors disabled:opacity-50 ${
+                    reportReason === item.key
+                      ? 'border-red-300 bg-red-50 text-red-700'
+                      : 'border-slate-200 text-slate-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700'
+                  }`}
                 >
                   {item.label}
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              className="mt-4 w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
-              onClick={() => setReportTarget(null)}
-            >
-              取消
-            </button>
+            <label className="mt-4 block text-sm font-bold text-slate-700" htmlFor="report-description">
+              举报说明（包含举报原因和具体的违规内容）
+            </label>
+            <textarea
+              id="report-description"
+              className="mt-2 h-40 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100 disabled:bg-slate-50"
+              value={reportDescription}
+              maxLength={REPORT_DESCRIPTION_MAX_LENGTH}
+              disabled={reportBusy}
+              onChange={(e) => setReportDescription(e.target.value)}
+              onPaste={(e) => e.preventDefault()}
+              onDrop={(e) => e.preventDefault()}
+            />
+            <div className="mt-2 flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between">
+              <span className={reportDescriptionError ? 'font-semibold text-red-500' : 'text-slate-500'}>
+                {reportDescriptionError || '说明已符合提交要求'}
+              </span>
+              <span className={reportDescriptionLength >= REPORT_DESCRIPTION_MIN_LENGTH ? 'font-bold text-emerald-600' : 'font-bold text-slate-500'}>
+                {reportDescriptionLength}/{REPORT_DESCRIPTION_MIN_LENGTH}
+              </span>
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                disabled={reportBusy}
+                onClick={closeReport}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-xl border border-red-500 bg-red-500 py-2.5 text-sm font-bold text-white transition-colors hover:bg-red-600 disabled:border-slate-200 disabled:bg-slate-200 disabled:text-slate-500"
+                disabled={!canSubmitReport}
+                onClick={submitReport}
+              >
+                {reportBusy ? '提交中...' : '提交举报'}
+              </button>
+            </div>
           </div>
         </div>
       )}

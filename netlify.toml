@@ -1,0 +1,13 @@
+[build]
+  # 与 Cloudflare Pages 保持一致的构建链：frontend 构建会依赖 scheduler 与 wlc
+  command = "npm --prefix frontend ci && npm --prefix scheduler ci && npm --prefix frontend run build"
+  publish = "frontend/dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# SPA fallback：React Router 使用 BrowserRouter，深层 URL 直接刷新需重写到 index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

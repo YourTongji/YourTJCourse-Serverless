@@ -57,3 +57,10 @@ backend/generated/
 # Python
 __pycache__/
 *.pyc
+
+# 本地数据迁移演练产物（不提交 git）
+backend/migration-final/
+
+
+# Local Netlify folder
+.netlify

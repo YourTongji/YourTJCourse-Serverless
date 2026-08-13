@@ -118,6 +118,8 @@ export async function ensureDbInitialized(db: D1Database) {
       await ensurePkSearchIndexes(db)
       await ensureCourseSearchIndexes(db)
       await ensureReviewLikesTable(db)
+      await ensureReviewDislikesTable(db)
+      await ensureReviewDislikeCountColumn(db)
       await ensureReviewReportsTable(db)
       await ensureReviewsWalletColumn(db)
       await ensureLegacyAutoDocsPurged(db)
@@ -128,6 +130,23 @@ export async function ensureDbInitialized(db: D1Database) {
     })
   }
   await dbInitPromise
+}
+
+let publicReadCheckedDbs = new WeakSet<D1Database>()
+
+export async function ensurePublicReadReady(db: D1Database) {
+  if (publicReadCheckedDbs.has(db)) return
+
+  // Read-only schema probe for public GET paths. This intentionally avoids
+  // CREATE/DDL so public traffic cannot trigger D1 writes.
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS cnt FROM sqlite_master
+       WHERE type IN ('table', 'view') AND name IN ('courses', 'reviews', 'teachers', 'settings', 'course_semesters')`
+    )
+    .first<{ cnt: number }>()
+  if (Number(row?.cnt || 0) < 5) throw new Error('Database schema is not initialized')
+  publicReadCheckedDbs.add(db)
 }
 
 export let showIcuCache: { value: boolean; expiresAt: number } | null = null
@@ -500,7 +519,38 @@ export async function ensureReviewLikesTable(db: D1Database) {
   await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_likes_client_id ON review_likes(client_id)').run()
 }
 
+
+const reviewDislikesInitPromises = new WeakMap<D1Database, Promise<void>>()
+
+export async function ensureReviewDislikesTable(db: D1Database) {
+  let initPromise = reviewDislikesInitPromises.get(db)
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS review_dislikes (review_id INTEGER NOT NULL, client_id TEXT NOT NULL, created_at INTEGER DEFAULT (strftime('%s', 'now')), PRIMARY KEY (review_id, client_id), FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE)`).run()
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_dislikes_review_id ON review_dislikes(review_id)').run()
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_dislikes_client_id ON review_dislikes(client_id)').run()
+    })().catch((err) => {
+      reviewDislikesInitPromises.delete(db)
+      throw err
+    })
+    reviewDislikesInitPromises.set(db, initPromise)
+  }
+  await initPromise
+}
+
 const reviewReportsInitPromises = new WeakMap<D1Database, Promise<void>>()
+
+function isDuplicateColumnError(err: unknown): boolean {
+  return /duplicate column name/i.test(String((err as any)?.message || err))
+}
+
+async function addColumnIfMissing(db: D1Database, sql: string) {
+  try {
+    await db.prepare(sql).run()
+  } catch (err) {
+    if (!isDuplicateColumnError(err)) throw err
+  }
+}
 
 export async function ensureReviewReportsTable(db: D1Database) {
   let initPromise = reviewReportsInitPromises.get(db)
@@ -513,6 +563,7 @@ export async function ensureReviewReportsTable(db: D1Database) {
             review_id INTEGER NOT NULL,
             client_id TEXT NOT NULL,
             reason TEXT NOT NULL,
+            description TEXT DEFAULT '',
             status TEXT DEFAULT 'open',
             admin_note TEXT,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
@@ -526,8 +577,9 @@ export async function ensureReviewReportsTable(db: D1Database) {
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_review_id ON review_reports(review_id)').run()
       await db.prepare('CREATE INDEX IF NOT EXISTS idx_review_reports_status ON review_reports(status)').run()
       // Migration: add columns if upgrading from v1 table
-      try { await db.prepare('ALTER TABLE review_reports ADD COLUMN admin_note TEXT').run() } catch {}
-      try { await db.prepare('ALTER TABLE review_reports ADD COLUMN resolved_at INTEGER').run() } catch {}
+      await addColumnIfMissing(db, "ALTER TABLE review_reports ADD COLUMN description TEXT DEFAULT ''")
+      await addColumnIfMissing(db, 'ALTER TABLE review_reports ADD COLUMN admin_note TEXT')
+      await addColumnIfMissing(db, 'ALTER TABLE review_reports ADD COLUMN resolved_at INTEGER')
     })().catch((err) => {
       reviewReportsInitPromises.delete(db)
       throw err
@@ -546,6 +598,14 @@ export async function ensureReviewsWalletColumn(db: D1Database) {
   }
   try {
     await db.prepare('ALTER TABLE reviews ADD COLUMN edit_token TEXT').run()
+  } catch {
+    // ignore: already exists
+  }
+}
+
+export async function ensureReviewDislikeCountColumn(db: D1Database) {
+  try {
+    await db.prepare('ALTER TABLE reviews ADD COLUMN disapprove_count INTEGER DEFAULT 0').run()
   } catch {
     // ignore: already exists
   }
@@ -751,20 +811,36 @@ export async function upsertAuxiliaryCourseData(db: D1Database, courseIds?: numb
   const records = await buildCourseAuxiliaryRecords(db, courseIds)
   if (records.length === 0) return
 
-  for (const record of records) {
+  // This helper assumes stale auxiliary rows were removed before calling it.
+  // Public read paths must never invoke it; only refresh/rebuild/admin/sync
+  // flows may write course_semesters or the FTS course_search table.
+
+  // Batch INSERT OR REPLACE for course_semesters
+  for (const part of chunkArray(records, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '(?, ?)').join(', ')
+    const values: any[] = []
+    for (const r of part) {
+      values.push(r.courseId, r.semesterNames)
+    }
     await db
       .prepare(
         `INSERT OR REPLACE INTO course_semesters (course_id, semester_names)
-         VALUES (?, ?)`
+         VALUES ${placeholders}`
       )
-      .bind(record.courseId, record.semesterNames)
+      .bind(...values)
       .run()
   }
 
-  for (const record of records) {
+  // Batch INSERT for course_search
+  for (const part of chunkArray(records, D1_SAFE_BATCH_SIZE)) {
+    const placeholders = part.map(() => '(?, ?)').join(', ')
+    const values: any[] = []
+    for (const r of part) {
+      values.push(r.courseId, r.searchDoc)
+    }
     await db
-      .prepare('INSERT INTO course_search (course_id, search_doc) VALUES (?, ?)')
-      .bind(record.courseId, record.searchDoc)
+      .prepare(`INSERT INTO course_search (course_id, search_doc) VALUES ${placeholders}`)
+      .bind(...values)
       .run()
   }
 }
@@ -787,7 +863,6 @@ export async function isAuxiliaryCourseDataReady(db: D1Database) {
   const now = Date.now()
   if (courseAuxReadyCache && courseAuxReadyCache.expiresAt > now) return courseAuxReadyCache.value
 
-  await ensureCourseAuxiliaryTables(db)
   const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('aux_schema_version').first<{ value: string }>()
   const ready = row?.value === AUX_SCHEMA_VERSION
   courseAuxReadyCache = { value: ready, expiresAt: now + 30_000 }
@@ -795,11 +870,6 @@ export async function isAuxiliaryCourseDataReady(db: D1Database) {
 }
 
 export async function getCourseSemesters(db: D1Database, courseId: number) {
-  await ensureCourseAuxiliaryTables(db)
-  let row = await db.prepare('SELECT semester_names FROM course_semesters WHERE course_id = ?').bind(courseId).first<{ semester_names: string | null }>()
-  if (!row) {
-    await refreshAuxiliaryCourseData(db, [courseId])
-    row = await db.prepare('SELECT semester_names FROM course_semesters WHERE course_id = ?').bind(courseId).first<{ semester_names: string | null }>()
-  }
+  const row = await db.prepare('SELECT semester_names FROM course_semesters WHERE course_id = ?').bind(courseId).first<{ semester_names: string | null }>()
   return parseSemesterNames(row?.semester_names)
 }
