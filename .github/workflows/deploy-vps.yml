@@ -47,7 +47,8 @@ jobs:
           PUBLIC_URL=${{ vars.PUBLIC_URL || 'https://jcourse.yourtj.de' }}
           MIGRATION_READONLY=${{ vars.MIGRATION_READONLY || '0' }}
           EOF
-          chmod 600 backend.env
+          # runner 需要可读该文件供 scp-action 打包；VPS 端脚本会再 chmod 600
+          chmod 644 backend.env
 
       - name: Upload backend source & env to VPS staging
         uses: appleboy/scp-action@v0.1.7
