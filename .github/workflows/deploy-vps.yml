@@ -25,6 +25,22 @@ jobs:
 
       - name: Render backend.env from GitHub Secrets
         shell: bash
+        env:
+          CAPTCHA_SITEVERIFY_URL: ${{ secrets.CAPTCHA_SITEVERIFY_URL }}
+          VITE_CAPTCHA_URL: ${{ secrets.VITE_CAPTCHA_URL }}
+          ADMIN_SECRET: ${{ secrets.JCOURSE_ADMIN_SECRET }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          TURNSTILE_SITEVERIFY_URL: ${{ secrets.TURNSTILE_SITEVERIFY_URL }}
+          CREDIT_API_BASE: ${{ secrets.CREDIT_API_BASE }}
+          VITE_CREDIT_API_BASE: ${{ secrets.VITE_CREDIT_API_BASE }}
+          CREDIT_JCOURSE_SECRET: ${{ secrets.CREDIT_JCOURSE_SECRET }}
+          JCOURSE_INTEGRATION_SECRET: ${{ secrets.JCOURSE_INTEGRATION_SECRET }}
+          AI_SUMMARY_KEY: ${{ secrets.AI_SUMMARY_KEY }}
+          AI_SUMMARY_MODEL: ${{ secrets.AI_SUMMARY_MODEL }}
+          AI_SUMMARY_BASE_URL: ${{ secrets.AI_SUMMARY_BASE_URL }}
+          FEISHU_REPORT_WEBHOOK_URL: ${{ secrets.FEISHU_REPORT_WEBHOOK_URL }}
+          FEISHU_REPORT_WEBHOOK_SECRET: ${{ secrets.FEISHU_REPORT_WEBHOOK_SECRET }}
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
         run: |
           set -euo pipefail
           # 允许缺省并回退到兼容 secret 名（与旧 Cloudflare 工作流行为一致）
@@ -36,19 +52,19 @@ jobs:
           PORT=8787
           DATABASE_URL=file:/data/jcourse.db
           CAPTCHA_SITEVERIFY_URL=$CAPTCHA_URL
-          ADMIN_SECRET=${{ secrets.JCOURSE_ADMIN_SECRET }}
-          TURNSTILE_SECRET_KEY=${{ secrets.TURNSTILE_SECRET_KEY }}
-          TURNSTILE_SITEVERIFY_URL=${{ secrets.TURNSTILE_SITEVERIFY_URL }}
+          ADMIN_SECRET=$ADMIN_SECRET
+          TURNSTILE_SECRET_KEY=$TURNSTILE_SECRET_KEY
+          TURNSTILE_SITEVERIFY_URL=$TURNSTILE_SITEVERIFY_URL
           CREDIT_API_BASE=$CREDIT_BASE
           VITE_CREDIT_API_BASE=$CREDIT_BASE
           CREDIT_JCOURSE_SECRET=$CREDIT_SECRET
           JCOURSE_INTEGRATION_SECRET=$CREDIT_SECRET
-          AI_SUMMARY_KEY=${{ secrets.AI_SUMMARY_KEY }}
-          AI_SUMMARY_MODEL=${{ secrets.AI_SUMMARY_MODEL }}
-          AI_SUMMARY_BASE_URL=${{ secrets.AI_SUMMARY_BASE_URL }}
-          FEISHU_REPORT_WEBHOOK_URL=${{ secrets.FEISHU_REPORT_WEBHOOK_URL }}
-          FEISHU_REPORT_WEBHOOK_SECRET=${{ secrets.FEISHU_REPORT_WEBHOOK_SECRET }}
-          PUBLIC_URL=${{ vars.PUBLIC_URL || 'https://jcourse.yourtj.de' }}
+          AI_SUMMARY_KEY=$AI_SUMMARY_KEY
+          AI_SUMMARY_MODEL=$AI_SUMMARY_MODEL
+          AI_SUMMARY_BASE_URL=$AI_SUMMARY_BASE_URL
+          FEISHU_REPORT_WEBHOOK_URL=$FEISHU_REPORT_WEBHOOK_URL
+          FEISHU_REPORT_WEBHOOK_SECRET=$FEISHU_REPORT_WEBHOOK_SECRET
+          PUBLIC_URL=${PUBLIC_URL:-https://jcourse.yourtj.de}
           MIGRATION_READONLY=${{ vars.MIGRATION_READONLY || '0' }}
           EOF
           # runner 需要可读该文件供 scp-action 打包；VPS 端脚本会再 chmod 600
