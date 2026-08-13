@@ -48,4 +48,4 @@ jobs:
       - name: Deploy to Netlify (production)
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-        run: npx netlify-cli deploy --prod --dir frontend/dist --site jcourse-web
+        run: npx netlify-cli deploy --prod --dir frontend/dist --site 0a9c8b3c-6a78-480d-813c-dc78d9344afc
