@@ -13,7 +13,7 @@
 
 ### 部署与外部服务
 
-- `CLOUDFLARE_API_TOKEN`：Cloudflare API Token（保留给 `refresh-no-fts-d1-backup.yml` 与回滚期）
+- `CLOUDFLARE_API_TOKEN`：Cloudflare API Token（回滚期 `deploy-cloudflare.yml` / `deploy-dev-cloudflare.yml` 使用）
 - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare Account ID
 - `NETLIFY_AUTH_TOKEN`：Netlify Personal Access Token（`deploy-netlify.yml` 使用）
 - `VPS_HOST`：VPS 公网 IP 或域名（填实际服务器的值，不要提交到仓库）
@@ -58,10 +58,11 @@
 | `.github/workflows/deploy-vps.yml` | `server` push（backend/** 或 docker-compose.yml） | 后端代码与 `backend.env` → VPS → `docker compose up -d --build backend` → healthz 检查 |
 | `.github/workflows/deploy-netlify.yml` | `server` push（frontend/scheduler/wlc/netlify.toml） | 构建前端（注入 VITE_*）→ `netlify deploy --prod` |
 | `.github/workflows/sync-onesystem-login.yml` | 手动 / `dev` push 含 `[pk-sync]` | 登录一系统 → 生成 SQL → SCP 到 VPS → `apply-pk-sync-to-sqlite.sh` → 重建索引 → 重启 backend |
-| `.github/workflows/refresh-no-fts-d1-backup.yml` | 每日 04:00 (Asia/Shanghai) / 手动 | 维护 D1 `jcourse-db-backup` no-FTS 快照（迁移与导出用） |
 | `.github/workflows/pr-checks.yml` | PR 到 `dev`/`main` | type-check + build，不部署 |
 | `.github/workflows/deploy-cloudflare.yml` | `main` push | **旧架构部署，回滚期保留，正式切换完成后停用** |
 | `.github/workflows/deploy-dev-cloudflare.yml` | `dev` 分支推送 / 手动 | dev 预览环境部署（回滚期保留） |
+
+> 说明：原「Refresh No-FTS D1 Backup」每日快照任务已停用（迁移完成，D1 不再作为备份源）。如需再次从 D1 导出，可临时在本地用 wrangler 操作 `jcourse-db-backup`。
 
 ## 3) 后端环境变量（VPS `backend.env`）
 
@@ -93,20 +94,7 @@ MIGRATION_READONLY=0
 迁移期 D1 相关规范：
 
 - 生产查询数据库 D1 `jcourse-db` 可能包含 `course_search` FTS5 虚拟表，**禁止对其执行 `wrangler d1 export`**。
-- `jcourse-db-backup` 是每日 no-FTS 快照，仅此库可用于导出。导出前确认：
-
-```bash
-cd backend
-node ./scripts/check-no-fts-backup.mjs --json
-```
-
-只有 `status='ready'`、`error` 为空、`no_fts_objects=0` 时：
-
-```bash
-npx wrangler d1 export jcourse-db-backup --remote --output backup.sql
-```
-
-初始化 `jcourse-db-backup` 时，通过 Cloudflare Dashboard 或 `npx wrangler d1 create jcourse-db-backup` 创建 D1 数据库；不要把具体 account id 或备份库 database id 写入公开仓库。
+- `jcourse-db-backup` 是迁移期间使用的 no-FTS 快照。**该每日刷新任务已停用**，快照停留在迁移完成时的状态；如需再次导出，直接对现有 `jcourse-db-backup` 执行导出即可（其内容为迁移完成时的数据）。
 
 ## 5) 自定义域名
 

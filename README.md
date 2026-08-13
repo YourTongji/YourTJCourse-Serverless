@@ -55,8 +55,7 @@ YourTJCourse-Serverless/
 └── .github/workflows/      # CI/CD
     ├── deploy-cloudflare.yml        # 旧部署（回滚期保留）
     ├── deploy-vps.yml               # 后端 → VPS Docker 部署
-    ├── sync-onesystem-login.yml     # 一系统同步 → VPS SQLite
-    └── refresh-no-fts-d1-backup.yml # D1 no-FTS 快照（保留）
+    └── sync-onesystem-login.yml     # 一系统同步 → VPS SQLite
 ```
 
 ## 技术栈
