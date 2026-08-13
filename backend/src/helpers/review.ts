@@ -44,13 +44,26 @@ export async function getReviewLikeClientKey(c: any) {
     }
   })()
   const isLocalDev = hostname === 'localhost' || hostname === '127.0.0.1'
-  const forwardedFor = isLocalDev
-    ? String(c.req.header('x-forwarded-for') || '').split(',')[0].trim()
-    : ''
-  const address = String(c.req.header('cf-connecting-ip') || (isLocalDev ? c.req.header('x-real-ip') || forwardedFor : ''))
-    .trim()
-    .slice(0, 128)
-  const localFallback = isLocalDev ? String(c.req.header('user-agent') || '').trim().slice(0, 512) : ''
+
+  // IP 来源优先级：
+  // 1) Cloudflare 专用头 cf-connecting-ip（Worker 环境）
+  // 2) x-forwarded-for 最后一段（VPS 上由 1Panel OpenResty 的
+  //    $proxy_add_x_forwarded_for 追加真实客户端 IP，可信；客户端伪造的前段
+  //    会被 OpenResty 追加的真实 IP 覆盖在末尾）
+  // 3) 本地开发环境回退 x-real-ip / user-agent
+  const forwardedParts = String(c.req.header('x-forwarded-for') || '').split(',').map((item) => item.trim()).filter(Boolean)
+  const forwardedLast = forwardedParts.length > 0 ? forwardedParts[forwardedParts.length - 1] : ''
+  const remoteIp = String(c.req.header('cf-connecting-ip') || '').trim() || forwardedLast
+
+  let address = ''
+  let localFallback = ''
+  if (isLocalDev) {
+    address = remoteIp || String(c.req.header('x-real-ip') || '').trim()
+    localFallback = String(c.req.header('user-agent') || '').trim().slice(0, 512)
+  } else {
+    address = remoteIp
+  }
+  address = address.trim().slice(0, 128)
   if (!address && !localFallback) return ''
 
   const salt = String(
