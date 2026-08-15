@@ -6,6 +6,7 @@ import Footer from './components/Footer'
 import { useRef } from 'react'
 import Logo from './components/Logo'
 import { Turnstile } from 'react-turnstile'
+import 'cap-widget'
 import Courses from './pages/Courses'
 import Course from './pages/Course'
 import WriteReview from './pages/WriteReview'
@@ -464,8 +465,50 @@ export default function App() {
   const showMaintenanceGate = maintenanceEnabled && !shouldBypassMaintenance
   const slogan = useTypewriterText('你的，同济的', 55, showStartupGate)
   const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()
+  const capApiEndpoint = String(import.meta.env.VITE_CAP_API_ENDPOINT || '').trim()
+  const capWidgetRef = useRef<HTMLElement | null>(null)
   const startupVerifyRequestRef = useRef(0)
   const verifiedStartupTokensRef = useRef(new Set<string>())
+
+  // Cap 是自定义元素（React 18 需要手动 addEventListener 监听 solve 事件）
+  useEffect(() => {
+    const el = capWidgetRef.current
+    if (!el || !capApiEndpoint) return
+
+    const handleSolve = (event: Event) => {
+      const token = (event as CustomEvent).detail?.token
+      if (!token) return
+      if (verifiedStartupTokensRef.current.has(token)) return
+      verifiedStartupTokensRef.current.add(token)
+      const requestId = (startupVerifyRequestRef.current += 1)
+      setStartupError('')
+      setStartupVerifying(true)
+
+      void (async () => {
+        const result = await verifyStartupToken(token, 'cap').catch(() => ({ ok: false, error: 'network_error', codes: [] }))
+        if (startupVerifyRequestRef.current !== requestId) return
+
+        setStartupVerifying(false)
+        if (result.ok) {
+          passStartupGate()
+          return
+        }
+
+        setStartupError(formatStartupError(result.error))
+        if (shouldResetStartupTurnstile(result.error || '', result.codes || [])) {
+          try {
+            ;(el as any).reset?.()
+          } catch {
+            // ignore
+          }
+        }
+      })()
+    }
+
+    el.addEventListener('solve', handleSolve)
+    return () => el.removeEventListener('solve', handleSolve)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capApiEndpoint, showStartupGate])
 
   useEffect(() => {
     if (hardMaintenanceMode) {
@@ -555,14 +598,14 @@ export default function App() {
     }, 360)
   }
 
-  const verifyStartupToken = async (token: string) => {
+  const verifyStartupToken = async (token: string, provider: 'turnstile' | 'cap' = 'turnstile') => {
     const apiBase = resolveApiBase()
     const url = apiBase ? `${apiBase}/api/startup/verify` : '/api/startup/verify'
 
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token })
+      body: JSON.stringify({ token, provider })
     })
 
     const data = await res.json().catch(() => null) as { success?: boolean; error?: string; codes?: string[] } | null
@@ -671,7 +714,18 @@ export default function App() {
                     正在进行启动前检查......
                   </div>
                   <div className="mt-3 flex justify-center">
-                      {turnstileSiteKey ? (
+                      {capApiEndpoint ? (
+                        <cap-widget
+                          ref={capWidgetRef}
+                          data-cap-api-endpoint={capApiEndpoint}
+                          data-cap-disable-haptics
+                          data-cap-i18n-initial-state="点击验证你是人类"
+                          data-cap-i18n-verifying-label="验证中..."
+                          data-cap-i18n-solved-label="验证通过"
+                          data-cap-i18n-error-label="验证失败，请重试"
+                          data-cap-i18n-required-label="请先完成验证"
+                        />
+                      ) : turnstileSiteKey ? (
                         <Turnstile
                           sitekey={turnstileSiteKey}
                           theme="auto"
@@ -717,7 +771,7 @@ export default function App() {
                         />
                       ) : (
                         <div className="flex h-12 w-full max-w-[320px] items-center justify-center rounded-2xl bg-slate-50/70 text-xs font-semibold text-slate-500 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.35)] dark:bg-slate-900/35 dark:text-slate-300 dark:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]">
-                          缺少验证配置（VITE_TURNSTILE_SITE_KEY）
+                          缺少验证配置（VITE_CAP_API_ENDPOINT / VITE_TURNSTILE_SITE_KEY）
                         </div>
                       )}
                     </div>

@@ -20,6 +20,10 @@ export type Bindings = {
   AI_SUMMARY_KEY?: string
   AI_SUMMARY_MODEL?: string
   AI_SUMMARY_BASE_URL?: string
+  // 自托管 Cap CAPTCHA（web 端启动门禁使用）
+  CAP_API_BASE?: string
+  CAP_SITE_KEY?: string
+  CAP_SECRET_KEY?: string
   // Node/VPS 运行环境：=1 时中间件拒绝用户写请求，用于正式切流期间的数据一致性
   MIGRATION_READONLY?: string
 }

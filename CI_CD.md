@@ -28,6 +28,7 @@
 - `VITE_CAPTCHA_URL`
 - `VITE_WALINE_SERVER_URL`
 - `VITE_CREDIT_API_BASE`：`https://core.credit.yourtj.de`
+- `VITE_CAP_API_ENDPOINT`：自托管 Cap 的 widget 端点，形如 `https://<cap-instance>/<site-key>/`（web 端启动门禁优先使用；未配置时回退 Turnstile）
 
 ### 后端环境变量（写入 VPS `backend.env`）
 
@@ -36,6 +37,7 @@
 - `TURNSTILE_SECRET_KEY`、`TURNSTILE_SITEVERIFY_URL`
 - `CREDIT_API_BASE`、`CREDIT_JCOURSE_SECRET`（及兼容名 `VITE_CREDIT_API_BASE`、`JCOURSE_INTEGRATION_SECRET`）
 - `AI_SUMMARY_KEY`、`AI_SUMMARY_MODEL`、`AI_SUMMARY_BASE_URL`
+- `CAP_API_BASE`、`CAP_SITE_KEY`、`CAP_SECRET_KEY`（自托管 Cap CAPTCHA，web 端启动门禁用）
 - `FEISHU_REPORT_WEBHOOK_URL`、`FEISHU_REPORT_WEBHOOK_SECRET`
 - `PUBLIC_URL`（变量，默认 `https://jcourse.yourtj.de`）
 - `MIGRATION_READONLY`（变量，迁移期设 `1`，稳定后置 `0`）

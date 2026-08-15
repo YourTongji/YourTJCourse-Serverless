@@ -29,6 +29,9 @@ export function createBindings(): Omit<Bindings, 'DB'> & { DB: D1CompatDatabase;
     AI_SUMMARY_KEY: process.env.AI_SUMMARY_KEY,
     AI_SUMMARY_MODEL: process.env.AI_SUMMARY_MODEL,
     AI_SUMMARY_BASE_URL: process.env.AI_SUMMARY_BASE_URL,
+    CAP_API_BASE: process.env.CAP_API_BASE,
+    CAP_SITE_KEY: process.env.CAP_SITE_KEY,
+    CAP_SECRET_KEY: process.env.CAP_SECRET_KEY,
     MIGRATION_READONLY: process.env.MIGRATION_READONLY
   }
 }

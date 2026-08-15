@@ -29,6 +29,7 @@ import {
   ensureReviewReportsTable,
 } from '../helpers/db'
 import { verifyTurnstile } from '../helpers/turnstile'
+import { verifyCapToken } from '../helpers/cap'
 import { verifyTongjiCaptcha } from '../helpers/captcha'
 import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar, sha256Hex } from '../helpers/review'
 import { notifyReportToFeishu, verifyActionToken } from '../helpers/feishu'
@@ -257,7 +258,7 @@ async function loadCourseReviewStats(
   }
 }
 
-// 启动前检查：服务端验证 Turnstile token（避免纯前端放行被自动化绕过）
+// 启动前检查：服务端验证 CAPTCHA token（web 端走自托管 Cap，App 端继续走 Turnstile）
 publicRoutes.post('/startup/verify', async (c) => {
   const maintenanceMode = await getMaintenanceModeSetting(c.env.DB, c.env)
   if (maintenanceMode) {
@@ -268,12 +269,20 @@ publicRoutes.post('/startup/verify', async (c) => {
   const token = String(body?.token || '').trim()
   if (!token) return c.json({ success: false, error: 'missing_token' }, 400)
 
-  const sendRemoteIp = String(c.env.TURNSTILE_SEND_REMOTEIP || '').trim().toLowerCase() === 'true'
-  const remoteip = sendRemoteIp ? String(c.req.header('CF-Connecting-IP') || '').trim() : ''
-  const result = await verifyTurnstile(token, c.env, {
-    expectedAction: 'startup_gate',
-    ...(remoteip ? { remoteip } : {})
-  })
+  // provider 缺省时按 turnstile 处理，兼容旧 App 客户端
+  const provider = String(body?.provider || 'turnstile').trim().toLowerCase()
+
+  let result
+  if (provider === 'cap') {
+    result = await verifyCapToken(token, c.env)
+  } else {
+    const sendRemoteIp = String(c.env.TURNSTILE_SEND_REMOTEIP || '').trim().toLowerCase() === 'true'
+    const remoteip = sendRemoteIp ? String(c.req.header('CF-Connecting-IP') || '').trim() : ''
+    result = await verifyTurnstile(token, c.env, {
+      expectedAction: 'startup_gate',
+      ...(remoteip ? { remoteip } : {})
+    })
+  }
 
   if (!result.ok) {
     return c.json({ success: false, error: result.error, codes: (result as any).codes || [] }, 403)

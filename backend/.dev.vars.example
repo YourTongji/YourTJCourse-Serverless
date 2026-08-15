@@ -5,3 +5,8 @@ ONESYSTEM_COOKIE=JWTUser=...; JSESSIONID=...; sessionid=...; ...
 # YourTJ Credit (Turso) - 积分联动（服务端）
 CREDIT_API_BASE=https://core.credit.yourtj.de
 CREDIT_JCOURSE_SECRET=please-set-a-long-random-string
+
+# 自托管 Cap CAPTCHA（web 端启动门禁使用；App 端继续用 Turnstile）
+CAP_API_BASE=https://cap.yourtj.de
+CAP_SITE_KEY=your-cap-site-key
+CAP_SECRET_KEY=please-set-a-long-random-string
