@@ -112,3 +112,17 @@ jobs:
             docker compose up -d --build backend
             sleep 5
             curl -fsS http://127.0.0.1:8787/healthz
+            printf '%s\n' 'CAP_NETWORK_DIAGNOSTIC_BEGIN'
+            docker inspect cap --format 'cap image={{.Config.Image}} compose={{index .Config.Labels "com.docker.compose.project"}}/{{index .Config.Labels "com.docker.compose.service"}} networks={{range $name, $conf := .NetworkSettings.Networks}}{{$name}} {{end}} exposed={{range $port, $conf := .Config.ExposedPorts}}{{$port}} {{end}}'
+            docker inspect yourtjcourse-backend-1 --format 'backend image={{.Config.Image}} compose={{index .Config.Labels "com.docker.compose.project"}}/{{index .Config.Labels "com.docker.compose.service"}} networks={{range $name, $conf := .NetworkSettings.Networks}}{{$name}} {{end}}'
+            for network_name in $(docker network ls --format '{{.Name}}'); do
+              members=$(docker network inspect "$network_name" --format '{{range $id, $container := .Containers}}{{$container.Name}} {{end}}' 2>/dev/null || true)
+              case " $members " in
+                *' cap '*|*' yourtjcourse-backend-1 '*) printf '%s\t%s\n' "$network_name" "$members" ;;
+              esac
+            done
+            printf 'backend_resolves_cap='
+            if docker exec yourtjcourse-backend-1 getent hosts cap >/dev/null 2>&1; then printf 'yes\n'; else printf 'no\n'; fi
+            printf 'backend_reaches_cap_http='
+            docker exec yourtjcourse-backend-1 node -e 'fetch("http://cap:3000/").then((res) => { console.log(res.status); process.exit(0) }).catch(() => process.exit(1))' >/tmp/cap-http-status 2>/dev/null && printf 'yes status=%s\n' "$(cat /tmp/cap-http-status)" || printf 'no\n'
+            printf '%s\n' 'CAP_NETWORK_DIAGNOSTIC_END'
