@@ -119,8 +119,16 @@ jobs:
               count=$(docker logs --since=6h yourtjcourse-backend-1 2>&1 | grep -F -c "$pattern" || true)
               printf 'backend_log_%s=%s\n' "$(printf '%s' "$pattern" | tr ' ' '_')" "$count"
             done
+            for pattern in '[cap]' 'verify failed' 'missing_token' 'unknown_error' 'timeout'; do
+              count=$(docker logs --since=6h yourtjcourse-backend-1 2>&1 | grep -F -c "$pattern" || true)
+              printf 'backend_cap_%s=%s\n' "$(printf '%s' "$pattern" | tr ' ' '_')" "$count"
+            done
             cap_invalid_url=$(docker logs --since=6h cap 2>&1 | grep -F -c 'ERR_INVALID_URL' || true)
             cap_malformed=$(docker logs --since=6h cap 2>&1 | grep -F -c 'response.split' || true)
+            cap_token_missing=$(docker logs --since=6h cap 2>&1 | grep -F -c 'Token not found' || true)
+            cap_invalid_secret=$(docker logs --since=6h cap 2>&1 | grep -F -c 'Invalid secret' || true)
             printf 'cap_log_invalid_url=%s\n' "$cap_invalid_url"
             printf 'cap_log_malformed_siteverify=%s\n' "$cap_malformed"
+            printf 'cap_log_token_missing=%s\n' "$cap_token_missing"
+            printf 'cap_log_invalid_secret=%s\n' "$cap_invalid_secret"
             printf '%s\n' 'CAP_RUNTIME_DIAGNOSTIC_END'
