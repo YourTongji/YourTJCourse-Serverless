@@ -10,16 +10,8 @@ services:
       DATABASE_URL: "file:/data/jcourse.db"
       APP_ENV: "production"
       NODE_OPTIONS: "--max-old-space-size=900"
-    networks:
-      - default
-      - cap
     volumes:
       - ./data:/data
     ports:
       # 只暴露到宿主机回环地址，不直接对外；由 1Panel OpenResty 反向代理到公网
       - "127.0.0.1:8787:8787"
-
-networks:
-  cap:
-    external: true
-    name: cap_default
