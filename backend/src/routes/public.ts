@@ -285,6 +285,10 @@ publicRoutes.post('/startup/verify', async (c) => {
   }
 
   if (!result.ok) {
+    if (result.error === 'busy') {
+      c.header('Retry-After', '2')
+      return c.json({ success: false, error: 'busy', codes: [] }, 429)
+    }
     return c.json({ success: false, error: result.error, codes: (result as any).codes || [] }, 403)
   }
 

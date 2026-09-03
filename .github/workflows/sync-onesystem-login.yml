@@ -162,11 +162,13 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -euo pipefail
-            ls -la /opt/yourtjcourse/incoming/pk-sync/
+            # scp-action preserves the source directory prefix, so the uploaded
+            # files land under incoming/backend/.tmp/pk-sync/.
+            ls -la /opt/yourtjcourse/incoming/backend/.tmp/pk-sync/
             ADMIN_SECRET='${{ secrets.JCOURSE_ADMIN_SECRET }}'
             bash /opt/yourtjcourse/repo/YourTJCourse-Serverless/backend/scripts/apply-pk-sync-to-sqlite.sh \
               /opt/yourtjcourse/data/jcourse.db \
-              /opt/yourtjcourse/incoming/pk-sync
+              /opt/yourtjcourse/incoming/backend/.tmp/pk-sync
             curl -fsS -X POST http://127.0.0.1:8787/api/admin/pk/refresh-review-index \
               -H "x-admin-secret: ${ADMIN_SECRET}"
             docker compose -f /opt/yourtjcourse/docker-compose.yml restart backend

@@ -30,8 +30,11 @@ export function createBindings(): Omit<Bindings, 'DB'> & { DB: D1CompatDatabase;
     AI_SUMMARY_MODEL: process.env.AI_SUMMARY_MODEL,
     AI_SUMMARY_BASE_URL: process.env.AI_SUMMARY_BASE_URL,
     CAP_API_BASE: process.env.CAP_API_BASE,
+    CAP_API_INTERNAL_BASE: process.env.CAP_API_INTERNAL_BASE,
     CAP_SITE_KEY: process.env.CAP_SITE_KEY,
     CAP_SECRET_KEY: process.env.CAP_SECRET_KEY,
+    CAP_VERIFY_TIMEOUT_MS: process.env.CAP_VERIFY_TIMEOUT_MS,
+    CAP_VERIFY_MAX_IN_FLIGHT: process.env.CAP_VERIFY_MAX_IN_FLIGHT,
     MIGRATION_READONLY: process.env.MIGRATION_READONLY
   }
 }
