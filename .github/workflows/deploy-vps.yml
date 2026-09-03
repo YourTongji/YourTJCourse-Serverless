@@ -112,3 +112,15 @@ jobs:
             docker compose up -d --build backend
             sleep 5
             curl -fsS http://127.0.0.1:8787/healthz
+            printf '%s\n' 'CAP_RUNTIME_DIAGNOSTIC_BEGIN'
+            docker exec yourtjcourse-backend-1 node -e 'const e=process.env; console.log(JSON.stringify({internalBase:e.CAP_API_INTERNAL_BASE === "http://cap:3000", baseConfigured:Boolean(e.CAP_API_BASE), siteKeyConfigured:Boolean(e.CAP_SITE_KEY), secretConfigured:Boolean(e.CAP_SECRET_KEY)}))'
+            docker exec yourtjcourse-backend-1 node -e 'const e=process.env; const key=String(e.CAP_SITE_KEY||""); const base=String(e.CAP_API_INTERNAL_BASE||e.CAP_API_BASE||"").replace(/\\/+$/,""); const url=`${base}/${encodeURIComponent(key)}/siteverify`; const started=Date.now(); fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({secret:e.CAP_SECRET_KEY,response:`${key}:diagnostic:invalid`})}).then(async (res)=>{await res.text(); console.log(JSON.stringify({siteverifyStatus:res.status,elapsedMs:Date.now()-started,bodyPresent:true}))}).catch((err)=>{console.log(JSON.stringify({siteverifyStatus:0,elapsedMs:Date.now()-started,error:err?.name||"error"})); process.exitCode=1})'
+            for pattern in 'siteverify timeout' 'siteverify busy' 'siteverify HTTP' 'service error'; do
+              count=$(docker logs --since=6h yourtjcourse-backend-1 2>&1 | grep -F -c "$pattern" || true)
+              printf 'backend_log_%s=%s\n' "$(printf '%s' "$pattern" | tr ' ' '_')" "$count"
+            done
+            cap_invalid_url=$(docker logs --since=6h cap 2>&1 | grep -F -c 'ERR_INVALID_URL' || true)
+            cap_malformed=$(docker logs --since=6h cap 2>&1 | grep -F -c 'response.split' || true)
+            printf 'cap_log_invalid_url=%s\n' "$cap_invalid_url"
+            printf 'cap_log_malformed_siteverify=%s\n' "$cap_malformed"
+            printf '%s\n' 'CAP_RUNTIME_DIAGNOSTIC_END'
