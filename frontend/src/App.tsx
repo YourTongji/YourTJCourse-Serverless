@@ -5,8 +5,6 @@ import BottomNavigation from './components/BottomNavigation'
 import Footer from './components/Footer'
 import { useRef } from 'react'
 import Logo from './components/Logo'
-import { Turnstile } from 'react-turnstile'
-import 'cap-widget'
 import Courses from './pages/Courses'
 import Course from './pages/Course'
 import WriteReview from './pages/WriteReview'
@@ -14,7 +12,7 @@ import About from './pages/About'
 import FAQ from './pages/FAQ'
 import Schedule from './pages/Schedule'
 import Feedback from './pages/Feedback'
-import { fetchSiteRuntimeState, resolveApiBase, SiteAnnouncement, AnnouncementType } from './services/api'
+import { fetchSiteRuntimeState, SiteAnnouncement, AnnouncementType } from './services/api'
 import { renderMarkdownHtml } from './components/CollapsibleMarkdown'
 import TourGuide, { TutorialLauncher } from './components/TourGuide'
 import MaintenancePage from './maintenance/MaintenancePage'
@@ -403,7 +401,7 @@ export default function App() {
     typeof window !== 'undefined' &&
     (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost')
   )
-  const bypassStartupGate = Boolean(
+  const bypassStartupSplash = Boolean(
     isLocalDevHost || (import.meta.env.DEV && String(import.meta.env.VITE_BYPASS_STARTUP_GATE || '').trim() === '1')
   )
   const hardMaintenanceMode = String(import.meta.env.VITE_MAINTENANCE_MODE || '').trim() === '1'
@@ -415,7 +413,7 @@ export default function App() {
     : null
   const [startupPassed, setStartupPassed] = useState(() => {
     try {
-      if (bypassStartupGate) return true
+      if (bypassStartupSplash) return true
       if (hardMaintenanceMode) return true
       if (freshMaintenanceSnapshot?.enabled) return true
       return sessionStorage.getItem('yourtj_startup_passed') === '1'
@@ -424,8 +422,6 @@ export default function App() {
     }
   })
   const [startupLeaving, setStartupLeaving] = useState(false)
-  const [startupError, setStartupError] = useState('')
-  const [startupVerifying, setStartupVerifying] = useState(false)
   const [tourOpen, setTourOpen] = useState(false)
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(
     hardMaintenanceMode || Boolean(freshMaintenanceSnapshot?.enabled)
@@ -460,55 +456,31 @@ export default function App() {
     }
   }
 
-  const showStartupGate = !startupPassed && !bypassStartupGate
+  const showStartupSplash = !startupPassed && !bypassStartupSplash
   const shouldBypassMaintenance = isAdminPath
   const showMaintenanceGate = maintenanceEnabled && !shouldBypassMaintenance
-  const slogan = useTypewriterText('你的，同济的', 55, showStartupGate)
-  const turnstileSiteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim()
-  const capApiEndpoint = String(import.meta.env.VITE_CAP_API_ENDPOINT || '').trim()
-  const capWidgetRef = useRef<HTMLElement | null>(null)
-  const startupVerifyRequestRef = useRef(0)
-  const verifiedStartupTokensRef = useRef(new Set<string>())
+  const slogan = useTypewriterText('你的，同济的', 55, showStartupSplash)
 
-  // Cap 是自定义元素（React 18 需要手动 addEventListener 监听 solve 事件）
+  const passStartupSplash = () => {
+    setStartupLeaving(true)
+    window.setTimeout(() => {
+      setStartupPassed(true)
+      setStartupLeaving(false)
+      try {
+        sessionStorage.setItem('yourtj_startup_passed', '1')
+      } catch {
+        // ignore
+      }
+    }, 360)
+  }
+
+  // 网页入口只保留短暂启动缓冲，不再阻塞用户等待 CAPTCHA。
   useEffect(() => {
-    const el = capWidgetRef.current
-    if (!el || !capApiEndpoint) return
-
-    const handleSolve = (event: Event) => {
-      const token = (event as CustomEvent).detail?.token
-      if (!token) return
-      if (verifiedStartupTokensRef.current.has(token)) return
-      verifiedStartupTokensRef.current.add(token)
-      const requestId = (startupVerifyRequestRef.current += 1)
-      setStartupError('')
-      setStartupVerifying(true)
-
-      void (async () => {
-        const result = await verifyStartupToken(token, 'cap').catch(() => ({ ok: false, error: 'network_error', codes: [] }))
-        if (startupVerifyRequestRef.current !== requestId) return
-
-        setStartupVerifying(false)
-        if (result.ok) {
-          passStartupGate()
-          return
-        }
-
-        setStartupError(formatStartupError(result.error))
-        if (shouldResetStartupTurnstile(result.error || '', result.codes || [])) {
-          try {
-            ;(el as any).reset?.()
-          } catch {
-            // ignore
-          }
-        }
-      })()
-    }
-
-    el.addEventListener('solve', handleSolve)
-    return () => el.removeEventListener('solve', handleSolve)
+    if (startupPassed || bypassStartupSplash || hardMaintenanceMode) return
+    const timer = window.setTimeout(() => passStartupSplash(), 800)
+    return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capApiEndpoint, showStartupGate])
+  }, [startupPassed, bypassStartupSplash, hardMaintenanceMode])
 
   useEffect(() => {
     if (hardMaintenanceMode) {
@@ -580,81 +552,10 @@ export default function App() {
   }, [hardMaintenanceMode])
 
   useEffect(() => {
-    if (showStartupGate && tourOpen) {
+    if (showStartupSplash && tourOpen) {
       setTourOpen(false)
     }
-  }, [showStartupGate, tourOpen])
-
-  const passStartupGate = () => {
-    setStartupLeaving(true)
-    window.setTimeout(() => {
-      setStartupPassed(true)
-      setStartupLeaving(false)
-      try {
-        sessionStorage.setItem('yourtj_startup_passed', '1')
-      } catch {
-        // ignore
-      }
-    }, 360)
-  }
-
-  const verifyStartupToken = async (token: string, provider: 'turnstile' | 'cap' = 'turnstile') => {
-    const apiBase = resolveApiBase()
-    const url = apiBase ? `${apiBase}/api/startup/verify` : '/api/startup/verify'
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, provider })
-    })
-
-    const data = await res.json().catch(() => null) as { success?: boolean; error?: string; codes?: string[] } | null
-    if (!res.ok) {
-      if (res.status === 429) {
-        return { ok: false, error: 'rate_limited', codes: [] }
-      }
-      return { ok: false, error: data?.error || 'network_error', codes: data?.codes || [] }
-    }
-    return {
-      ok: data?.success === true,
-      error: data?.success === true ? undefined : (data?.error || 'verify_failed'),
-      codes: data?.codes || []
-    }
-  }
-
-  const formatStartupError = (error?: string) => {
-    switch (String(error || '')) {
-      case 'missing_token':
-        return '缺少验证信息，请重试'
-      case 'rate_limited':
-        return '请求过于频繁，请稍后重试'
-      case 'missing_secret':
-        return '验证服务配置异常，请联系管理员'
-      case 'hostname_not_allowed':
-        return '当前访问域名的验证配置未对上'
-      case 'action_mismatch':
-        return '验证状态不一致，请重新验证'
-      case 'verify_failed':
-        return '验证未通过，请重试'
-      case 'siteverify_http_error':
-      case 'invalid_response':
-      case 'unknown_error':
-      case 'network_error':
-        return '验证服务暂时不可用，请稍后重试'
-      default:
-        return '验证未通过，请重试'
-    }
-  }
-
-  const shouldResetStartupTurnstile = (error: string, codes: string[]) => {
-    // Permanent configuration problems will not clear on retry; resetting the
-    // widget would only churn tokens. Everything else (verify_failed, 429,
-    // network/5xx errors) should reset so the user gets a fresh challenge
-    // instead of being stuck behind a consumed token.
-    if (['missing_secret', 'hostname_not_allowed'].includes(error)) return false
-    if (codes.some((code) => ['invalid-input-secret', 'invalid-input-response', 'bad-request'].includes(code))) return false
-    return true
-  }
+  }, [showStartupSplash, tourOpen])
 
   // Non-home pages keep their original top spacing while the announcement bar
   // is collapsed; once it is expanded (the bar carries its own mt-7), use the
@@ -669,12 +570,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen text-slate-800 flex flex-col">
-      {showStartupGate && !showMaintenanceGate && (
+      {showStartupSplash && !showMaintenanceGate && (
         <div
           className={`fixed inset-0 z-[100] flex items-center justify-center px-5 py-10 transition-opacity duration-300 ${
             startupLeaving ? 'opacity-0 pointer-events-none' : 'opacity-100'
           }`}
-          aria-label="启动前检查"
+          aria-label="正在加载"
         >
           <div className="absolute inset-0 bg-gradient-to-br from-sky-50 via-white to-cyan-50 dark:from-slate-950 dark:via-slate-950 dark:to-slate-900" />
           <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(circle_at_1px_1px,rgba(14,165,233,0.55)_1px,transparent_0)] [background-size:26px_26px] dark:opacity-[0.08]" />
@@ -711,80 +612,12 @@ export default function App() {
 
                 <div className="mt-6 rounded-2xl bg-white/55 px-4 py-4 text-center text-sm text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_10px_26px_-18px_rgba(15,23,42,0.25)] dark:bg-slate-950/20 dark:text-slate-200 dark:shadow-[inset_0_1px_0_rgba(148,163,184,0.15),0_10px_28px_-20px_rgba(2,6,23,0.6)]">
                   <div className="text-[13px] font-black text-slate-700 dark:text-slate-100">
-                    正在进行启动前检查......
+                    正在加载 YourTJ 选课社区......
                   </div>
-                  <div className="mt-3 flex justify-center">
-                      {capApiEndpoint ? (
-                        <cap-widget
-                          ref={capWidgetRef}
-                          data-cap-api-endpoint={capApiEndpoint}
-                          data-cap-disable-haptics
-                          data-cap-i18n-initial-state="点击验证你是人类"
-                          data-cap-i18n-verifying-label="验证中..."
-                          data-cap-i18n-solved-label="验证通过"
-                          data-cap-i18n-error-label="验证失败，请重试"
-                          data-cap-i18n-required-label="请先完成验证"
-                        />
-                      ) : turnstileSiteKey ? (
-                        <Turnstile
-                          sitekey={turnstileSiteKey}
-                          theme="auto"
-                          size="flexible"
-                          retry="auto"
-                          refreshExpired="auto"
-                          action="startup_gate"
-                          onVerify={(token, boundTurnstile) => {
-                            if (verifiedStartupTokensRef.current.has(token)) return
-                            verifiedStartupTokensRef.current.add(token)
-                            const requestId = (startupVerifyRequestRef.current += 1)
-                            setStartupError('')
-                            setStartupVerifying(true)
-
-                            void (async () => {
-                              const result = await verifyStartupToken(token).catch(() => ({ ok: false, error: 'network_error', codes: [] }))
-                              if (startupVerifyRequestRef.current !== requestId) return
-
-                              setStartupVerifying(false)
-                              if (result.ok) {
-                                passStartupGate()
-                                return
-                              }
-
-                              setStartupError(formatStartupError(result.error))
-                              if (shouldResetStartupTurnstile(result.error || '', result.codes || [])) {
-                                try {
-                                  boundTurnstile?.reset?.()
-                                } catch {
-                                  // ignore
-                                }
-                              }
-                            })()
-                          }}
-                          onError={() => {
-                            setStartupVerifying(false)
-                            setStartupError('验证失败，请稍后重试')
-                          }}
-                          onExpire={() => {
-                            setStartupVerifying(false)
-                            setStartupError('验证已过期，请重新验证')
-                          }}
-                        />
-                      ) : (
-                        <div className="flex h-12 w-full max-w-[320px] items-center justify-center rounded-2xl bg-slate-50/70 text-xs font-semibold text-slate-500 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.35)] dark:bg-slate-900/35 dark:text-slate-300 dark:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]">
-                          缺少验证配置（VITE_CAP_API_ENDPOINT / VITE_TURNSTILE_SITE_KEY）
-                        </div>
-                      )}
-                    </div>
-                  {startupVerifying && (
-                    <div className="mt-2 text-center text-xs font-semibold text-slate-500 dark:text-slate-300">
-                      校验中...
-                    </div>
-                  )}
-                  {startupError && (
-                    <div className="mt-2 text-center text-xs font-semibold text-rose-600 dark:text-rose-300">
-                      {startupError}
-                    </div>
-                  )}
+                  <div className="mt-3 flex items-center justify-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-300">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-500" />
+                    <span>马上就好</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -828,7 +661,7 @@ export default function App() {
         </Suspense>
       )}
       <TutorialLauncher
-        visible={!showStartupGate && !hideFloatingTools && isHome}
+        visible={!showStartupSplash && !hideFloatingTools && isHome}
         onOpen={() => {
           setAnnouncementCollapsedPersist(true)
           if (location.pathname !== '/') {

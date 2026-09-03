@@ -39,8 +39,8 @@ function releaseCapSlot(): void {
  *   body: { secret, response }
  * 返回 { success: boolean }。
  *
- * 与 verifyTurnstile 并存：web 端启动门禁用 Cap，App 端继续用 Turnstile，
- * 由 /api/startup/verify 的 provider 字段区分。
+ * 与 verifyTurnstile 并存：由 /api/startup/verify 的 provider 字段区分，
+ * 网页入口不再调用此接口，App 等客户端仍可使用。
  */
 export async function verifyCapToken(token: string, env: Bindings) {
   try {

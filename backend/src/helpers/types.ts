@@ -20,7 +20,7 @@ export type Bindings = {
   AI_SUMMARY_KEY?: string
   AI_SUMMARY_MODEL?: string
   AI_SUMMARY_BASE_URL?: string
-  // 自托管 Cap CAPTCHA（web 端启动门禁使用）
+  // 自托管 Cap CAPTCHA（App 等客户端需要时使用）
   CAP_API_BASE?: string
   // 可选：backend 与 Cap 同机/同网时使用内部地址，绕过公网 TLS/反代
   CAP_API_INTERNAL_BASE?: string

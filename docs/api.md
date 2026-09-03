@@ -6,7 +6,7 @@
 
 - 公开接口无需认证。
 - 管理接口统一挂在 `/api/admin` 下，需要 `x-admin-secret` 请求头。
-- 写评价和编辑本人评价需要通过 TongjiCaptcha；启动页验证使用 Cloudflare Turnstile。
+- 写评价和编辑本人评价需要通过 TongjiCaptcha；网页入口不再设置启动验证，客户端仍可调用 `/api/startup/verify` 做服务端 CAPTCHA 验签。
 
 ## 公开接口
 

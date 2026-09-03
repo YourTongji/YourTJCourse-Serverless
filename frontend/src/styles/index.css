@@ -164,40 +164,6 @@ a:hover { color: #0284c7; }
   border-left: 3px solid #ef4444;
 }
 
-/* ─── Cap CAPTCHA widget 主题适配（与站点深浅色保持一致） ─── */
-/* 项目使用 Tailwind 默认 darkMode: media，即跟随系统 prefers-color-scheme */
-cap-widget {
-  --cap-background: rgba(255, 255, 255, 0.72);
-  --cap-border-color: rgba(148, 163, 184, 0.35);
-  --cap-border-radius: 14px;
-  --cap-widget-height: 30px;
-  --cap-widget-width: 230px;
-  --cap-widget-padding: 14px;
-  --cap-gap: 15px;
-  --cap-color: #1e293b;
-  --cap-checkbox-size: 22px;
-  --cap-checkbox-border: 1px solid rgba(148, 163, 184, 0.6);
-  --cap-checkbox-border-radius: 6px;
-  --cap-checkbox-background: rgba(241, 245, 249, 0.9);
-  --cap-checkbox-margin: 2px;
-  --cap-font: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --cap-spinner-color: #0284c7;
-  --cap-spinner-background-color: rgba(186, 230, 253, 0.5);
-  --cap-spinner-thickness: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  cap-widget {
-    --cap-background: rgba(15, 23, 42, 0.55);
-    --cap-border-color: rgba(148, 163, 184, 0.3);
-    --cap-color: #e2e8f0;
-    --cap-checkbox-border: 1px solid rgba(148, 163, 184, 0.45);
-    --cap-checkbox-background: rgba(30, 41, 59, 0.8);
-    --cap-spinner-color: #38bdf8;
-    --cap-spinner-background-color: rgba(2, 132, 199, 0.25);
-  }
-}
-
 /* ─── Scrollbar utils ─── */
 .yourtj-md-overlay { scrollbar-width: none; -ms-overflow-style: none; }
 .yourtj-md-overlay::-webkit-scrollbar { display: none; }

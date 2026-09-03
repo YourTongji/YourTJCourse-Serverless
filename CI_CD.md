@@ -24,11 +24,9 @@
 ### 前端构建变量（Netlify / Vite）
 
 - `VITE_API_URL`：`https://jcourse.yourtj.de`
-- `VITE_TURNSTILE_SITE_KEY`
 - `VITE_CAPTCHA_URL`
 - `VITE_WALINE_SERVER_URL`
 - `VITE_CREDIT_API_BASE`：`https://core.credit.yourtj.de`
-- `VITE_CAP_API_ENDPOINT`：自托管 Cap 的 widget 端点，形如 `https://<cap-instance>/<site-key>/`（web 端启动门禁优先使用；未配置时回退 Turnstile）
 
 ### 后端环境变量（写入 VPS `backend.env`）
 
@@ -37,7 +35,7 @@
 - `TURNSTILE_SECRET_KEY`、`TURNSTILE_SITEVERIFY_URL`
 - `CREDIT_API_BASE`、`CREDIT_JCOURSE_SECRET`（及兼容名 `VITE_CREDIT_API_BASE`、`JCOURSE_INTEGRATION_SECRET`）
 - `AI_SUMMARY_KEY`、`AI_SUMMARY_MODEL`、`AI_SUMMARY_BASE_URL`
-- `CAP_API_BASE`、`CAP_SITE_KEY`、`CAP_SECRET_KEY`（自托管 Cap CAPTCHA，web 端启动门禁用）
+- `CAP_API_BASE`、`CAP_SITE_KEY`、`CAP_SECRET_KEY`（自托管 Cap CAPTCHA，供 App 等客户端服务端验签）
 - `CAP_API_INTERNAL_BASE`（可选；backend 与 Cap 同机/同 Docker 网络时使用，例如内部服务地址，绕过公网 TLS/反代）
 - `CAP_VERIFY_TIMEOUT_MS`、`CAP_VERIFY_MAX_IN_FLIGHT`（可选；默认总超时 15000ms、单进程最多 16 个并发校验）
 - `FEISHU_REPORT_WEBHOOK_URL`、`FEISHU_REPORT_WEBHOOK_SECRET`

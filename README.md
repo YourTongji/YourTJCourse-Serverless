@@ -69,7 +69,7 @@ YourTJCourse-Serverless/
 | 文档 | VitePress |
 | 反代/HTTPS | 1Panel OpenResty（Let's Encrypt 证书） |
 | CI/CD | GitHub Actions → VPS SSH 部署 |
-| 人机验证 | 启动页 Cloudflare Turnstile，评价提交 TongjiCaptcha |
+| 人机验证 | 网页入口直接进入，评价提交 TongjiCaptcha；客户端可使用 Cap/Turnstile 服务端验签 |
 
 ## 快速开始
 

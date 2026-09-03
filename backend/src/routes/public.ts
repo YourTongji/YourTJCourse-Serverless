@@ -258,7 +258,7 @@ async function loadCourseReviewStats(
   }
 }
 
-// 启动前检查：服务端验证 CAPTCHA token（web 端走自托管 Cap，App 端继续走 Turnstile）
+// 客户端启动检查：服务端验证 CAPTCHA token（网页入口不调用，App 等客户端仍可使用）
 publicRoutes.post('/startup/verify', async (c) => {
   const maintenanceMode = await getMaintenanceModeSetting(c.env.DB, c.env)
   if (maintenanceMode) {
