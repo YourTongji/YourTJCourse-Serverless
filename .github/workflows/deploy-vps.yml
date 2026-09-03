@@ -102,6 +102,16 @@ jobs:
           script: |
             set -euo pipefail
             STAGING=/opt/yourtjcourse/staging
+            printf '%s\n' 'CAP_PREDEPLOY_DIAGNOSTIC_BEGIN'
+            for pattern in 'error' 'ERR_INVALID_URL' 'response.split' 'Invalid solution' 'instr_' 'blocked' 'Token not found' 'Invalid secret'; do
+              count=$(docker logs --since=15m cap 2>&1 | grep -F -i -c "$pattern" || true)
+              printf 'cap_recent_%s=%s\n' "$(printf '%s' "$pattern" | tr ' ' '_')" "$count"
+            done
+            for pattern in '[cap]' 'siteverify timeout' 'siteverify busy' 'verify failed' 'service error'; do
+              count=$(docker logs --since=15m yourtjcourse-backend-1 2>&1 | grep -F -c "$pattern" || true)
+              printf 'backend_recent_%s=%s\n' "$(printf '%s' "$pattern" | tr ' ' '_')" "$count"
+            done
+            printf '%s\n' 'CAP_PREDEPLOY_DIAGNOSTIC_END'
             rm -rf /opt/yourtjcourse/repo/YourTJCourse-Serverless/backend
             mv "$STAGING/backend" /opt/yourtjcourse/repo/YourTJCourse-Serverless/backend
             cp "$STAGING/docker-compose.yml" /opt/yourtjcourse/docker-compose.yml
