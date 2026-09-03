@@ -27,14 +27,19 @@ const memoryCounters = new Map<string, number>()
 let lastCleanupAt = Date.now()
 
 function getClientIp(c: Context<{ Bindings: Bindings }>): string | null {
-  // 优先信任 Cloudflare 提供的头；Node/OpenResty 环境下回退到 x-forwarded-for
-  // （由 1Panel OpenResty 在服务器本机追加，可信）。取原始 IP，忽略端口。
-  const raw = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for')
+  // 优先信任 Cloudflare 提供的头；Node/OpenResty 环境下回退到代理头。
+  // X-Forwarded-For 的顺序是 `客户端 IP, 代理 IP...`，必须取第一项；
+  // 取最后一项会把所有用户归并成反代自身，导致全站共享限流额度。
+  const raw = c.req.header('cf-connecting-ip') || c.req.header('x-real-ip') || c.req.header('x-forwarded-for')
   if (!raw) return null
-  const parts = raw.split(',')
-  const candidate = parts[parts.length - 1]?.trim()
+  const candidate = raw.split(',')[0]?.trim()
   if (!candidate) return null
-  return candidate.split(':')[0] || null
+  if (candidate.startsWith('[')) {
+    const closingBracket = candidate.indexOf(']')
+    if (closingBracket > 1) return candidate.slice(1, closingBracket)
+  }
+  const colonCount = (candidate.match(/:/g) || []).length
+  return colonCount === 1 ? candidate.split(':')[0] || null : candidate
 }
 
 function isBypassPath(path: string): boolean {
