@@ -49,4 +49,4 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         # --no-build: 上传 GitHub Actions 构建好的 dist，避免 netlify.toml 触发云端二次构建
         # （云端构建拿不到本 job 注入的 VITE_* 环境变量）
-        run: npx --yes netlify-cli deploy --prod --no-build --dir frontend/dist --site 0a9c8b3c-6a78-480d-813c-dc78d9344afc
+        run: npx --yes netlify-cli@27.4.2 deploy --prod --no-build --dir frontend/dist --site 0a9c8b3c-6a78-480d-813c-dc78d9344afc
