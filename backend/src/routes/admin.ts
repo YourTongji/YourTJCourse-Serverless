@@ -3,6 +3,7 @@ import type { Bindings } from '../helpers/types'
 import { decodeReviewId } from '../sqids'
 import { syncOnesystemToPkTables } from '../pk/sync'
 import { refreshCourseStats } from '../courseStats'
+import { invalidateCourseReviewInfoCache } from '../helpers/course-review-info'
 import {
   ensureDbInitialized,
   AUX_SCHEMA_VERSION,
@@ -240,6 +241,7 @@ admin.delete('/course/:id', async (c) => {
   await c.env.DB.prepare('DELETE FROM course_aliases WHERE course_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM courses WHERE id = ?').bind(id).run()
   await deleteAuxiliaryCourseData(c.env.DB, [Number(id)])
+  invalidateCourseReviewInfoCache()
   return c.json({ success: true })
 })
 
