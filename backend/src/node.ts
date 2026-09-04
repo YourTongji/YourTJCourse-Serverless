@@ -4,6 +4,10 @@ import { serve } from '@hono/node-server'
 import app from './index'
 import { createBindings } from './runtime/env'
 import { installNoopCaches } from './runtime/cache'
+import {
+  clearProcessResponseCache,
+  installProcessResponseCache
+} from './helpers/cache'
 import { ensureDbInitialized } from './helpers/db'
 import {
   setSearchRuntimeState,
@@ -27,6 +31,7 @@ import {
  */
 export async function main() {
   installNoopCaches()
+  installProcessResponseCache()
 
   const bindings = createBindings()
   await bindings.DB.init()
@@ -127,6 +132,7 @@ export async function main() {
   let searchReloadInFlight: Promise<void> | null = null
   process.on('SIGHUP', () => {
     if (searchReloadInFlight) return
+    clearProcessResponseCache()
     searchManager.invalidateGenerationCheck()
 
     const task = (async () => {

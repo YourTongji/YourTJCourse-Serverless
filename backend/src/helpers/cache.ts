@@ -4,6 +4,134 @@ export function buildCacheControl(maxAgeSeconds: number, staleWhileRevalidateSec
     : `public, max-age=${maxAgeSeconds}`
 }
 
+const DEFAULT_PROCESS_CACHE_MAX_ENTRIES = 256
+const DEFAULT_PROCESS_CACHE_MAX_BYTES = 16 * 1024 * 1024
+
+type ProcessCacheEntry = {
+  status: number
+  headers: Array<[string, string]>
+  body: Uint8Array
+  expiresAt: number
+}
+
+export type ProcessResponseCacheOptions = {
+  maxEntries?: number
+  maxBytes?: number
+  now?: () => number
+}
+
+function parsePublicMaxAge(response: Response) {
+  const cacheControl = response.headers.get('Cache-Control') || ''
+  if (!/(^|,)\s*public(?:\s*,|$)/i.test(cacheControl)) return 0
+  if (/(^|,)\s*no-store(?:\s*,|$)/i.test(cacheControl)) return 0
+  const match = cacheControl.match(/(?:^|,)\s*max-age\s*=\s*(\d+)/i)
+  const maxAge = Number(match?.[1] || 0)
+  return Number.isSafeInteger(maxAge) && maxAge > 0 ? maxAge : 0
+}
+
+/**
+ * Bounded response cache used only by the Node/VPS runtime.
+ * Worker runtimes leave it uninstalled and continue using Cloudflare Cache API.
+ */
+export class ProcessResponseCache {
+  private readonly entries = new Map<string, ProcessCacheEntry>()
+  private readonly maxEntries: number
+  private readonly maxBytes: number
+  private readonly now: () => number
+  private currentBytes = 0
+
+  constructor(options: ProcessResponseCacheOptions = {}) {
+    this.maxEntries = Math.max(1, Math.floor(options.maxEntries || DEFAULT_PROCESS_CACHE_MAX_ENTRIES))
+    this.maxBytes = Math.max(1, Math.floor(options.maxBytes || DEFAULT_PROCESS_CACHE_MAX_BYTES))
+    this.now = options.now || Date.now
+  }
+
+  async match(key: string): Promise<Response | null> {
+    const entry = this.entries.get(key)
+    if (!entry) return null
+
+    const now = this.now()
+    if (entry.expiresAt <= now) {
+      this.delete(key)
+      return null
+    }
+
+    // Map insertion order is the LRU order. Refresh on every successful hit.
+    this.entries.delete(key)
+    this.entries.set(key, entry)
+    return new Response(entry.body.slice(), {
+      status: entry.status,
+      headers: entry.headers
+    })
+  }
+
+  async put(key: string, response: Response): Promise<void> {
+    const maxAge = parsePublicMaxAge(response)
+    if (!response.ok || maxAge <= 0) return
+
+    try {
+      const body = new Uint8Array(await response.clone().arrayBuffer())
+      if (body.byteLength > this.maxBytes) return
+
+      this.delete(key)
+      const now = this.now()
+      this.entries.set(key, {
+        status: response.status,
+        headers: Array.from(response.headers.entries()),
+        body,
+        expiresAt: now + maxAge * 1000,
+      })
+      this.currentBytes += body.byteLength
+      this.evictIfNeeded()
+    } catch {
+      // The process cache is an optimization only. A locked/invalid body must
+      // never turn a successful API response into a failed request.
+    }
+  }
+
+  clear() {
+    this.entries.clear()
+    this.currentBytes = 0
+  }
+
+  getStats() {
+    return {
+      entries: this.entries.size,
+      bytes: this.currentBytes
+    }
+  }
+
+  private delete(key: string) {
+    const previous = this.entries.get(key)
+    if (!previous) return
+    this.entries.delete(key)
+    this.currentBytes -= previous.body.byteLength
+  }
+
+  private evictIfNeeded() {
+    while (this.entries.size > this.maxEntries || this.currentBytes > this.maxBytes) {
+      const oldestKey = this.entries.keys().next().value
+      if (typeof oldestKey !== 'string') break
+      this.delete(oldestKey)
+    }
+  }
+}
+
+let processResponseCache: ProcessResponseCache | null = null
+
+export function installProcessResponseCache(options?: ProcessResponseCacheOptions) {
+  processResponseCache = new ProcessResponseCache(options)
+  return processResponseCache
+}
+
+export function getProcessResponseCache() {
+  return processResponseCache
+}
+
+export function clearProcessResponseCache() {
+  processResponseCache?.clear()
+}
+
 export function buildJsonResponse(payload: unknown, cacheControl: string) {
   return new Response(JSON.stringify(payload), {
     headers: {
@@ -25,6 +153,7 @@ export function buildCourseDetailCacheRequest(courseId: string | number, showIcu
 }
 
 export async function purgeCourseDetailCache(courseIds: Array<string | number>) {
+  clearProcessResponseCache()
   const ids = Array.from(new Set(courseIds.map((id) => String(id || '').trim()).filter(Boolean)))
   if (ids.length === 0) return
 

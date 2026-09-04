@@ -1,3 +1,5 @@
+import { clearProcessResponseCache } from './cache'
+
 export const AUX_SCHEMA_VERSION = '20260610-structured-search-v3'
 export const COURSE_LIST_CACHE_SECONDS = 60
 export const COURSE_LIST_CACHE_SWR_SECONDS = 300
@@ -306,6 +308,7 @@ async function ensureCourseSearchIndexes(db: D1Database) {
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_courses_teacher_id ON courses(teacher_id)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_teachers_name ON teachers(name)').run() } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_reviews_course_created ON reviews(course_id, created_at DESC)').run() } catch {}
+  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_reviews_course_visible_created ON reviews(course_id, is_hidden, is_icu, created_at DESC)').run() } catch {}
 }
 
 async function ensureCourseAuxiliaryTables(db: D1Database) {
@@ -797,6 +800,7 @@ export async function buildCourseAuxiliaryRecords(db: D1Database, courseIds?: nu
 }
 
 export async function deleteAuxiliaryCourseData(db: D1Database, courseIds: number[]) {
+  clearProcessResponseCache()
   const validCourseIds = Array.from(new Set(courseIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)))
   if (validCourseIds.length === 0) return
 
@@ -846,6 +850,7 @@ export async function upsertAuxiliaryCourseData(db: D1Database, courseIds?: numb
 }
 
 export async function refreshAuxiliaryCourseData(db: D1Database, courseIds: number[]) {
+  clearProcessResponseCache()
   await ensureCourseAuxiliaryTables(db)
   await deleteAuxiliaryCourseData(db, courseIds)
   await upsertAuxiliaryCourseData(db, courseIds)
@@ -853,6 +858,7 @@ export async function refreshAuxiliaryCourseData(db: D1Database, courseIds: numb
 }
 
 export async function rebuildAllAuxiliaryCourseData(db: D1Database) {
+  clearProcessResponseCache()
   await ensureCourseAuxiliaryTables(db)
   await db.prepare('DELETE FROM course_semesters').run()
   await db.prepare('DELETE FROM course_search').run()

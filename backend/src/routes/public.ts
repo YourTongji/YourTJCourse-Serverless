@@ -49,6 +49,7 @@ import {
   COURSE_DETAIL_CACHE_VERSION,
   buildCourseDetailCacheRequest,
   buildJsonResponse,
+  getProcessResponseCache,
   purgeRelatedCourseDetailCache,
   setPublicCacheHeaders
 } from '../helpers/cache'
@@ -317,6 +318,9 @@ publicRoutes.get('/courses', async (c) => {
       cacheUrl.searchParams.set('__showIcu', showIcu ? '1' : '0')
       cacheUrl.searchParams.set('__creditFallback', COURSE_DETAIL_CACHE_VERSION)
       const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' })
+      const processCache = getProcessResponseCache()
+      const processCached = processCache ? await processCache.match(cacheUrl.toString()) : null
+      if (processCached) return processCached
       try {
         const cached = await caches.default.match(cacheKey)
         if (cached) return cached
@@ -667,7 +671,8 @@ publicRoutes.get('/courses', async (c) => {
     cacheUrl.searchParams.set('__showIcu', showIcu ? '1' : '0')
     cacheUrl.searchParams.set('__creditFallback', COURSE_DETAIL_CACHE_VERSION)
     const response = buildJsonResponse(payload, buildCacheControl(COURSE_LIST_CACHE_SECONDS, COURSE_LIST_CACHE_SWR_SECONDS))
-    // Node 环境无 executionCtx：改为同步落缓存（no-op 缓存层立即返回）
+    const processCache = getProcessResponseCache()
+    if (processCache) await processCache.put(cacheUrl.toString(), response.clone())
     await caches.default.put(new Request(cacheUrl.toString(), { method: 'GET' }), response.clone())
     return response
   } catch (err: any) {
@@ -681,6 +686,19 @@ publicRoutes.get('/course/:id', async (c) => {
     const id = c.req.param('id')
 
     const showIcu = await getShowIcuSetting(c.env.DB)
+
+    const hasClientId = Boolean((c.req.query('clientId') || '').trim())
+    const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
+    const editProofs = parseReviewEditProofs(c.req.query('editReviewProofs') || '')
+    const bypassCourseDetailCache = Boolean((c.req.query('_') || c.req.query('reviewRefresh') || '').trim())
+    const cacheKey = buildCourseDetailCacheRequest(id, showIcu)
+    const cache = caches.default
+    const processCache = getProcessResponseCache()
+    const processCached = bypassCourseDetailCache || !processCache
+      ? null
+      : await processCache.match(cacheKey.url)
+
+    if (processCached && !clientId && editProofs.size === 0) return processCached
 
     const course = await c.env.DB.prepare(
       `SELECT c.*, t.name as teacher_name FROM courses c
@@ -706,15 +724,8 @@ publicRoutes.get('/course/:id', async (c) => {
         : fallbackCredits.get(Number((course as any).id)) ?? (course as any).credit
     }
 
-    const hasClientId = Boolean((c.req.query('clientId') || '').trim())
-    const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
-    const editProofs = parseReviewEditProofs(c.req.query('editReviewProofs') || '')
-    const bypassCourseDetailCache = Boolean((c.req.query('_') || c.req.query('reviewRefresh') || '').trim())
-    const cacheKey = buildCourseDetailCacheRequest(id, showIcu)
-    const cache = caches.default
-
     try {
-      const cached = bypassCourseDetailCache ? null : await cache.match(cacheKey)
+      const cached = bypassCourseDetailCache ? null : processCached || await cache.match(cacheKey)
       if (cached) {
         const cachedPayload = (await cached.json()) as Record<string, any>
         const cachedReviews = Array.isArray((cachedPayload as any).reviews)
@@ -852,7 +863,7 @@ publicRoutes.get('/course/:id', async (c) => {
         'Cache-Control': 'public, max-age=60'
       }
     })
-    // Node 环境无 executionCtx：改为同步写缓存（no-op 缓存层立即返回）
+    if (processCache) await processCache.put(cacheKey.url, cacheRes.clone())
     await cache.put(cacheKey, cacheRes.clone())
 
     if (!clientId && editProofs.size === 0) return cacheRes
