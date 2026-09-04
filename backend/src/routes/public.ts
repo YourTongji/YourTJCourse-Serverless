@@ -1008,9 +1008,15 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
       disliked: clientId ? dislikedSet.has(Number(r?.id)) : false
     }))
 
-    const courseStats = await loadCourseReviewStats(c.env.DB, idList, showIcu)
-    const reviewCount = courseStats.review_count
-    const reviewAvg = courseStats.review_avg
+    // 统计聚合与批量端点共用同一 TTL 缓存（key: code/teacher/showIcu），
+    // 失效仍由 refreshCourseStats 统一触发（#181 review）。
+    const courseStats = await getCourseReviewStatsCached(
+      c.env.DB,
+      { code, teacherCode, teacherName },
+      showIcu
+    )
+    const reviewCount = courseStats.found ? courseStats.review_count : 0
+    const reviewAvg = courseStats.found ? courseStats.review_avg : 0
 
     const semesters = await getCourseSemesters(c.env.DB, Number(courseId)).catch(() => [])
     const fallbackCredits = await loadPkCreditFallbacks(c.env.DB, [Number((course as any).id)])

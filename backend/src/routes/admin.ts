@@ -240,8 +240,10 @@ admin.delete('/course/:id', async (c) => {
   await c.env.DB.prepare('DELETE FROM reviews WHERE course_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM course_aliases WHERE course_id = ?').bind(id).run()
   await c.env.DB.prepare('DELETE FROM courses WHERE id = ?').bind(id).run()
-  await deleteAuxiliaryCourseData(c.env.DB, [Number(id)])
+  // 主删除已成立即失效缓存：若辅助数据清理抛错，已删课程的缓存条目
+  // 不能继续以 found:true 返回（#181 review）
   invalidateCourseReviewInfoCache()
+  await deleteAuxiliaryCourseData(c.env.DB, [Number(id)])
   return c.json({ success: true })
 })
 
