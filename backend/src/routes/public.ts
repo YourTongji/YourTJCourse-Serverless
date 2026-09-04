@@ -34,6 +34,12 @@ import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar, sha2
 import { notifyReportToFeishu, verifyActionToken } from '../helpers/feishu'
 import { getMiniSearchCourseCandidates } from '../helpers/course-mini-search'
 import {
+  normalizeReviewInfoBatch,
+  getCourseReviewStatsCached,
+  loadCourseReviewStats,
+  REVIEW_INFO_BATCH_MAX_ITEMS
+} from '../helpers/course-review-info'
+import {
   buildCacheControl,
   COURSE_DETAIL_CACHE_VERSION,
   buildCourseDetailCacheRequest,
@@ -215,47 +221,8 @@ async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
   return creditById
 }
 
-async function loadCourseReviewStats(
-  db: D1Database,
-  courseIds: number[],
-  showIcu: boolean
-) {
-  const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
-  if (ids.length === 0) return { review_count: 0, review_avg: 0 }
-
-  // Aggregate directly from reviews so the count/avg match exactly what the
-  // reviews list on this page shows (is_hidden + is_icu filters). Using the
-  // pre-aggregated courses.review_count/review_avg is inconsistent because
-  // those columns are maintained without the is_icu filter.
-  const statsFilter = showIcu ? '' : ' AND is_icu = 0'
-  let totalCount = 0
-  let weightedRating = 0
-
-  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
-    const placeholders = part.map(() => '?').join(',')
-    const row = await db
-      .prepare(
-        `SELECT
-           COUNT(*) AS total_count,
-           COALESCE(AVG(CASE WHEN rating > 0 THEN rating END), 0) AS avg_rating
-         FROM reviews
-         WHERE course_id IN (${placeholders})
-           AND is_hidden = 0${statsFilter}`
-      )
-      .bind(...part)
-      .first<{ total_count: number; avg_rating: number }>()
-
-    const chunkCount = Number(row?.total_count || 0)
-    const chunkAvg = Number(row?.avg_rating || 0)
-    totalCount += chunkCount
-    weightedRating += chunkCount * chunkAvg
-  }
-
-  return {
-    review_count: totalCount,
-    review_avg: totalCount > 0 ? weightedRating / totalCount : 0
-  }
-}
+// loadCourseReviewStats 已迁移至 helpers/course-review-info.ts，
+// 供 GET /course/by-code 与 POST /course/review-info/batch 共用。
 
 // 启动前检查：服务端验证 Turnstile token（避免纯前端放行被自动化绕过）
 publicRoutes.post('/startup/verify', async (c) => {
@@ -1198,6 +1165,14 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
         : fallbackCredits.get(Number((course as any).id)) ?? (course as any).credit
     }
 
+    // 评分/评价数据只随评价变更而变化；无 clientId 的请求可共享缓存。
+    // 带 clientId 的响应包含 liked/disliked 个性化字段，必须禁止共享缓存。
+    if (clientId) {
+      c.header('Cache-Control', 'private, no-store')
+    } else {
+      setPublicCacheHeaders(c, 60, 300)
+    }
+
     return c.json({
       ...effectiveCourse,
       review_count: reviewCount,
@@ -1205,6 +1180,42 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
       semesters,
       reviews: mappedReviews
     })
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// 批量评课统计：供排课器一次拉取一门课全部教学班的 review_count/review_avg，
+// 替代按班并行的 N 个 /course/by-code 请求（#179）。
+publicRoutes.post('/course/review-info/batch', async (c) => {
+  try {
+    await ensurePublicReadReady(c.env.DB)
+
+    const body = await c.req.json().catch(() => null)
+    const parsed = normalizeReviewInfoBatch(body)
+    if (!parsed.ok) {
+      return c.json({ error: parsed.error }, 400)
+    }
+
+    const showIcu = await getShowIcuSetting(c.env.DB)
+
+    // 结果走模块内 TTL 缓存；评价变更时由 refreshCourseStats 统一失效。
+    const results = await Promise.all(
+      parsed.items.map(async (item) => {
+        const stats = await getCourseReviewStatsCached(c.env.DB, item, showIcu)
+        return {
+          code: item.code,
+          teacherCode: item.teacherCode,
+          teacherName: item.teacherName,
+          found: stats.found,
+          review_count: stats.review_count,
+          review_avg: stats.review_avg
+        }
+      })
+    )
+
+    c.header('Cache-Control', `public, max-age=30, stale-while-revalidate=120, x-batch-max=${REVIEW_INFO_BATCH_MAX_ITEMS}`)
+    return c.json({ items: results })
   } catch (err: any) {
     return c.json({ error: err.message }, 500)
   }
