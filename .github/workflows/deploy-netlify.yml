@@ -31,10 +31,10 @@ jobs:
           node-version: "22"
 
       - name: Install frontend deps
-        run: npm --prefix frontend ci
+        run: npm --prefix frontend ci --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=2
 
       - name: Install scheduler deps
-        run: npm --prefix scheduler ci
+        run: npm --prefix scheduler ci --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=2
 
       - name: Build frontend (injects VITE_* build vars)
         run: npm --prefix frontend run build
