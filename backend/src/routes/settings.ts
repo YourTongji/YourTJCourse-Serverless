@@ -11,6 +11,37 @@ import { setPublicCacheHeaders } from '../helpers/cache'
 
 const settings = new Hono<{ Bindings: Bindings }>()
 
+const RUNTIME_STATE_CACHE_TTL_MS = 15_000
+type RuntimeStatePayload = {
+  maintenance: {
+    enabled: boolean
+    config: any | null
+  }
+  announcements: any[]
+  updatedAt: number
+}
+
+let runtimeStateCache: { payload: RuntimeStatePayload; expiresAt: number } | null = null
+let runtimeStateRefresh: Promise<RuntimeStatePayload> | null = null
+
+async function loadRuntimeState(db: D1Database, env: Bindings): Promise<RuntimeStatePayload> {
+  await ensureDbInitialized(db)
+  const [maintenanceEnabled, maintenanceConfig, announcementsRow] = await Promise.all([
+    getMaintenanceModeSetting(db, env),
+    getMaintenanceConfigSetting(db, env),
+    db.prepare('SELECT value FROM settings WHERE key = ?').bind('site_announcements').first<{ value: string }>()
+  ])
+
+  return {
+    maintenance: {
+      enabled: maintenanceEnabled,
+      config: maintenanceConfig
+    },
+    announcements: parseSiteAnnouncements(announcementsRow?.value),
+    updatedAt: Date.now()
+  }
+}
+
 settings.get('/show_icu', async (c) => {
   await ensureDbInitialized(c.env.DB)
   const showIcu = await getShowIcuSetting(c.env.DB)
@@ -19,22 +50,24 @@ settings.get('/show_icu', async (c) => {
 })
 
 settings.get('/runtime-state', async (c) => {
-  await ensureDbInitialized(c.env.DB)
-  const [maintenanceEnabled, maintenanceConfig, announcementsRow] = await Promise.all([
-    getMaintenanceModeSetting(c.env.DB, c.env),
-    getMaintenanceConfigSetting(c.env.DB, c.env),
-    c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('site_announcements').first<{ value: string }>()
-  ])
+  const now = Date.now()
+  if (runtimeStateCache && runtimeStateCache.expiresAt > now) {
+    c.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=45')
+    return c.json(runtimeStateCache.payload)
+  }
 
-  c.header('Cache-Control', 'no-store, no-cache, must-revalidate')
-  return c.json({
-    maintenance: {
-      enabled: maintenanceEnabled,
-      config: maintenanceConfig
-    },
-    announcements: parseSiteAnnouncements(announcementsRow?.value),
-    updatedAt: Date.now()
-  })
+  const refresh = runtimeStateRefresh || (runtimeStateRefresh = loadRuntimeState(c.env.DB, c.env))
+  try {
+    const payload = await refresh
+    runtimeStateCache = {
+      payload,
+      expiresAt: Date.now() + RUNTIME_STATE_CACHE_TTL_MS
+    }
+    c.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=45')
+    return c.json(payload)
+  } finally {
+    if (runtimeStateRefresh === refresh) runtimeStateRefresh = null
+  }
 })
 
 settings.get('/announcements', async (c) => {

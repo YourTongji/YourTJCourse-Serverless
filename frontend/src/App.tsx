@@ -499,26 +499,38 @@ export default function App() {
       if (snapshot.enabled) setStartupPassed(true)
     }
 
+    let runtimeRefreshPromise: Promise<void> | null = null
     const refreshRuntimeState = async () => {
-      try {
-        const data = await fetchSiteRuntimeState()
-        if (!active) return
-        const enabled = Boolean(data?.maintenance?.enabled)
-        const nextConfig = normalizeMaintenanceDisplayConfig(data?.maintenance?.config || DEFAULT_MAINTENANCE_CONFIG)
-        const nextAnnouncements = normalizeRuntimeAnnouncements(data?.announcements)
-        setMaintenanceEnabled(enabled)
-        setMaintenanceConfig(nextConfig)
-        setAnnouncements(nextAnnouncements)
-        if (enabled) setStartupPassed(true)
-        writeMaintenanceSnapshot(enabled, nextConfig, nextAnnouncements)
-      } catch {
-        if (!active) return
-        const cached = readMaintenanceSnapshot()
-        if (isMaintenanceSnapshotFresh(cached)) {
-          applySnapshot(cached)
-          return
+      if (runtimeRefreshPromise) return runtimeRefreshPromise
+
+      const refresh = (async () => {
+        try {
+          const data = await fetchSiteRuntimeState()
+          if (!active) return
+          const enabled = Boolean(data?.maintenance?.enabled)
+          const nextConfig = normalizeMaintenanceDisplayConfig(data?.maintenance?.config || DEFAULT_MAINTENANCE_CONFIG)
+          const nextAnnouncements = normalizeRuntimeAnnouncements(data?.announcements)
+          setMaintenanceEnabled(enabled)
+          setMaintenanceConfig(nextConfig)
+          setAnnouncements(nextAnnouncements)
+          if (enabled) setStartupPassed(true)
+          writeMaintenanceSnapshot(enabled, nextConfig, nextAnnouncements)
+        } catch {
+          if (!active) return
+          const cached = readMaintenanceSnapshot()
+          if (isMaintenanceSnapshotFresh(cached)) {
+            applySnapshot(cached)
+            return
+          }
+          setMaintenanceEnabled(false)
         }
-        setMaintenanceEnabled(false)
+      })()
+
+      runtimeRefreshPromise = refresh
+      try {
+        await refresh
+      } finally {
+        if (runtimeRefreshPromise === refresh) runtimeRefreshPromise = null
       }
     }
 
@@ -540,7 +552,7 @@ export default function App() {
       if (document.visibilityState === 'visible') {
         void refreshRuntimeState()
       }
-    }, 15000)
+    }, 60000)
 
     return () => {
       active = false

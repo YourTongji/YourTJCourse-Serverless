@@ -48,6 +48,7 @@ type MiniSearchKvMetadata = {
 }
 
 let cache: MiniSearchCache | null = null
+const buildPromises = new Map<string, Promise<MiniSearchCache>>()
 
 function buildKvKey(showIcu: boolean) {
   return `${INDEX_VERSION}:show_icu:${showIcu ? '1' : '0'}`
@@ -211,37 +212,55 @@ async function getMiniSearch(db: D1Database, showIcu: boolean, kv?: KVNamespace)
   const now = Date.now()
   if (cache && cache.showIcu === showIcu && now - cache.builtAt < INDEX_TTL_MS) return cache
 
-  if (kv) {
-    const entry = await kv
-      .getWithMetadata<MiniSearchKvMetadata>(buildKvKey(showIcu), { type: 'text', cacheTtl: 60 })
-      .catch(() => null)
-    const metadata = entry?.metadata
-    if (entry?.value && metadata?.version === INDEX_VERSION && metadata.showIcu === (showIcu ? '1' : '0')) {
-      const search = loadMiniSearchFromIndexJson(entry.value)
-      if (search) {
-        cache = {
-          search,
-          builtAt: now,
-          showIcu,
-          docCount: Number(metadata.docCount || 0),
-          source: 'kv'
+  const buildKey = showIcu ? 'show_icu=1' : 'show_icu=0'
+  const pending = buildPromises.get(buildKey)
+  if (pending) return pending
+
+  const buildPromise = (async () => {
+    // Re-check after acquiring the shared promise so a request that arrived
+    // while another build completed does not rebuild an already-fresh index.
+    const latest = Date.now()
+    if (cache && cache.showIcu === showIcu && latest - cache.builtAt < INDEX_TTL_MS) return cache
+
+    if (kv) {
+      const entry = await kv
+        .getWithMetadata<MiniSearchKvMetadata>(buildKvKey(showIcu), { type: 'text', cacheTtl: 60 })
+        .catch(() => null)
+      const metadata = entry?.metadata
+      if (entry?.value && metadata?.version === INDEX_VERSION && metadata.showIcu === (showIcu ? '1' : '0')) {
+        const search = loadMiniSearchFromIndexJson(entry.value)
+        if (search) {
+          cache = {
+            search,
+            builtAt: Date.now(),
+            showIcu,
+            docCount: Number(metadata.docCount || 0),
+            source: 'kv'
+          }
+          return cache
         }
-        return cache
       }
     }
-  }
 
-  const documents = await loadMiniSearchDocuments(db, showIcu)
-  const search = new MiniSearch<MiniCourseDocument>(miniSearchOptions)
-  search.addAll(documents)
-  cache = {
-    search,
-    builtAt: now,
-    showIcu,
-    docCount: documents.length,
-    source: 'd1'
+    const documents = await loadMiniSearchDocuments(db, showIcu)
+    const search = new MiniSearch<MiniCourseDocument>(miniSearchOptions)
+    search.addAll(documents)
+    cache = {
+      search,
+      builtAt: Date.now(),
+      showIcu,
+      docCount: documents.length,
+      source: 'd1'
+    }
+    return cache
+  })()
+
+  buildPromises.set(buildKey, buildPromise)
+  try {
+    return await buildPromise
+  } finally {
+    if (buildPromises.get(buildKey) === buildPromise) buildPromises.delete(buildKey)
   }
-  return cache
 }
 
 export async function getMiniSearchCourseCandidates(db: D1Database, showIcu: boolean, keyword: string, options: {

@@ -130,10 +130,7 @@ export async function fetchCourseRelated(id: string, opts?: { legacy?: boolean }
 }
 
 export async function fetchSiteRuntimeState() {
-  const res = await fetchWithTimeout(`${API_BASE}/api/settings/runtime-state`, {
-    cache: 'no-store',
-    headers: { 'Cache-Control': 'no-cache' }
-  }, 15000)
+  const res = await fetchWithTimeout(`${API_BASE}/api/settings/runtime-state`, undefined, 15000)
   if (!res.ok) throw new Error('Failed to fetch runtime state')
   return res.json() as Promise<SiteRuntimeStateResponse>
 }
