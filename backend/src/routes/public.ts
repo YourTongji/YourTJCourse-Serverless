@@ -35,6 +35,13 @@ import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar, sha2
 import { notifyReportToFeishu, verifyActionToken } from '../helpers/feishu'
 import { getMiniSearchCourseCandidates } from '../helpers/course-mini-search'
 import {
+  normalizeReviewInfoBatch,
+  getCourseReviewStatsCached,
+  loadCourseReviewStats,
+  resolveCourseReviewTargets,
+  REVIEW_INFO_BATCH_MAX_ITEMS
+} from '../helpers/course-review-info'
+import {
   buildCacheControl,
   COURSE_DETAIL_CACHE_VERSION,
   buildCourseDetailCacheRequest,
@@ -216,47 +223,8 @@ async function loadPkCreditFallbacks(db: D1Database, courseIds: number[]) {
   return creditById
 }
 
-async function loadCourseReviewStats(
-  db: D1Database,
-  courseIds: number[],
-  showIcu: boolean
-) {
-  const ids = Array.from(new Set(courseIds.filter((id) => Number.isFinite(id) && id > 0)))
-  if (ids.length === 0) return { review_count: 0, review_avg: 0 }
-
-  // Aggregate directly from reviews so the count/avg match exactly what the
-  // reviews list on this page shows (is_hidden + is_icu filters). Using the
-  // pre-aggregated courses.review_count/review_avg is inconsistent because
-  // those columns are maintained without the is_icu filter.
-  const statsFilter = showIcu ? '' : ' AND is_icu = 0'
-  let totalCount = 0
-  let weightedRating = 0
-
-  for (const part of chunkArray(ids, D1_SAFE_BATCH_SIZE)) {
-    const placeholders = part.map(() => '?').join(',')
-    const row = await db
-      .prepare(
-        `SELECT
-           COUNT(*) AS total_count,
-           COALESCE(AVG(CASE WHEN rating > 0 THEN rating END), 0) AS avg_rating
-         FROM reviews
-         WHERE course_id IN (${placeholders})
-           AND is_hidden = 0${statsFilter}`
-      )
-      .bind(...part)
-      .first<{ total_count: number; avg_rating: number }>()
-
-    const chunkCount = Number(row?.total_count || 0)
-    const chunkAvg = Number(row?.avg_rating || 0)
-    totalCount += chunkCount
-    weightedRating += chunkCount * chunkAvg
-  }
-
-  return {
-    review_count: totalCount,
-    review_avg: totalCount > 0 ? weightedRating / totalCount : 0
-  }
-}
+// loadCourseReviewStats 已迁移至 helpers/course-review-info.ts，
+// 供 GET /course/by-code 与 POST /course/review-info/batch 共用。
 
 // 客户端启动检查：服务端验证 CAPTCHA token（网页入口不调用，App 等客户端仍可使用）
 publicRoutes.post('/startup/verify', async (c) => {
@@ -996,176 +964,17 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
     const teacherCode = (c.req.query('teacherCode') || '').trim()
     const hasClientId = Boolean((c.req.query('clientId') || '').trim())
     const clientId = hasClientId ? await getReviewLikeClientKey(c) : ''
-    const hasTeacherFilter = Boolean(teacherCode || teacherName)
-
-    const buildTeacherFilter = (codeColumn: string, nameColumn: string) => {
-      if (teacherCode && teacherName) {
-        return {
-          sql: ` AND (${codeColumn} = ? OR ${nameColumn} = ?)`,
-          args: [teacherCode, teacherName] as string[]
-        }
-      }
-      if (teacherCode) {
-        return {
-          sql: ` AND ${codeColumn} = ?`,
-          args: [teacherCode] as string[]
-        }
-      }
-      if (teacherName) {
-        return {
-          sql: ` AND ${nameColumn} = ?`,
-          args: [teacherName] as string[]
-        }
-      }
-      return {
-        sql: '',
-        args: [] as string[]
-      }
-    }
 
     const showIcu = await getShowIcuSetting(c.env.DB)
 
-    const pkTeacherFilter = buildTeacherFilter('pt.teacherCode', 'pt.teacherName')
-    const courseTeacherFilter = buildTeacherFilter('t.tid', 't.name')
+    // 课程解析（alias/teacher 多级回退 + 同名同师课程匹配）与批量端点共用同一实现，
+    // 避免双份 SQL 漂移（#180 review）。
+    const target = await resolveCourseReviewTargets(c.env.DB, { code, teacherCode, teacherName }, showIcu)
+    if (!target) return c.json({ error: 'Course not found' }, 404)
 
-    const pkNamedRow = hasTeacherFilter
-      ? await c.env.DB
-          .prepare(
-            `SELECT c.id as id
-             FROM courses c
-             WHERE (
-               c.code = ?
-               OR EXISTS (
-                 SELECT 1 FROM course_aliases a
-                 WHERE a.system = 'onesystem'
-                   AND a.alias = ?
-                   AND a.course_id = c.id
-               )
-             )
-             AND EXISTS (
-               SELECT 1
-               FROM coursedetail cd
-               LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
-               WHERE (cd.code = ? OR cd.courseCode = ? OR cd.newCourseCode = ? OR cd.newCode = ?)
-               ${pkTeacherFilter.sql}
-             )
-             ORDER BY
-               CASE WHEN c.code = ? THEN 0 ELSE 1 END,
-               COALESCE(c.review_count, 0) DESC,
-               c.id DESC
-             LIMIT 1`
-          )
-          .bind(code, code, code, code, code, code, ...pkTeacherFilter.args, code)
-          .first<{ id: number }>()
-      : null
-
-    const preferredRow = pkNamedRow?.id
-      ? pkNamedRow
-      : hasTeacherFilter
-      ? await c.env.DB
-          .prepare(
-            `SELECT c.id as id
-             FROM courses c
-             LEFT JOIN teachers t ON c.teacher_id = t.id
-             WHERE (
-               c.code = ?
-               OR EXISTS (
-                 SELECT 1 FROM course_aliases a
-                 WHERE a.system = 'onesystem'
-                   AND a.alias = ?
-                   AND a.course_id = c.id
-               )
-             )
-             ${courseTeacherFilter.sql}
-             LIMIT 1`
-          )
-          .bind(code, code, ...courseTeacherFilter.args)
-          .first<{ id: number }>()
-      : null
-
-    const aliasRow = preferredRow?.id
-      ? null
-      : await c.env.DB.prepare(`SELECT course_id as id FROM course_aliases WHERE system = 'onesystem' AND alias = ? LIMIT 1`).bind(code).first<{ id: number }>()
-
-    const directRow =
-      preferredRow?.id || aliasRow?.id
-        ? null
-        : await c.env.DB.prepare('SELECT id FROM courses WHERE code = ? LIMIT 1').bind(code).first<{ id: number }>()
-
-    let courseId = preferredRow?.id ?? aliasRow?.id ?? directRow?.id ?? null
-
-    if (!courseId) return c.json({ error: 'Course not found' }, 404)
-
-    let course = await c.env.DB.prepare(
-      `SELECT c.*, t.name as teacher_name FROM courses c
-       LEFT JOIN teachers t ON c.teacher_id = t.id
-       WHERE c.id = ?`
-    ).bind(courseId).first()
-
-    if (!course) return c.json({ error: 'Course not found' }, 404)
-
-    if (!showIcu && (course as any).is_icu === 1) {
-      return c.json({ error: 'Course not found' }, 404)
-    }
-
-    const matchedIds = new Set<number>()
-
-    if (!hasTeacherFilter) {
-      matchedIds.add(Number(courseId))
-      const sameCodeRows = await c.env.DB.prepare('SELECT id FROM courses WHERE code = ?').bind((course as any).code).all<{ id: number }>()
-      for (const r of sameCodeRows.results || []) matchedIds.add(Number((r as any).id))
-    }
-
-    if (hasTeacherFilter) {
-      const sameNameTeacherRows = await c.env.DB
-        .prepare(
-          `SELECT c.id as id
-           FROM courses c
-           LEFT JOIN teachers t ON c.teacher_id = t.id
-           WHERE c.name = ?
-             AND (
-               ${courseTeacherFilter.sql ? courseTeacherFilter.sql.replace(/^ AND /, '') : '0'}
-               OR EXISTS (
-                 SELECT 1
-                 FROM course_aliases a
-                 JOIN coursedetail cd ON (
-                   a.alias = cd.courseCode OR a.alias = cd.code OR a.alias = cd.newCourseCode OR a.alias = cd.newCode
-                 )
-                 LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
-                 WHERE a.system = 'onesystem'
-                   AND a.course_id = c.id
-                   ${pkTeacherFilter.sql}
-               )
-               OR EXISTS (
-                 SELECT 1
-                 FROM coursedetail cd
-                 LEFT JOIN teacher pt ON pt.teachingClassId = cd.id
-                 WHERE (cd.courseCode = c.code OR cd.code = c.code OR cd.newCourseCode = c.code OR cd.newCode = c.code)
-                   ${pkTeacherFilter.sql}
-               )
-             )
-           ORDER BY
-             CASE WHEN c.id = ? THEN 0 ELSE 1 END,
-             COALESCE(c.review_count, 0) DESC,
-             c.id DESC
-           LIMIT 100`
-        )
-        .bind((course as any).name, ...courseTeacherFilter.args, ...pkTeacherFilter.args, ...pkTeacherFilter.args, Number(courseId))
-        .all<{ id: number }>()
-
-      for (const r of sameNameTeacherRows.results || []) matchedIds.add(Number((r as any).id))
-
-      if (matchedIds.size === 0) matchedIds.add(Number(courseId))
-    } else if ((course as any).teacher_id) {
-      const sameNameTeacherRows = await c.env.DB
-        .prepare('SELECT id FROM courses WHERE name = ? AND teacher_id = ?')
-        .bind((course as any).name, (course as any).teacher_id)
-        .all<{ id: number }>()
-      for (const r of sameNameTeacherRows.results || []) matchedIds.add(Number((r as any).id))
-    }
-
-    const idList = Array.from(matchedIds).filter((n) => Number.isFinite(n))
-    if (idList.length === 0) return c.json({ error: 'Course not found' }, 404)
+    const course = target.course
+    const courseId = target.courseId
+    const idList = target.idList
 
     const placeholders = idList.map(() => '?').join(',')
 
@@ -1199,9 +1008,15 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
       disliked: clientId ? dislikedSet.has(Number(r?.id)) : false
     }))
 
-    const courseStats = await loadCourseReviewStats(c.env.DB, idList, showIcu)
-    const reviewCount = courseStats.review_count
-    const reviewAvg = courseStats.review_avg
+    // 统计聚合与批量端点共用同一 TTL 缓存（key: code/teacher/showIcu），
+    // 失效仍由 refreshCourseStats 统一触发（#181 review）。
+    const courseStats = await getCourseReviewStatsCached(
+      c.env.DB,
+      { code, teacherCode, teacherName },
+      showIcu
+    )
+    const reviewCount = courseStats.found ? courseStats.review_count : 0
+    const reviewAvg = courseStats.found ? courseStats.review_avg : 0
 
     const semesters = await getCourseSemesters(c.env.DB, Number(courseId)).catch(() => [])
     const fallbackCredits = await loadPkCreditFallbacks(c.env.DB, [Number((course as any).id)])
@@ -1213,6 +1028,14 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
         : fallbackCredits.get(Number((course as any).id)) ?? (course as any).credit
     }
 
+    // 评分/评价数据只随评价变更而变化；无 clientId 的请求可共享缓存。
+    // 带 clientId 的响应包含 liked/disliked 个性化字段，必须禁止共享缓存。
+    if (clientId) {
+      c.header('Cache-Control', 'private, no-store')
+    } else {
+      setPublicCacheHeaders(c, 60, 300)
+    }
+
     return c.json({
       ...effectiveCourse,
       review_count: reviewCount,
@@ -1220,6 +1043,74 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
       semesters,
       reviews: mappedReviews
     })
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// 批量评课统计：供排课器一次拉取一门课全部教学班的 review_count/review_avg，
+// 替代按班并行的 N 个 /course/by-code 请求（#179）。
+publicRoutes.post('/course/review-info/batch', async (c) => {
+  try {
+    await ensurePublicReadReady(c.env.DB)
+
+    const body = await c.req.json().catch(() => null)
+    const parsed = normalizeReviewInfoBatch(body)
+    if (!parsed.ok) {
+      return c.json({ error: parsed.error }, 400)
+    }
+
+    const showIcu = await getShowIcuSetting(c.env.DB)
+
+    // 固定分块推进，限制单请求的并发 DB 查询数（冷缓存时每项约 5-7 条解析查询，
+    // 不设界会让 100 项请求一次性打出数百条并发查询——正是要避免的 504 形态）。
+    // 命中缓存的项不产生查询，分块只增加可忽略的调度开销。
+    // 单项失败用 error 字段隔离（Promise.all 的 fail-fast 会让一个瞬时
+    // DB 错误炸掉整批 100 个结果；error 不能与 found:false 混用，
+    // 否则客户端会把"查询出错"当成"课程不存在"）。
+    const results: Array<{
+      code: string
+      teacherCode: string
+      teacherName: string
+      found: boolean
+      review_count: number
+      review_avg: number
+      error?: string
+    }> = []
+    const BATCH_CONCURRENCY = 8
+    for (let i = 0; i < parsed.items.length; i += BATCH_CONCURRENCY) {
+      const chunk = parsed.items.slice(i, i + BATCH_CONCURRENCY)
+      const chunkResults = await Promise.all(
+        chunk.map(async (item) => {
+          try {
+            const stats = await getCourseReviewStatsCached(c.env.DB, item, showIcu)
+            return {
+              code: item.code,
+              teacherCode: item.teacherCode,
+              teacherName: item.teacherName,
+              found: stats.found,
+              review_count: stats.review_count,
+              review_avg: stats.review_avg
+            }
+          } catch (err: any) {
+            return {
+              code: item.code,
+              teacherCode: item.teacherCode,
+              teacherName: item.teacherName,
+              found: false,
+              review_count: 0,
+              review_avg: 0,
+              error: String(err?.message || 'internal error')
+            }
+          }
+        })
+      )
+      results.push(...chunkResults)
+    }
+
+    // POST 响应不进共享缓存；真正的缓存是模块内 TTL 缓存（评价变更时失效）。
+    c.header('X-Batch-Max', String(REVIEW_INFO_BATCH_MAX_ITEMS))
+    return c.json({ items: results })
   } catch (err: any) {
     return c.json({ error: err.message }, 500)
   }
