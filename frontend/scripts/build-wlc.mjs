@@ -23,7 +23,10 @@ if (!fs.existsSync(wlcDir)) {
   process.exit(1)
 }
 
-run(npmCmd, ['install'], wlcDir)
+// WLC has a lockfile; avoid an unconstrained network install and npm audit
+// during every frontend build. This keeps CI builds deterministic and avoids
+// blocking the deploy on an unrelated registry audit request.
+run(npmCmd, ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], wlcDir)
 run(npmCmd, ['run', 'build'], wlcDir)
 
 if (!fs.existsSync(wlcDistDir)) {
