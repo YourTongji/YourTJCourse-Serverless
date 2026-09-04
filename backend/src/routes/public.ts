@@ -1050,9 +1050,6 @@ publicRoutes.get('/course/by-code/:code', async (c) => {
 
 // 批量评课统计：供排课器一次拉取一门课全部教学班的 review_count/review_avg，
 // 替代按班并行的 N 个 /course/by-code 请求（#179）。
-
-// 批量评课统计：供排课器一次拉取一门课全部教学班的 review_count/review_avg，
-// 替代按班并行的 N 个 /course/by-code 请求（#179）。
 publicRoutes.post('/course/review-info/batch', async (c) => {
   try {
     await ensurePublicReadReady(c.env.DB)
