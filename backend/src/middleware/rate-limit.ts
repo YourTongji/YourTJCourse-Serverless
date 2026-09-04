@@ -22,6 +22,13 @@ const WRITE_LIMITS = [
   { prefix: '/api/findCourseByTime', bucket: 'find_course_by_time', limit: 60 }
 ]
 
+// POST 形态的只读端点：语义是读（批量查评分），不能落进 write 桶
+// 与真实写评论抢 30/min 额度；也不该继承 by-code 的 60/min。
+// 单次批量请求替代了最多 100 个 by-code 请求，放宽到 120。
+const READ_METHOD_POST_PREFIXES = [
+  { prefix: '/api/course/review-info/batch', bucket: 'review_info_batch', limit: 120 }
+]
+
 // key -> count，key 形如 `rl:<bucket>:<ip>:<windowId>`
 const memoryCounters = new Map<string, number>()
 let lastCleanupAt = Date.now()
@@ -53,6 +60,12 @@ function isBypassPath(path: string): boolean {
 function getRateLimitRule(method: string, path: string) {
   if (isBypassPath(path)) return null
   if (method === 'OPTIONS') return null
+
+  if (method === 'POST') {
+    for (const rule of READ_METHOD_POST_PREFIXES) {
+      if (path.startsWith(rule.prefix)) return rule
+    }
+  }
 
   if (method === 'GET' || method === 'HEAD') {
     for (const rule of READ_LIMITS) {

@@ -312,9 +312,15 @@ export async function resolveCourseReviewTargets(
 // 与 refreshCourseStats 更新冗余列之间存在短暂的竞态窗口，TTL（60s）限制了最大陈旧度。
 
 const statsCache = new Map<string, { value: CourseReviewStats; expiresAt: number }>()
+// in-flight 去重：并发 miss 共享同一次查询，防止缓存击穿（TTL 过期/失效后的同 key 并发）
+const inFlight = new Map<string, Promise<CourseReviewStats>>()
+// 失效代际计数：fill 开始时记下代际，结束时若代际已变（期间发生过失效），结果不再写回缓存
+let invalidationGeneration = 0
 
 export function invalidateCourseReviewInfoCache() {
   if (statsCache.size > 0) statsCache.clear()
+  invalidationGeneration++
+  // 正在进行的填充会跑完并把返回值交给调用方，但不再写回缓存（见 generation 检查）
 }
 
 function statsCacheKey(query: ReviewInfoQuery, showIcu: boolean) {
@@ -334,19 +340,38 @@ export async function getCourseReviewStatsCached(
     statsCache.delete(key)
   }
 
-  const target = await resolveCourseReviewTargets(db, query, showIcu)
-  let value: CourseReviewStats
-  if (!target) {
-    value = { found: false, review_count: 0, review_avg: 0 }
-  } else {
-    const stats = await loadCourseReviewStats(db, target.idList, showIcu)
-    value = { found: true, review_count: stats.review_count, review_avg: stats.review_avg }
-  }
+  const pending = inFlight.get(key)
+  if (pending) return pending
 
-  if (statsCache.size >= REVIEW_INFO_CACHE_MAX_ENTRIES) {
-    const oldest = statsCache.keys().next().value
-    if (oldest !== undefined) statsCache.delete(oldest)
+  const generationAtStart = invalidationGeneration
+
+  const fill = (async (): Promise<CourseReviewStats> => {
+    const target = await resolveCourseReviewTargets(db, query, showIcu)
+    let value: CourseReviewStats
+    if (!target) {
+      value = { found: false, review_count: 0, review_avg: 0 }
+    } else {
+      const stats = await loadCourseReviewStats(db, target.idList, showIcu)
+      value = { found: true, review_count: stats.review_count, review_avg: stats.review_avg }
+    }
+
+    // 只在填充期间没有发生过失效时写入缓存；
+    // invalidateCourseReviewInfoCache() 在 fill 进行中被调用的话，
+    // 这次结果相对失效点已经陈旧，不能再落回缓存。
+    if (invalidationGeneration === generationAtStart) {
+      if (statsCache.size >= REVIEW_INFO_CACHE_MAX_ENTRIES) {
+        const oldest = statsCache.keys().next().value
+        if (oldest !== undefined) statsCache.delete(oldest)
+      }
+      statsCache.set(key, { value, expiresAt: Date.now() + REVIEW_INFO_CACHE_TTL_MS })
+    }
+    return value
+  })()
+
+  inFlight.set(key, fill)
+  try {
+    return await fill
+  } finally {
+    inFlight.delete(key)
   }
-  statsCache.set(key, { value, expiresAt: now + REVIEW_INFO_CACHE_TTL_MS })
-  return value
 }

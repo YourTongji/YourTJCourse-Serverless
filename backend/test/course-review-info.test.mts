@@ -191,3 +191,155 @@ test('caches not-found results and reports found=false with zeroed stats', async
   // 负缓存命中：解析查询也不会重复发出
   assert.equal(getTotalCalls(), callsAfterFirst)
 })
+
+test('concurrent misses for the same key share a single in-flight fill (no stampede)', async () => {
+  invalidateCourseReviewInfoCache()
+  const { db, getReviewCalls } = createFakeDb({
+    ...foundCourseFixture(),
+    reviewStats: [{ total_count: 3, avg_rating: 4 }],
+  })
+
+  // 同 key 并发 5 次：只允许一次解析 + 一次聚合
+  const [a, b, c, d, e] = await Promise.all([
+    getCourseReviewStatsCached(db, FOUND_QUERY, false),
+    getCourseReviewStatsCached(db, FOUND_QUERY, false),
+    getCourseReviewStatsCached(db, FOUND_QUERY, false),
+    getCourseReviewStatsCached(db, FOUND_QUERY, false),
+    getCourseReviewStatsCached(db, FOUND_QUERY, false),
+  ])
+
+  assert.deepEqual(a, { found: true, review_count: 3, review_avg: 4 })
+  assert.deepEqual(b, a)
+  assert.deepEqual(c, a)
+  assert.deepEqual(d, a)
+  assert.deepEqual(e, a)
+  assert.equal(getReviewCalls(), 1)
+})
+
+test('invalidation during an in-flight fill does not repopulate the cache afterwards', async () => {
+  invalidateCourseReviewInfoCache()
+  const gate = { calls: 0, resolve: (v: { total_count: number; avg_rating: number }) => {} }
+  const { db } = createFakeDbWithGate({
+    courseFirst: { id: 1, code: '320001', name: '高等数学', teacher_id: null, is_icu: 0 },
+    courseAll: [{ id: 1 }],
+    onReviewQuery: (resolve) => {
+      gate.resolve = resolve
+      gate.calls++
+    },
+  })
+
+  // 发起请求，等它真正走到被闸住的聚合查询（macrotask 让路，
+  // 确保闸门 mock 的 resolve 已挂上，而不是还在同步解析链里）
+  const pending = getCourseReviewStatsCached(db, FOUND_QUERY, false)
+  for (let i = 0; i < 10 && !gate.calls; i++) {
+    await new Promise((r) => setTimeout(r, 1))
+  }
+  assert.ok(gate.calls > 0, 'gate was never reached')
+
+  // fill 挂起期间失效，再放行
+  invalidateCourseReviewInfoCache()
+  gate.resolve({ total_count: 9, avg_rating: 1 })
+  const value = await pending
+
+  assert.deepEqual(value, { found: true, review_count: 9, review_avg: 1 })
+
+  // 失效后新查询应重新查库（in-flight 结束时不把旧结果写回缓存）：
+  // 若旧结果被写回，这里会直接命中缓存返回 {9, 1} 而不发出聚合查询。
+  const { db: db2, getReviewCalls: rc2 } = createFakeDb({
+    ...foundCourseFixture(),
+    reviewStats: [{ total_count: 2, avg_rating: 3 }],
+  })
+  const next = await getCourseReviewStatsCached(db2, FOUND_QUERY, false)
+  assert.deepEqual(next, { found: true, review_count: 2, review_avg: 3 })
+  assert.equal(rc2(), 1)
+})
+
+test('in-flight fill that rejects is removed from the map so retries get a fresh fill', async () => {
+  invalidateCourseReviewInfoCache()
+  let callCount = 0
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(..._args: unknown[]) {
+          if (/FROM reviews/.test(sql)) {
+            callCount++
+            // 第一次聚合抛瞬时错误，第二次成功
+            return {
+              first: async () => {
+                if (callCount === 1) throw new Error('transient D1 error')
+                return { total_count: 5, avg_rating: 4 }
+              },
+              all: async () => ({ results: [] }),
+            }
+          }
+          return {
+            first: async () => ({ id: 1, code: 'X', name: 'N', teacher_id: null, is_icu: 0 }),
+            all: async () => ({ results: [{ id: 1 }] }),
+          }
+        },
+      }
+    },
+  }
+
+  await assert.rejects(
+    () => getCourseReviewStatsCached(db as unknown as D1Database, FOUND_QUERY, false),
+    /transient D1 error/
+  )
+
+  // 失败的 fill 不缓存错误，也不留在 inFlight——重试走全新填充并成功
+  const retried = await getCourseReviewStatsCached(db as unknown as D1Database, FOUND_QUERY, false)
+  assert.deepEqual(retried, { found: true, review_count: 5, review_avg: 4 })
+})
+function createFakeDbWithGate(options: FakeDbOptions & {
+  onReviewQuery?: (resolve: (v: { total_count: number; avg_rating: number }) => void) => void
+}) {
+  const { reviewStats = [], courseFirst = null, courseAll = [], onReviewQuery } = options
+  let totalCalls = 0
+  let reviewCalls = 0
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(..._args: unknown[]) {
+          totalCalls++
+          const isReviewStats = /FROM reviews/.test(sql)
+          const isCourseLookup = /FROM courses/.test(sql)
+          if (isReviewStats) {
+            if (onReviewQuery && reviewCalls === 0) {
+              reviewCalls++
+              let gateResolve: (v: { total_count: number; avg_rating: number }) => void = () => {}
+              const gated = new Promise<{ total_count: number; avg_rating: number }>((resolve) => {
+                gateResolve = resolve
+              })
+              onReviewQuery(gateResolve)
+              return {
+                first: () => gated,
+                all: async () => ({ results: [] }),
+              }
+            }
+            const result = reviewStats[reviewCalls] ?? { total_count: 0, avg_rating: 0 }
+            reviewCalls++
+            return {
+              first: async () => result,
+              all: async () => ({ results: [] }),
+            }
+          }
+          if (isCourseLookup) {
+            return {
+              first: async () => courseFirst,
+              all: async () => ({ results: courseAll }),
+            }
+          }
+          return {
+            first: async () => null,
+            all: async () => ({ results: [] }),
+          }
+        },
+      }
+    },
+  }
+  return {
+    db: db as unknown as D1Database,
+    getTotalCalls: () => totalCalls,
+    getReviewCalls: () => reviewCalls,
+  }
+}
