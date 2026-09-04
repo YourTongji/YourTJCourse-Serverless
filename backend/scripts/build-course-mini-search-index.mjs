@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import MiniSearch from 'minisearch'
 
-const INDEX_VERSION = 'course-mini-search-v2'
+const INDEX_VERSION = 'course-mini-search-v3'
 const KV_VALUE_LIMIT_BYTES = 25 * 1024 * 1024
 const DEFAULT_PAGE_SIZE = 5000
 

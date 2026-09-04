@@ -3,8 +3,9 @@ import { D1CompatDatabase } from './db'
 
 /**
  * 从 process.env 构造与 Worker Bindings 同形状的运行环境。
- * DB 为本地 SQLite 兼容层；COURSE_SEARCH_INDEX 保留为 undefined，
- * MiniSearch 会自然回退到 D1/SQLite 实时构建内存索引。
+ * DB 为本地 SQLite 兼容层；COURSE_SEARCH_INDEX 仅代表 Cloudflare KV。
+ * VPS 本地预构建索引由 node.ts 安装 local provider；索引不可用时在线请求直接
+ * 回退 SQLite FTS/LIKE，不在请求路径读取全库并构建 MiniSearch。
  */
 export function createBindings(): Omit<Bindings, 'DB'> & { DB: D1CompatDatabase; MIGRATION_READONLY?: string } {
   const databaseUrl = process.env.DATABASE_URL || 'file:./jcourse.db'

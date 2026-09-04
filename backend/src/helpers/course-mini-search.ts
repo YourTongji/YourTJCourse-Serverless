@@ -2,16 +2,14 @@ import MiniSearch from 'minisearch'
 import {
   buildKeywordSearchVariants,
   normalizeLooseSearchText,
-  parseSemesterNames,
   uniqueText
 } from './db'
 
-const INDEX_TTL_MS = 5 * 60 * 1000
-const MAX_INDEX_ROWS = 80_000
+export const COURSE_SEARCH_INDEX_VERSION = 'course-mini-search-v3'
 const SEARCH_CANDIDATE_LIMIT = 80
-const INDEX_VERSION = 'course-mini-search-v2'
+const INDEX_CACHE_TTL_MS = 5 * 60 * 1000
 
-type MiniCourseDocument = {
+export type MiniCourseDocument = {
   id: string
   courseId: number
   code: string
@@ -23,35 +21,88 @@ type MiniCourseDocument = {
   semesters: string
 }
 
-type MiniSearchCache = {
+export type LoadedCourseSearchIndex = {
   search: MiniSearch<MiniCourseDocument>
   builtAt: number
   showIcu: boolean
   docCount: number
-  source: 'memory' | 'kv' | 'd1'
+  source: 'local' | 'kv'
+  generation?: string
 }
 
-type CourseSearchCandidates = {
+export type LocalCourseSearchProvider = (
+  showIcu: boolean
+) => LoadedCourseSearchIndex | null | Promise<LoadedCourseSearchIndex | null>
+
+export type CourseSearchCandidates = {
   courseIds: number[]
   docCount: number
   elapsedMs: number
-  source: 'memory' | 'kv' | 'd1'
+  source: 'local' | 'kv'
 }
 
-// The KV value is the raw MiniSearch index JSON; envelope fields live in KV metadata
-// so the index string can go straight into MiniSearch.loadJSON without re-parsing.
+// Exported so the offline builder and the Node local-index loader use exactly the
+// same MiniSearch schema. The online request path only loads serialized indexes.
+export const miniSearchOptions = {
+  fields: ['code', 'name', 'teacherName', 'teacherCode', 'department', 'aliases', 'semesters'],
+  storeFields: ['courseId', 'code', 'name', 'teacherName', 'teacherCode'],
+  tokenize: tokenizeCourseText,
+  searchOptions: {
+    combineWith: 'AND' as const,
+    prefix: true,
+    boost: {
+      name: 3,
+      code: 2,
+      teacherName: 3,
+      teacherCode: 2,
+      aliases: 2
+    }
+  }
+}
+
 type MiniSearchKvMetadata = {
   version?: string
   showIcu?: string
   docCount?: string
   builtAt?: string
+  generation?: string
 }
 
-let cache: MiniSearchCache | null = null
-const buildPromises = new Map<string, Promise<MiniSearchCache>>()
+let localProvider: LocalCourseSearchProvider | null = null
+const kvCache = new Map<string, LoadedCourseSearchIndex>()
+const kvLoadPromises = new Map<string, Promise<LoadedCourseSearchIndex | null>>()
+
+export function installLocalCourseSearchProvider(provider: LocalCourseSearchProvider | null) {
+  localProvider = provider
+  kvCache.clear()
+  kvLoadPromises.clear()
+}
+
+export function clearCourseSearchCache() {
+  kvCache.clear()
+  kvLoadPromises.clear()
+}
+
+export async function executeCourseSearchWithFallback<T>(
+  hasFts: boolean,
+  query: (includeFts: boolean) => Promise<T>
+) {
+  try {
+    return {
+      value: await query(hasFts),
+      fellBack: false
+    }
+  } catch (error) {
+    if (!hasFts) throw error
+    return {
+      value: await query(false),
+      fellBack: true
+    }
+  }
+}
 
 function buildKvKey(showIcu: boolean) {
-  return `${INDEX_VERSION}:show_icu:${showIcu ? '1' : '0'}`
+  return `${COURSE_SEARCH_INDEX_VERSION}:show_icu:${showIcu ? '1' : '0'}`
 }
 
 function tokenizeCourseText(text: string) {
@@ -64,23 +115,6 @@ function tokenizeCourseText(text: string) {
     if (loose && loose !== part) tokens.add(loose)
   }
   return Array.from(tokens)
-}
-
-const miniSearchOptions = {
-  fields: ['code', 'name', 'teacherName', 'teacherCode', 'department', 'aliases', 'semesters'],
-  storeFields: ['courseId', 'code', 'name', 'teacherName', 'teacherCode'],
-  tokenize: tokenizeCourseText,
-  searchOptions: {
-    combineWith: 'AND' as const,
-    prefix: true,
-    boost: {
-      name: 3,
-      code: 2,
-      teacherName: 3,
-      teacherCode: 2,
-      aliases: 2,
-    }
-  }
 }
 
 function buildMiniSearchQueries(keyword: string) {
@@ -144,126 +178,71 @@ function canUseMiniSearch(keyword: string, options: {
   )
 }
 
-async function loadMiniSearchDocuments(db: D1Database, showIcu: boolean) {
-  const documents: MiniCourseDocument[] = []
-  const semesterMap = new Map<number, string>()
-  const aliasMap = new Map<number, string[]>()
-
-  const semesterRows = await db
-    .prepare('SELECT course_id, semester_names FROM course_semesters')
-    .all<{ course_id: number; semester_names: string }>()
-  for (const row of semesterRows.results || []) {
-    semesterMap.set(Number((row as any).course_id), parseSemesterNames((row as any).semester_names).join(' '))
-  }
-
-  const aliasRows = await db
-    .prepare("SELECT course_id, alias FROM course_aliases WHERE system = 'onesystem'")
-    .all<{ course_id: number; alias: string }>()
-  for (const row of aliasRows.results || []) {
-    const courseId = Number((row as any).course_id)
-    if (!aliasMap.has(courseId)) aliasMap.set(courseId, [])
-    aliasMap.get(courseId)!.push(String((row as any).alias || '').trim())
-  }
-
-  let baseWhere = "WHERE NOT (c.is_legacy = 1 AND c.code LIKE '%AUTO%')"
-  if (!showIcu) baseWhere += ' AND (c.is_icu = 0 OR c.is_icu IS NULL)'
-
-  const baseRows = await db
-    .prepare(
-      `SELECT c.id, c.code, c.name, c.department, c.search_keywords, t.name AS teacher_name, t.tid AS teacher_tid
-       FROM courses c
-       LEFT JOIN teachers t ON t.id = c.teacher_id
-       ${baseWhere}
-       LIMIT ?`
-    )
-    .bind(MAX_INDEX_ROWS)
-    .all<any>()
-
-  for (const row of baseRows.results || []) {
-    const courseId = Number((row as any).id)
-    const aliases = uniqueText(aliasMap.get(courseId) || [])
-
-    const baseDoc = {
-      id: `course:${courseId}`,
-      courseId,
-      code: String((row as any).code || ''),
-      name: String((row as any).name || ''),
-      teacherName: String((row as any).teacher_name || ''),
-      teacherCode: String((row as any).teacher_tid || ''),
-      department: String((row as any).department || ''),
-      aliases: aliases.join(' '),
-      semesters: semesterMap.get(courseId) || ''
-    }
-    documents.push(baseDoc)
-  }
-
-  return documents
+/** Load one serialized MiniSearch artifact. Invalid data is an explicit error. */
+export function loadCourseSearchIndexJson(indexJson: string) {
+  return MiniSearch.loadJSON<MiniCourseDocument>(indexJson, miniSearchOptions)
 }
 
-function loadMiniSearchFromIndexJson(indexJson: string): MiniSearch<MiniCourseDocument> | null {
-  try {
-    return MiniSearch.loadJSON<MiniCourseDocument>(indexJson, miniSearchOptions)
-  } catch {
-    return null
-  }
+export async function loadCourseSearchIndexJsonAsync(indexJson: string) {
+  return MiniSearch.loadJSONAsync<MiniCourseDocument>(indexJson, miniSearchOptions)
 }
 
-async function getMiniSearch(db: D1Database, showIcu: boolean, kv?: KVNamespace) {
-  const now = Date.now()
-  if (cache && cache.showIcu === showIcu && now - cache.builtAt < INDEX_TTL_MS) return cache
+function isFresh(index: LoadedCourseSearchIndex, showIcu: boolean) {
+  return index.showIcu === showIcu && Date.now() - index.builtAt < INDEX_CACHE_TTL_MS
+}
 
-  const buildKey = showIcu ? 'show_icu=1' : 'show_icu=0'
-  const pending = buildPromises.get(buildKey)
+async function loadMiniSearchFromKv(showIcu: boolean, kv: KVNamespace) {
+  const cacheKey = showIcu ? 'show_icu=1' : 'show_icu=0'
+  const cached = kvCache.get(cacheKey)
+  if (cached && isFresh(cached, showIcu)) return cached
+
+  const pending = kvLoadPromises.get(cacheKey)
   if (pending) return pending
 
-  const buildPromise = (async () => {
-    // Re-check after acquiring the shared promise so a request that arrived
-    // while another build completed does not rebuild an already-fresh index.
-    const latest = Date.now()
-    if (cache && cache.showIcu === showIcu && latest - cache.builtAt < INDEX_TTL_MS) return cache
+  const loadPromise = (async () => {
+    const entry = await kv
+      .getWithMetadata<MiniSearchKvMetadata>(buildKvKey(showIcu), { type: 'text', cacheTtl: 60 })
+      .catch(() => null)
+    const metadata = entry?.metadata
+    if (!entry?.value || metadata?.version !== COURSE_SEARCH_INDEX_VERSION || metadata.showIcu !== (showIcu ? '1' : '0')) {
+      return null
+    }
 
-    if (kv) {
-      const entry = await kv
-        .getWithMetadata<MiniSearchKvMetadata>(buildKvKey(showIcu), { type: 'text', cacheTtl: 60 })
-        .catch(() => null)
-      const metadata = entry?.metadata
-      if (entry?.value && metadata?.version === INDEX_VERSION && metadata.showIcu === (showIcu ? '1' : '0')) {
-        const search = loadMiniSearchFromIndexJson(entry.value)
-        if (search) {
-          cache = {
-            search,
-            builtAt: Date.now(),
-            showIcu,
-            docCount: Number(metadata.docCount || 0),
-            source: 'kv'
-          }
-          return cache
-        }
+    try {
+      const index: LoadedCourseSearchIndex = {
+        search: await loadCourseSearchIndexJsonAsync(entry.value),
+        builtAt: Number(metadata.builtAt || Date.now()),
+        showIcu,
+        docCount: Number(metadata.docCount || 0),
+        source: 'kv',
+        ...(metadata.generation ? { generation: metadata.generation } : {})
       }
+      kvCache.set(cacheKey, index)
+      return index
+    } catch {
+      return null
     }
-
-    const documents = await loadMiniSearchDocuments(db, showIcu)
-    const search = new MiniSearch<MiniCourseDocument>(miniSearchOptions)
-    search.addAll(documents)
-    cache = {
-      search,
-      builtAt: Date.now(),
-      showIcu,
-      docCount: documents.length,
-      source: 'd1'
-    }
-    return cache
   })()
 
-  buildPromises.set(buildKey, buildPromise)
+  kvLoadPromises.set(cacheKey, loadPromise)
   try {
-    return await buildPromise
+    return await loadPromise
   } finally {
-    if (buildPromises.get(buildKey) === buildPromise) buildPromises.delete(buildKey)
+    if (kvLoadPromises.get(cacheKey) === loadPromise) kvLoadPromises.delete(cacheKey)
   }
 }
 
-export async function getMiniSearchCourseCandidates(db: D1Database, showIcu: boolean, keyword: string, options: {
+async function getMiniSearch(showIcu: boolean, kv?: KVNamespace) {
+  if (localProvider) {
+    const local = await localProvider(showIcu)
+    if (local && local.showIcu === showIcu) return local
+  }
+
+  if (kv) return loadMiniSearchFromKv(showIcu, kv)
+  return null
+}
+
+export async function getMiniSearchCourseCandidates(showIcu: boolean, keyword: string, options: {
   departments?: string | null
   courseName?: string
   courseCode?: string
@@ -275,8 +254,9 @@ export async function getMiniSearchCourseCandidates(db: D1Database, showIcu: boo
   if (!canUseMiniSearch(keyword, options)) return null
 
   const startedAt = Date.now()
-  const index = await getMiniSearch(db, showIcu, kv)
+  const index = await getMiniSearch(showIcu, kv)
   if (!index) return null
+
   const queries = buildMiniSearchQueries(keyword)
   const results = queries.flatMap((query) => index.search.search(query, { combineWith: 'AND', prefix: true }))
   const sorted = results

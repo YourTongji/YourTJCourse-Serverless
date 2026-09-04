@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { Bindings } from '../helpers/types'
 import {
-  ensureDbInitialized,
+  ensurePublicReadReady,
   getShowIcuSetting,
   getMaintenanceModeSetting,
   getMaintenanceConfigSetting,
@@ -25,7 +25,7 @@ let runtimeStateCache: { payload: RuntimeStatePayload; expiresAt: number } | nul
 let runtimeStateRefresh: Promise<RuntimeStatePayload> | null = null
 
 async function loadRuntimeState(db: D1Database, env: Bindings): Promise<RuntimeStatePayload> {
-  await ensureDbInitialized(db)
+  await ensurePublicReadReady(db)
   const [maintenanceEnabled, maintenanceConfig, announcementsRow] = await Promise.all([
     getMaintenanceModeSetting(db, env),
     getMaintenanceConfigSetting(db, env),
@@ -43,7 +43,7 @@ async function loadRuntimeState(db: D1Database, env: Bindings): Promise<RuntimeS
 }
 
 settings.get('/show_icu', async (c) => {
-  await ensureDbInitialized(c.env.DB)
+  await ensurePublicReadReady(c.env.DB)
   const showIcu = await getShowIcuSetting(c.env.DB)
   setPublicCacheHeaders(c, 30, 60)
   return c.json({ show_icu: showIcu })
@@ -71,7 +71,7 @@ settings.get('/runtime-state', async (c) => {
 })
 
 settings.get('/announcements', async (c) => {
-  await ensureDbInitialized(c.env.DB)
+  await ensurePublicReadReady(c.env.DB)
   const row = await c.env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('site_announcements').first<{ value: string }>()
 
   if (!row?.value) {
@@ -90,7 +90,7 @@ settings.get('/announcements', async (c) => {
 })
 
 settings.get('/maintenance', async (c) => {
-  await ensureDbInitialized(c.env.DB)
+  await ensurePublicReadReady(c.env.DB)
   const enabled = await getMaintenanceModeSetting(c.env.DB, c.env)
   const config = await getMaintenanceConfigSetting(c.env.DB, c.env)
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate')

@@ -119,6 +119,16 @@ jobs:
             chmod 600 /opt/yourtjcourse/backend.env
             chmod +x /opt/yourtjcourse/repo/YourTJCourse-Serverless/backend/scripts/*.sh
             cd /opt/yourtjcourse
+            docker compose --profile tools build maintenance
             docker compose up -d --build backend
-            sleep 5
-            curl -fsS http://127.0.0.1:8787/healthz
+            for attempt in $(seq 1 12); do
+              if curl -fsS --max-time 5 http://127.0.0.1:8787/livez >/dev/null \
+                && curl -fsS --max-time 5 http://127.0.0.1:8787/readyz >/dev/null; then
+                curl -fsS http://127.0.0.1:8787/readyz
+                exit 0
+              fi
+              sleep 2
+            done
+            docker compose ps
+            docker compose logs --tail=120 backend
+            exit 1

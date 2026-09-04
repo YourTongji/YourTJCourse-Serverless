@@ -33,7 +33,10 @@ import { verifyCapToken } from '../helpers/cap'
 import { verifyTongjiCaptcha } from '../helpers/captcha'
 import { addSqidToReviews, getReviewLikeClientKey, normalizeReviewerAvatar, sha256Hex } from '../helpers/review'
 import { notifyReportToFeishu, verifyActionToken } from '../helpers/feishu'
-import { getMiniSearchCourseCandidates } from '../helpers/course-mini-search'
+import {
+  executeCourseSearchWithFallback,
+  getMiniSearchCourseCandidates
+} from '../helpers/course-mini-search'
 import {
   normalizeReviewInfoBatch,
   getCourseReviewStatsCached,
@@ -329,6 +332,8 @@ publicRoutes.get('/courses', async (c) => {
     let miniSearchCandidate:
       | Awaited<ReturnType<typeof getMiniSearchCourseCandidates>>
       | null = null
+    let keywordClauses: string[] = []
+    let ftsQuery = ''
 
     if (!showIcu) {
       baseWhere += ' AND (c.is_icu = 0 OR c.is_icu IS NULL)'
@@ -339,7 +344,6 @@ publicRoutes.get('/courses', async (c) => {
     if (keyword) {
       try {
         miniSearchCandidate = await getMiniSearchCourseCandidates(
-          c.env.DB,
           showIcu,
           keyword,
           {
@@ -358,11 +362,10 @@ publicRoutes.get('/courses', async (c) => {
       }
 
       const courseAuxReady = miniSearchCandidate ? false : await isAuxiliaryCourseDataReady(c.env.DB)
-      const ftsQuery = courseAuxReady ? buildCourseSearchMatchQuery(keyword) : ''
+      ftsQuery = courseAuxReady ? buildCourseSearchMatchQuery(keyword) : ''
       const rawVariants = buildKeywordSearchVariants(keyword)
       const looseVariants = Array.from(new Set(rawVariants.map((item) => normalizeLooseSearchText(item)).filter(Boolean)))
       const structuredKeywordTerms = buildStructuredKeywordTerms(keyword)
-      const keywordClauses: string[] = []
 
       if (miniSearchCandidate) {
         if (miniSearchCandidate.courseIds.length > 0) {
@@ -378,9 +381,6 @@ publicRoutes.get('/courses', async (c) => {
         } else {
           baseWhere += ' AND 0'
         }
-      } else if (courseAuxReady && ftsQuery) {
-        keywordClauses.push('c.id IN (SELECT course_id FROM course_search WHERE search_doc MATCH ?)')
-        baseParams.push(ftsQuery)
       }
 
       if (!miniSearchCandidate && rawVariants.length > 0) {
@@ -439,9 +439,6 @@ publicRoutes.get('/courses', async (c) => {
         keywordClauses.push('c.id IN (SELECT id FROM pk_keyword_match)')
       }
 
-      if (keywordClauses.length > 0) {
-        baseWhere += ` AND (${keywordClauses.join(' OR ')})`
-      }
     }
 
     if (courseCode) {
@@ -550,7 +547,20 @@ publicRoutes.get('/courses', async (c) => {
       MAX(printf('%010d|%s', c.id, c.code))
     )`
 
-    ctes.push(`
+    const ftsClause = 'c.id IN (SELECT course_id FROM course_search WHERE search_doc MATCH ?)'
+    const keywordClausesWithoutFts = keywordClauses.filter((clause) => clause !== ftsClause)
+    const keywordWhere = (includeFts: boolean) => {
+      const clauses = includeFts && ftsQuery
+        ? [ftsClause, ...keywordClausesWithoutFts]
+        : keywordClausesWithoutFts
+      return clauses.length > 0 ? ` AND (${clauses.join(' OR ')})` : ''
+    }
+
+    const baseWhereWithoutFts = `${baseWhere}${keywordWhere(false)}`
+    const baseWhereWithFts = `${baseWhere}${keywordWhere(true)}`
+    const buildWithClause = (searchWhere: string) => `WITH ${[
+      ...ctes,
+      `
       aggregated AS (
         SELECT
           CAST(substr(${representativeValueExpr}, 1, 10) AS INTEGER) AS id,
@@ -568,40 +578,59 @@ publicRoutes.get('/courses', async (c) => {
           COALESCE(MAX(CASE WHEN c.is_legacy = 0 THEN c.credit END), MAX(c.credit), 0) AS credit
         FROM courses c
         LEFT JOIN teachers t ON c.teacher_id = t.id
-        ${baseWhere}
+        ${searchWhere}
         GROUP BY ${groupKey}
         ${having}
       )
-    `)
+    `
+    ].join(',\n')}`
 
-    const withClause = `WITH ${ctes.join(',\n')}`
-    const queryParams = [...cteParams, ...baseParams]
+    const runCourseQueries = async (includeFts: boolean) => {
+      const withClause = buildWithClause(includeFts ? baseWhereWithFts : baseWhereWithoutFts)
+      const queryParams = [
+        ...cteParams,
+        ...(includeFts && ftsQuery ? [ftsQuery] : []),
+        ...baseParams
+      ]
 
-    let total: number | undefined
-    if (includeTotal) {
-      const countResult = await c.env.DB
-        .prepare(`${withClause} SELECT COUNT(*) AS total FROM aggregated`)
-        .bind(...queryParams)
-        .first<{ total: number }>()
-      total = Number(countResult?.total || 0)
+      let total: number | undefined
+      if (includeTotal) {
+        const countResult = await c.env.DB
+          .prepare(`${withClause} SELECT COUNT(*) AS total FROM aggregated`)
+          .bind(...queryParams)
+          .first<{ total: number }>()
+        total = Number(countResult?.total || 0)
+      }
+
+      const queryLimit = includeTotal ? limit : limit + 1
+      const { results } = await c.env.DB
+        .prepare(
+          `${withClause}
+           SELECT
+             a.*,
+             COALESCE(cs.semester_names, '') AS semester_names
+           FROM aggregated a
+           LEFT JOIN course_semesters cs ON cs.course_id = a.id
+           ORDER BY a.review_count DESC, a.rating DESC, a.id DESC
+           LIMIT ? OFFSET ?`
+        )
+        .bind(...queryParams, queryLimit, offset)
+        .all()
+
+      return { results, total }
     }
 
-    const queryLimit = includeTotal ? limit : limit + 1
-    const { results } = await c.env.DB
-      .prepare(
-        `${withClause}
-         SELECT
-           a.*,
-           COALESCE(cs.semester_names, '') AS semester_names
-         FROM aggregated a
-         LEFT JOIN course_semesters cs ON cs.course_id = a.id
-         ORDER BY a.review_count DESC, a.rating DESC, a.id DESC
-         LIMIT ? OFFSET ?`
-      )
-      .bind(...queryParams, queryLimit, offset)
-      .all()
+    // A stale/missing/corrupt FTS virtual table must degrade to the existing
+    // LIKE/structured query instead of turning a normal search into HTTP 500.
+    const queryExecution = await executeCourseSearchWithFallback(
+      Boolean(ftsQuery),
+      runCourseQueries
+    )
+    const queryResult = queryExecution.value
+    const ftsFallback = queryExecution.fellBack
 
-    const rawRows = (results || []) as any[]
+    const total = queryResult.total
+    const rawRows = (queryResult.results || []) as any[]
     const hasMore = !includeTotal && rawRows.length > limit
     const visibleRows = hasMore ? rawRows.slice(0, limit) : rawRows
 
@@ -627,6 +656,7 @@ publicRoutes.get('/courses', async (c) => {
       c.header('x-course-search-index-docs', String(miniSearchCandidate.docCount))
       c.header('x-course-search-index-ms', String(miniSearchCandidate.elapsedMs))
     }
+    if (ftsFallback) c.header('x-course-search-fts-fallback', '1')
 
     if (!canUseWorkerCache) {
       setPublicCacheHeaders(c, 15, 30)

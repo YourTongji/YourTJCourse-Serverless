@@ -88,15 +88,16 @@ npm ci
 # 准备一个本地 SQLite（可从 D1 no-FTS 快照导出，或用 schema.sql 初始化）
 sqlite3 jcourse.local.db < schema.sql
 
-# 启动 Node 后端（默认监听 127.0.0.1:8787）
+# 启动 Node 后端（容器默认监听 0.0.0.0:8787；裸机可设置 BIND_HOST=127.0.0.1）
 DATABASE_URL=file:/abs/path/jcourse.local.db \
 ADMIN_SECRET=dev-secret \
 CAPTCHA_SITEVERIFY_URL=https://your-captcha-worker.example \
+BIND_HOST=127.0.0.1 \
 npm run build:node
 node dist/node.cjs
 ```
 
-健康检查：`curl http://127.0.0.1:8787/healthz` 应返回 `{"ok":true}`。
+健康检查：`/livez` 是不访问数据库的存活探针，`/readyz` 检查数据库并报告搜索索引状态；`/healthz` 保留为兼容别名。
 
 ### 前端
 
@@ -114,7 +115,7 @@ Netlify 使用仓库根目录 `netlify.toml` 构建，自动处理 SPA fallback�
 
 ```
 /opt/yourtjcourse/
-├── docker-compose.yml     # backend 单服务
+├── docker-compose.yml     # backend + tools maintenance profile
 ├── backend.env            # 后端环境变量（chmod 600，由 GitHub Actions 生成）
 ├── data/jcourse.db        # SQLite 数据库
 ├── incoming/              # SQL 导入暂存
@@ -127,10 +128,11 @@ Netlify 使用仓库根目录 `netlify.toml` 构建，自动处理 SPA fallback�
 ```bash
 cd /opt/yourtjcourse
 docker compose up -d --build backend
-curl -fsS http://127.0.0.1:8787/healthz
+curl -fsS http://127.0.0.1:8787/livez
+curl -fsS http://127.0.0.1:8787/readyz
 ```
 
-日常更新由 `.github/workflows/deploy-vps.yml` 在 `main` 分支 push 时自动完成（SSH → 上传代码 → `docker compose up -d --build backend` → healthz 检查）。
+日常更新由 `.github/workflows/deploy-vps.yml` 在 `server` 分支 push 时自动完成（SSH → 上传代码 → 构建 backend/maintenance 镜像 → 启动 backend → livez/readyz 检查）。
 
 ### 迁移期只读保护
 
@@ -144,7 +146,23 @@ curl -fsS http://127.0.0.1:8787/healthz
 2. 输入 `calendarId`（一系统学期 ID）和 `depth`（同步深度，默认 1）
 3. 运行
 
-流程：GitHub Actions 登录一系统 → 生成 SQL → SCP 到 VPS → `apply-pk-sync-to-sqlite.sh`（flock 互斥 + 同步前备份 + 按序应用 migrations 与 SQL）→ 调用管理接口重建评课/搜索索引 → 重启 backend。
+流程：GitHub Actions 登录一系统 → 生成 SQL → SCP 到 VPS → `apply-pk-sync-to-sqlite.sh`（flock 互斥 + 同步前备份 + 按序应用 migrations 与 SQL）→ tools profile 中的 `maintenance post-sync` 原子重建辅助数据与双 ICU 搜索索引 → SIGHUP 异步 reload → `/readyz` generation gate 检查。生产 Node 不再承载全量重建，也不因正常同步重启 backend。
+
+### 稳定性验收
+
+```bash
+cd backend
+npm test
+npx tsc --noEmit
+npm run build:node
+npm run build:maintenance
+
+# 在已启动的目标环境运行；COURSE_ID 指向一个真实课程 ID
+BASE_URL=https://your-domain.example COURSE_ID=1 k6 run test/load/k6-baseline.js
+BASE_URL=https://your-domain.example COURSE_ID=1 k6 run test/load/k6-search-spike.js
+```
+
+`test/load/k6-search-maintenance.js` 用于 20 VU 业务流量下人工执行 `maintenance post-sync`；它不会通过 HTTP 触发维护。验收阈值为失败率 `<0.5%`、p95 `<500ms`、p99 `<1.5s`，并需另行持续探测 `/livez`。
 
 ## 数据库备份
 

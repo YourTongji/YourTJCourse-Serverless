@@ -12,9 +12,9 @@ on:
         required: false
         default: "1"
         type: string
-  # dev 分支允许通过 push 触发（提交信息包含 [pk-sync] 且带 calendarId/depth）
+  # server 分支允许通过 push 触发（提交信息包含 [pk-sync] 且带 calendarId/depth）
   push:
-    branches: ["dev"]
+    branches: ["server"]
 
 permissions:
   contents: read
@@ -31,9 +31,8 @@ jobs:
       PYTHONIOENCODING: utf-8
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # dev 分支优先使用 BACKEND_URL_DEV 用于同步后自检；不再依赖后端接口完成同步
-      BACKEND_URL: ${{ (github.ref_name == 'dev' && secrets.BACKEND_URL_DEV) || secrets.BACKEND_URL || secrets.VITE_API_URL }}
-      ADMIN_SECRET: ${{ secrets.JCOURSE_ADMIN_SECRET }}
+      # 同步写入 VPS 后只通过公网地址做只读 post-check，不依赖后端接口完成同步
+      BACKEND_URL: ${{ secrets.BACKEND_URL || secrets.VITE_API_URL }}
       ONESYSTEM_SNO: ${{ secrets.ONESYSTEM_SNO }}
       ONESYSTEM_PASSWORD: ${{ secrets.ONESYSTEM_PASSWORD }}
       ONESYSTEM_IMAP_SERVER: ${{ secrets.ONESYSTEM_IMAP_SERVER }}
@@ -151,7 +150,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "backend/.tmp/pk-sync/"
-          target: /opt/yourtjcourse/incoming/
+          target: /opt/yourtjcourse/incoming/pk-sync-${{ steps.resolve.outputs.calendarId }}-${{ github.run_id }}/
 
       - name: Apply PK SQL to VPS SQLite & rebuild search index
         uses: appleboy/ssh-action@v1.0.3
@@ -162,18 +161,48 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -euo pipefail
-            # scp-action preserves the source directory prefix, so the uploaded
-            # files land under incoming/backend/.tmp/pk-sync/.
-            ls -la /opt/yourtjcourse/incoming/backend/.tmp/pk-sync/
-            ADMIN_SECRET='${{ secrets.JCOURSE_ADMIN_SECRET }}'
-            bash /opt/yourtjcourse/repo/YourTJCourse-Serverless/backend/scripts/apply-pk-sync-to-sqlite.sh \
+            GEN="pk-${{ steps.resolve.outputs.calendarId }}-${{ github.run_id }}"
+            if ! [[ "$GEN" =~ ^[A-Za-z0-9._-]+$ ]]; then
+              echo "Invalid generation: $GEN" >&2
+              exit 1
+            fi
+
+            SQL_PARENT="/opt/yourtjcourse/incoming/pk-sync-${{ steps.resolve.outputs.calendarId }}-${{ github.run_id }}"
+            SQL_DIR="$SQL_PARENT/backend/.tmp/pk-sync"
+            DB="/opt/yourtjcourse/data/jcourse.db"
+            LOCK_FILE="/opt/yourtjcourse/data/yourtjcourse-maintenance.lock"
+            exec 9>"$LOCK_FILE"
+            flock -x 9
+            echo "[sync] full maintenance lock acquired"
+            ls -la "$SQL_DIR"
+
+            # Move the online manager to FTS fallback before the database changes.
+            sqlite3 "$DB" \
+              "INSERT OR REPLACE INTO settings (key, value) VALUES ('course_search_required_generation', '$GEN');"
+            docker compose -f /opt/yourtjcourse/docker-compose.yml kill -s HUP backend || true
+
+            LOCK_ALREADY_HELD=1 LOCK_FILE="$LOCK_FILE" bash /opt/yourtjcourse/repo/YourTJCourse-Serverless/backend/scripts/apply-pk-sync-to-sqlite.sh \
               /opt/yourtjcourse/data/jcourse.db \
-              /opt/yourtjcourse/incoming/backend/.tmp/pk-sync
-            curl -fsS -X POST http://127.0.0.1:8787/api/admin/pk/refresh-review-index \
-              -H "x-admin-secret: ${ADMIN_SECRET}"
-            docker compose -f /opt/yourtjcourse/docker-compose.yml restart backend
-            sleep 5
-            curl -fsS http://127.0.0.1:8787/healthz
+              "$SQL_DIR"
+
+            docker compose -f /opt/yourtjcourse/docker-compose.yml --profile tools run --rm --build \
+              -e MAINTENANCE_LOCK_ALREADY_HELD=1 maintenance \
+              post-sync --generation "$GEN" --index-root /data/search-index --lock-file /data/yourtjcourse-maintenance.lock
+
+            docker compose -f /opt/yourtjcourse/docker-compose.yml kill -s HUP backend || true
+            for i in $(seq 1 30); do
+              body="$(curl -fsS http://127.0.0.1:8787/readyz || true)"
+              if printf '%s' "$body" | grep -F "\"generation\":\"$GEN\"" >/dev/null \
+                && printf '%s' "$body" | grep -F '"usable":true' >/dev/null; then
+                echo "[sync] search generation active: $GEN"
+                rm -rf "$SQL_PARENT"
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "[sync] search generation did not become active: $GEN" >&2
+            curl -sS http://127.0.0.1:8787/readyz || true
+            exit 1
 
       - name: Post-check via backend API
         shell: bash

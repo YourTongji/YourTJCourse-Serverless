@@ -37,9 +37,20 @@ function isMaintenanceSettingKey(key: string) {
   return key === 'maintenance_mode' || key === 'maintenance_config'
 }
 
+function isProductionNodeMaintenanceDisabled(env: Bindings) {
+  return String(env.APP_ENV || '').trim().toLowerCase() === 'production' && !env.COURSE_SEARCH_INDEX
+}
+
 // 手动同步一系统排课数据 -> D1（pk 数据域）
 // 由 GitHub Action / 管理端触发：POST /api/admin/pk/sync { calendarId, depth? }
 admin.post('/pk/sync', async (c) => {
+  if (isProductionNodeMaintenanceDisabled(c.env)) {
+    return c.json({
+      error: 'offline_maintenance_required',
+      message: 'Production VPS synchronization must run through the maintenance CLI.'
+    }, 409)
+  }
+
   try {
     const body = await c.req.json().catch(() => ({} as any))
     const calendarId = Number(body?.calendarId)
@@ -74,6 +85,13 @@ admin.post('/pk/sync', async (c) => {
 })
 
 admin.post('/pk/refresh-review-index', async (c) => {
+  if (isProductionNodeMaintenanceDisabled(c.env)) {
+    return c.json({
+      error: 'offline_maintenance_required',
+      message: 'Production VPS index refresh must run through the maintenance CLI.'
+    }, 409)
+  }
+
   try {
     await ensureDbInitialized(c.env.DB)
     await materializePkCoursesToReviewSite(c.env.DB)

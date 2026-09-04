@@ -1,8 +1,14 @@
 name: PR Checks
 
 on:
+  push:
+    branches: [server]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/pr-checks.yml'
+      - 'docker-compose.yml'
   pull_request:
-    branches: [dev, main]
+    branches: [dev, main, server]
 
 concurrency:
   group: pr-check-${{ github.ref }}
@@ -49,6 +55,14 @@ jobs:
         run: npm ci
       - name: Type check
         run: npx tsc --noEmit
+      - name: Online search boundary check
+        run: npm run check:search-boundary
+      - name: Backend tests
+        run: npm test
+      - name: Build Node runtime
+        run: npm run build:node
+      - name: Build maintenance runtime
+        run: npm run build:maintenance
 
   frontend-check:
     runs-on: ubuntu-latest

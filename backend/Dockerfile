@@ -7,6 +7,7 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 RUN npx esbuild src/node.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/node.cjs
+RUN npx esbuild src/maintenance.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/maintenance.cjs
 
 FROM node:22-slim AS runtime
 WORKDIR /app

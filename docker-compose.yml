@@ -3,15 +3,36 @@ services:
     build:
       context: ./repo/YourTJCourse-Serverless/backend
     restart: unless-stopped
+    stop_grace_period: 30s
     env_file:
       - ./backend.env
     environment:
       PORT: "8787"
+      BIND_HOST: "0.0.0.0"
       DATABASE_URL: "file:/data/jcourse.db"
       APP_ENV: "production"
-      NODE_OPTIONS: "--max-old-space-size=900"
+      NODE_OPTIONS: "--max-old-space-size=700"
+      COURSE_SEARCH_INDEX_DIR: "/data/search-index/current"
     volumes:
       - ./data:/data
     ports:
       # 只暴露到宿主机回环地址，不直接对外；由 1Panel OpenResty 反向代理到公网
       - "127.0.0.1:8787:8787"
+
+  maintenance:
+    build:
+      context: ./repo/YourTJCourse-Serverless/backend
+    profiles: ["tools"]
+    restart: "no"
+    env_file:
+      - ./backend.env
+    environment:
+      DATABASE_URL: "file:/data/jcourse.db"
+      APP_ENV: "production"
+      NODE_OPTIONS: "--max-old-space-size=700"
+      COURSE_SEARCH_INDEX_ROOT: "/data/search-index"
+    volumes:
+      - ./data:/data
+    entrypoint: ["node", "dist/maintenance.cjs"]
+    cpus: 0.75
+    mem_limit: 768m

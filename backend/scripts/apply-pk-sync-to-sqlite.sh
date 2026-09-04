@@ -54,7 +54,7 @@ check_db_health() {
   if [ "${has_fts:-0}" = "1" ]; then
     if ! sqlite3 "$db" "SELECT count(*) FROM course_search LIMIT 1;" >/dev/null 2>&1; then
       echo "[sqlite-sync] ERROR: $label course_search FTS index is corrupt/unreadable" >&2
-      echo "[sqlite-sync]   Recovery: stop backend, rebuild FTS (drop+recreate course_search), restart, then run refresh-review-index" >&2
+      echo "[sqlite-sync]   Recovery: keep required generation stale, then run the offline maintenance post-sync command" >&2
       return 1
     fi
   fi
@@ -62,10 +62,16 @@ check_db_health() {
   return 0
 }
 
-# 互斥锁：避免与每日备份/正式切流等维护操作并发写库
-exec 9>"$LOCK_FILE"
-flock -x 9
-echo "[sqlite-sync] locked, starting"
+# 互斥锁：避免与每日备份/正式切流等维护操作并发写库。
+# 同步 Action 已经持有贯穿 required→apply→maintenance→reload 的总锁时，
+# 通过 LOCK_ALREADY_HELD=1 复用外层锁，避免在子脚本中重新抢锁。
+if [ "${LOCK_ALREADY_HELD:-0}" = "1" ]; then
+  echo "[sqlite-sync] using outer maintenance lock"
+else
+  exec 9>"$LOCK_FILE"
+  flock -x 9
+  echo "[sqlite-sync] locked, starting"
+fi
 
 # 同步前：源库健康自检，不健康则拒绝同步
 if ! check_db_health "$DB_FILE" "source database"; then
