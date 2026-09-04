@@ -201,6 +201,11 @@ async function runCommand(command: string, args: Record<string, string>) {
     // Moving required generation first makes any currently loaded old index stale.
     await setSetting(db, 'course_search_required_generation', generation)
     await rebuildAux(db)
+  } else {
+    // A first deployment may have a populated base database but no auxiliary
+    // tables yet. Bootstrap them before the offline builder reads both ICU
+    // source slots; this still runs outside the online request process.
+    await ensureDbInitialized(db as unknown as D1Database)
   }
 
   const manifest = await publishSearchGeneration(db, generation, indexRoot)

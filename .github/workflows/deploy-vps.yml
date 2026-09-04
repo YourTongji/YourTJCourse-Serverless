@@ -120,6 +120,13 @@ jobs:
             chmod +x /opt/yourtjcourse/repo/YourTJCourse-Serverless/backend/scripts/*.sh
             cd /opt/yourtjcourse
             docker compose --profile tools build maintenance
+            if [ ! -s /opt/yourtjcourse/data/search-index/current/manifest.json ]; then
+              docker compose --profile tools run --rm maintenance \
+                build-search-index \
+                --generation "deploy-${{ github.sha }}" \
+                --index-root /data/search-index \
+                --lock-file /data/yourtjcourse-maintenance.lock
+            fi
             docker compose up -d --build backend
             for attempt in $(seq 1 12); do
               if curl -fsS --max-time 5 http://127.0.0.1:8787/livez >/dev/null \
