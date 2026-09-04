@@ -254,7 +254,42 @@ test('invalidation during an in-flight fill does not repopulate the cache afterw
   assert.equal(rc2(), 1)
 })
 
-// 带闸门的 mock：允许测试在解析查询挂起时插入失效调用
+test('in-flight fill that rejects is removed from the map so retries get a fresh fill', async () => {
+  invalidateCourseReviewInfoCache()
+  let callCount = 0
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(..._args: unknown[]) {
+          if (/FROM reviews/.test(sql)) {
+            callCount++
+            // 第一次聚合抛瞬时错误，第二次成功
+            return {
+              first: async () => {
+                if (callCount === 1) throw new Error('transient D1 error')
+                return { total_count: 5, avg_rating: 4 }
+              },
+              all: async () => ({ results: [] }),
+            }
+          }
+          return {
+            first: async () => ({ id: 1, code: 'X', name: 'N', teacher_id: null, is_icu: 0 }),
+            all: async () => ({ results: [{ id: 1 }] }),
+          }
+        },
+      }
+    },
+  }
+
+  await assert.rejects(
+    () => getCourseReviewStatsCached(db as unknown as D1Database, FOUND_QUERY, false),
+    /transient D1 error/
+  )
+
+  // 失败的 fill 不缓存错误，也不留在 inFlight——重试走全新填充并成功
+  const retried = await getCourseReviewStatsCached(db as unknown as D1Database, FOUND_QUERY, false)
+  assert.deepEqual(retried, { found: true, review_count: 5, review_avg: 4 })
+})
 function createFakeDbWithGate(options: FakeDbOptions & {
   onReviewQuery?: (resolve: (v: { total_count: number; avg_rating: number }) => void) => void
 }) {

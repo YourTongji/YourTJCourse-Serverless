@@ -1044,6 +1044,9 @@ publicRoutes.post('/course/review-info/batch', async (c) => {
     // 固定分块推进，限制单请求的并发 DB 查询数（冷缓存时每项约 5-7 条解析查询，
     // 不设界会让 100 项请求一次性打出数百条并发查询——正是要避免的 504 形态）。
     // 命中缓存的项不产生查询，分块只增加可忽略的调度开销。
+    // 单项失败用 error 字段隔离（Promise.all 的 fail-fast 会让一个瞬时
+    // DB 错误炸掉整批 100 个结果；error 不能与 found:false 混用，
+    // 否则客户端会把"查询出错"当成"课程不存在"）。
     const results: Array<{
       code: string
       teacherCode: string
@@ -1051,20 +1054,33 @@ publicRoutes.post('/course/review-info/batch', async (c) => {
       found: boolean
       review_count: number
       review_avg: number
+      error?: string
     }> = []
     const BATCH_CONCURRENCY = 8
     for (let i = 0; i < parsed.items.length; i += BATCH_CONCURRENCY) {
       const chunk = parsed.items.slice(i, i + BATCH_CONCURRENCY)
       const chunkResults = await Promise.all(
         chunk.map(async (item) => {
-          const stats = await getCourseReviewStatsCached(c.env.DB, item, showIcu)
-          return {
-            code: item.code,
-            teacherCode: item.teacherCode,
-            teacherName: item.teacherName,
-            found: stats.found,
-            review_count: stats.review_count,
-            review_avg: stats.review_avg
+          try {
+            const stats = await getCourseReviewStatsCached(c.env.DB, item, showIcu)
+            return {
+              code: item.code,
+              teacherCode: item.teacherCode,
+              teacherName: item.teacherName,
+              found: stats.found,
+              review_count: stats.review_count,
+              review_avg: stats.review_avg
+            }
+          } catch (err: any) {
+            return {
+              code: item.code,
+              teacherCode: item.teacherCode,
+              teacherName: item.teacherName,
+              found: false,
+              review_count: 0,
+              review_avg: 0,
+              error: String(err?.message || 'internal error')
+            }
           }
         })
       )
