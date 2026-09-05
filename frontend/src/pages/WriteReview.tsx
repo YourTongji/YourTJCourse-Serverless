@@ -84,13 +84,13 @@ export default function WriteReview() {
   }
 
   useEffect(() => {
-    if (!id) return
+    if (!id || !isEdit) return
     setCourse(null)
     setLoadError('')
     fetchCourse(id)
       .then(setCourse)
       .catch(() => setLoadError('加载失败，请重试'))
-  }, [id])
+  }, [id, isEdit])
 
   useEffect(() => {
     if (!isEdit) return
@@ -318,6 +318,22 @@ export default function WriteReview() {
           }}
         >
           重新加载
+        </button>
+      </GlassCard>
+    )
+  }
+
+  if (!isEdit) {
+    return (
+      <GlassCard hover={false}>
+        <div className="text-slate-700 font-bold mb-2">新课程评价功能已关闭</div>
+        <p className="text-sm text-slate-500 mb-5">当前仅保留已有评价的查看与必要维护功能。</p>
+        <button
+          type="button"
+          className="px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold hover:bg-slate-700"
+          onClick={() => navigate(id ? `/course/${id}` : '/')}
+        >
+          返回课程
         </button>
       </GlassCard>
     )

@@ -60,6 +60,8 @@ type AppContext = Context<{ Bindings: Bindings }>
 const REPORT_REASONS = new Set(['spam', 'harassment', 'misinformation', 'other'])
 const REPORT_DESCRIPTION_MIN_LENGTH = 50
 const REPORT_DESCRIPTION_MAX_LENGTH = 1000
+const NEW_REVIEW_WRITES_ENABLED = false
+const REVIEW_CREATION_DISABLED_MESSAGE = '新课程评价写入功能已关闭'
 
 function normalizeReportDescription(value: unknown): string {
   return String(value ?? '')
@@ -1238,6 +1240,14 @@ publicRoutes.get('/review/by-wallet/:userHash', async (c) => {
 })
 
 publicRoutes.post('/review', async (c) => {
+  if (!NEW_REVIEW_WRITES_ENABLED) {
+    c.header('Cache-Control', 'no-store')
+    return c.json({
+      error: 'review_creation_disabled',
+      message: REVIEW_CREATION_DISABLED_MESSAGE
+    }, 410)
+  }
+
   // Rate limit: 5 reviews per minute per IP
   const ip = String(c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown').trim()
   if (!checkReviewRateLimit(ip)) {

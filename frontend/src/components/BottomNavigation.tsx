@@ -70,16 +70,6 @@ export default function BottomNavigation() {
         </svg>
       )
     },
-    {
-      path: '/write-review',
-      label: '撰写',
-      icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-        </svg>
-      ),
-      requiresCourseId: true
-    }
   ]
 
   return (
@@ -92,38 +82,6 @@ export default function BottomNavigation() {
     >
       <div className="flex items-center justify-around px-2 pt-2">
         {navItems.map((item) => {
-          // 撰写评价按钮需要特殊处理
-          if (item.requiresCourseId) {
-            // 如果当前在课程详情页，提取课程ID
-            const courseMatch = location.pathname.match(/\/course\/(\d+)/)
-            const courseId = courseMatch ? courseMatch[1] : null
-
-            if (courseId) {
-              return (
-                <Link
-                  key={item.path}
-                  to={`/write-review/${courseId}`}
-                  className="flex flex-col items-center justify-center min-w-[64px] py-2 px-3 rounded-xl transition-all active:scale-95 text-slate-600 hover:text-cyan-600"
-                >
-                  <div className="mb-1">{item.icon}</div>
-                  <span className="text-xs font-semibold">{item.label}</span>
-                </Link>
-              )
-            } else {
-              // 不在课程详情页时，显示为禁用状态
-              return (
-                <button
-                  key={item.path}
-                  disabled
-                  className="flex flex-col items-center justify-center min-w-[64px] py-2 px-3 rounded-xl text-slate-300 cursor-not-allowed"
-                >
-                  <div className="mb-1">{item.icon}</div>
-                  <span className="text-xs font-semibold">{item.label}</span>
-                </button>
-              )
-            }
-          }
-
           // 外部链接
           if (item.external) {
             return (

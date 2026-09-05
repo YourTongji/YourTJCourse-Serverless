@@ -91,57 +91,6 @@ const TOUR_STEPS: TourStep[] = [
     pathMatch: /^\/course\/1286(?:\/)?$/
   },
   {
-    id: 'go-write-review',
-    title: '开始撰写评价',
-    description: '请点击“撰写评价”进入发布页。',
-    target: '[data-tour="tour-write-review-button"]',
-    advance: 'path',
-    pathMatch: /^\/write-review\/1286(?:\/)?$/
-  },
-  {
-    id: 'review-editor',
-    title: '填写点评内容',
-    description: '请随意写一段支持 Markdown 的评价内容。',
-    target: '[data-tour="tour-editor-section"]',
-    advance: 'manual'
-  },
-  {
-    id: 'review-rating',
-    title: '评分可调整',
-    description: '这里可修改课程评分；不改也可以直接下一步。',
-    target: '[data-tour="tour-rating-section"]',
-    advance: 'manual'
-  },
-  {
-    id: 'review-semester',
-    title: '选择学期',
-    description: '这里可选择学期，不符合时可选“其他”。',
-    target: '[data-tour="tour-semester-section"]',
-    advance: 'manual'
-  },
-  {
-    id: 'reviewer-info',
-    title: '点评人信息',
-    description: '这里可选择是否展示点评人昵称与头像，也可跳过。',
-    target: '[data-tour="tour-reviewer-section"]',
-    advance: 'manual'
-  },
-  {
-    id: 'review-captcha',
-    title: '完成人机验证',
-    description: '请先完成此处验证，提交后将自动回到详情页。',
-    target: '[data-tour="tour-captcha-section"]',
-    advance: 'manual'
-  },
-  {
-    id: 'submit-review',
-    title: '发送评论',
-    description: '点击提交按钮，发布你的测试评价。',
-    target: '[data-tour="tour-submit-button"]',
-    advance: 'path',
-    pathMatch: /^\/course\/1286(?:\/)?$/
-  },
-  {
     id: 'latest-review',
     title: '最新评论已定位',
     description: '已聚焦最新评论。接下来体验点赞与分享。',
@@ -316,16 +265,6 @@ export default function TourGuide({ open, onClose, onComplete, onRequestNavigate
   }, [open, step.id])
 
   useEffect(() => {
-    if (!open) return
-    if (step.id !== 'review-captcha') return
-    const target = findVisibleTargetElement(step.target)
-    if (!(target instanceof HTMLElement)) return
-    window.setTimeout(() => {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 80)
-  }, [open, step.id, step.target])
-
-  useEffect(() => {
     if (!open || !step.target) return
 
     const stepKey = `${location.pathname}::${step.id}`
@@ -362,7 +301,7 @@ export default function TourGuide({ open, onClose, onComplete, onRequestNavigate
       const isOutOfFocus =
         !anchored && (rect.top < viewTop || rect.bottom > viewBottom || !inViewport)
 
-      if (isOutOfFocus || step.id === 'review-captcha') {
+      if (isOutOfFocus) {
         autoScrollHandledStepRef.current = stepKey
         autoScrollLockedRef.current = true
         setTargetRect(null)
