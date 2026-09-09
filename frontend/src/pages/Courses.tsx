@@ -5,6 +5,7 @@ import { formatSemesterLabel, semesterLabelScore } from '../utils/format'
 import GlassCard from '../components/GlassCard'
 import Logo from '../components/Logo'
 import FilterPanel, { FilterState } from '../components/FilterPanel'
+import CourseAnnouncementPopup from '../components/CourseAnnouncementPopup'
 
 interface CourseItem {
   id: number
@@ -700,6 +701,8 @@ export default function Courses() {
           </>
         )}
       </div>
+
+      <CourseAnnouncementPopup />
     </div>
   )
 }
