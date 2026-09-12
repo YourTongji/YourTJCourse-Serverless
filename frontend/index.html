@@ -8,54 +8,78 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>YOURTJ选课社区</title>
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)" />
+    <title>YourTJ 选课社区服务公告</title>
     <meta
       name="description"
-      content="YOURTJ选课社区：不记名，自由，简洁，高效的同济大学课程评价与选课交流社区。"
+      content="YourTJ 选课社区服务公告：选课社区与 Course App 已于 9 月 12 日下线，本页将在 5 秒后前往新的 YourTJ 论坛 f.yourtj.de。"
     />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="YOURTJ选课社区" />
+    <meta property="og:title" content="YourTJ 选课社区服务公告" />
     <meta
       property="og:description"
-      content="YOURTJ选课社区：不记名，自由，简洁，高效的同济大学课程评价与选课交流社区。"
+      content="选课社区与 Course App 已于 9 月 12 日下线，本页将在 5 秒后前往新的 YourTJ 论坛。"
     />
     <meta property="og:url" content="https://xk.yourtj.de/" />
     <meta property="og:image" content="https://xk.yourtj.de/web-app-manifest-512x512.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="YOURTJ选课社区" />
+    <meta name="twitter:title" content="YourTJ 选课社区服务公告" />
     <meta
       name="twitter:description"
-      content="YOURTJ选课社区：不记名，自由，简洁，高效的同济大学课程评价与选课交流社区。"
+      content="选课社区与 Course App 已于 9 月 12 日下线，本页将在 5 秒后前往新的 YourTJ 论坛。"
     />
     <meta name="twitter:image" content="https://xk.yourtj.de/web-app-manifest-512x512.png" />
+
+    <!-- Hand the next hop a warm connection, since the page leaves almost immediately. -->
+    <link rel="preconnect" href="https://f.yourtj.de" crossorigin />
+
     <style>
+      /* Painted before the bundle lands, so the first frame already matches both themes. */
+      html {
+        background-color: #ffffff;
+        color: #1a1a1a;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        html {
+          background-color: #1a1a1a;
+          color: #ffffff;
+        }
+      }
+
       body {
-        background-color: #f0f9ff;
-        background-image:
-          radial-gradient(at 0% 0%, rgba(186, 230, 253, 0.5) 0px, transparent 50%),
-          radial-gradient(at 100% 0%, rgba(165, 243, 252, 0.5) 0px, transparent 50%),
-          radial-gradient(at 100% 100%, rgba(224, 242, 254, 0.5) 0px, transparent 50%),
-          radial-gradient(at 0% 100%, rgba(204, 251, 241, 0.5) 0px, transparent 50%);
-        background-attachment: fixed;
-      }
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
+        margin: 0;
       }
     </style>
+
+    <script>
+      /*
+       * Boot fallback. The React page owns the countdown and announces itself by
+       * setting __YOURTJ_REDIRECT_MOUNTED__; this timer only fires when the bundle
+       * never mounts, so a failed load still hands over instead of showing nothing.
+       */
+      window.setTimeout(function () {
+        if (!window.__YOURTJ_REDIRECT_MOUNTED__) {
+          window.location.replace('https://f.yourtj.de')
+        }
+      }, 8000)
+    </script>
+
+    <noscript>
+      <!-- Without JavaScript the bundle never runs, so the same hand-off is a plain meta refresh. -->
+      <meta http-equiv="refresh" content="5; url=https://f.yourtj.de" />
+    </noscript>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <p class="mx-auto max-w-sm px-6 py-16 text-center text-sm leading-6 text-secondary">
+        未启用 JavaScript，本页将在 5 秒后前往
+        <a class="font-medium text-link underline decoration-1 underline-offset-4" href="https://f.yourtj.de">f.yourtj.de</a>。
+        如果没有自动跳转，请点击上面的链接。
+      </p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

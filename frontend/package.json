@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "prepare:embedded": "node ./scripts/prepare-embedded-assets.mjs",
-    "dev": "npm run prepare:embedded && vite",
-    "dev:local": "npm run prepare:embedded && vite --host 127.0.0.1 --port 5173",
-    "dev:lan": "npm run prepare:embedded && vite --host 0.0.0.0 --port 5173",
+    "dev": "vite",
+    "dev:local": "vite --host 127.0.0.1 --port 5173",
+    "dev:lan": "vite --host 0.0.0.0 --port 5173",
     "dev:with-sim": "npm run build:scheduler && vite",
     "build:scheduler": "npm --prefix ../scheduler run build",
     "build:wlc": "node ./scripts/build-wlc.mjs",
-    "build": "npm run build:wlc && npm run build:scheduler && tsc && vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "deploy": "wrangler pages deploy dist --project-name jcourse-web"
   },

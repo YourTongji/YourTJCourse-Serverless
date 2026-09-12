@@ -2,345 +2,256 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Custom Fonts ─── */
-@font-face {
-  font-family: 'YuFanLixing';
-  src: url('/fonts/YuFanLixing.otf') format('opentype');
-  font-display: swap;
-}
+/*
+ * Tokens for the YourTJ redirect page.
+ *
+ * Values are lifted from the YourTJ homepage token sheet so the hand-off from
+ * xk.yourtj.de to the new forum keeps one visual identity: brand green on a
+ * neutral ramp, Inter + Noto Sans SC, the same elevation curve.
+ *
+ * Light and dark are decided by `prefers-color-scheme` alone. A page that lives
+ * for a few seconds does not need a theme toggle, and CSS-only flipping keeps
+ * the first frame correct without a boot script.
+ *
+ * Shape scale (same rule as the homepage):
+ *   interactive controls -> 8px  (rounded-lg)
+ *   nested rows / media  -> 12px (rounded-xl)
+ *   panels               -> 16px (rounded-2xl)
+ *   badges               -> full (rounded-full)
+ */
 
-@font-face {
-  font-family: 'KKT';
-  src: url('/fonts/kkt.ttf') format('truetype');
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'AllertaStencil';
-  src: url('/fonts/AllertaStencil-Regular.ttf') format('truetype');
-  font-display: swap;
-}
-
-/* ─── Design Tokens (CSS Custom Properties) ─── */
 :root {
-  --color-cyan: 14 165 233;
-  --color-sky: 56 189 248;
-  --color-teal: 20 184 166;
-  --color-slate: 30 41 59;
-  --color-amber: 245 158 11;
-  --color-emerald: 16 185 129;
-  --color-rose: 244 63 94;
+  color-scheme: light;
 
-  --glass-bg: rgba(255, 255, 255, 0.72);
-  --glass-border: rgba(255, 255, 255, 0.55);
-  --glass-shadow: 0 4px 24px -8px rgba(6, 182, 212, 0.12);
-  --glass-shadow-hover: 0 12px 48px -12px rgba(6, 182, 212, 0.22);
+  /* Surfaces */
+  --background-page-rgb: 255 255 255;
+  --background-surface-rgb: 242 242 242;
+  --background-surface-raised-rgb: 255 255 255;
+  --background-surface-selected-rgb: 237 255 244;
 
-  --card-radius: 1.25rem;
-  --card-padding: 1.5rem;
+  /* Brand and action */
+  --background-brand-rgb: 114 240 166;
+  --action-primary-rgb: 24 201 103;
+  --action-primary-hover-rgb: 10 168 84;
+  --action-primary-pressed-rgb: 7 134 68;
+  /*
+   * Figma's Text/On Brand is #ffffff, which sits at 2.19:1 on Brand/500.
+   * Near-black keeps the brand green and passes WCAG AA at 7.9:1.
+   */
+  --text-on-action-rgb: 26 26 26;
 
-  --transition-default: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-spring: 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Text */
+  --text-primary-rgb: 26 26 26;
+  --text-secondary-rgb: 82 82 82;
+  --text-tertiary-rgb: 115 115 115;
+  /* Brand/800 instead of Brand/700: the lighter green misses AA on green tints. */
+  --text-link-default-rgb: 9 106 57;
+  --icon-accent-rgb: 9 106 57;
 
-  --font-brand: 'KKT', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
-  --font-slogan: 'YuFanLixing', 'LXGW WenKai', 'HanziPen SC', 'STXingkai',
-    'Kaiti SC', 'KaiTi', 'STKaiti', 'Noto Serif SC', serif;
-  --font-mono: 'AllertaStencil', 'Cascadia Mono', 'JetBrains Mono',
-    'SFMono-Regular', 'Menlo', 'Consolas', ui-monospace, monospace;
+  /* Borders and focus */
+  --border-default-rgb: 229 229 229;
+  --border-hover-rgb: 115 115 115;
+  --focus-ring: #078644;
+
+  /* Page wash, dialog glass, elevation */
+  --ambient-primary: rgb(114 240 166 / 0.3);
+  --ambient-secondary: rgb(24 201 103 / 0.1);
+  --page-scrim: rgb(255 255 255 / 0.44);
+  --panel-glass-top: rgb(255 255 255 / 0.9);
+  --panel-glass-bottom: rgb(255 255 255 / 0.76);
+  --panel-border: rgb(0 0 0 / 0.07);
+  --panel-inner-light: rgb(255 255 255 / 0.72);
+  /*
+   * Tight elevation: a large, heavily negative spread reads as an ambient halo
+   * and makes the panel look like it is floating rather than placed.
+   */
+  --shadow-panel: 0 18px 44px -28px rgb(26 26 26 / 0.24), 0 2px 8px -4px rgb(26 26 26 / 0.08);
+
+  --font-family-base:
+    'Inter', 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    system-ui, sans-serif;
 }
 
-/* ─── Font Utilities ─── */
-.yourtj-font-brand { font-family: var(--font-brand); }
-.yourtj-font-slogan { font-family: var(--font-slogan); }
-.yourtj-font-domain { font-family: var(--font-mono); }
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
 
-/* ─── Base Reset ─── */
-*, *::before, *::after {
-  box-sizing: border-box;
+    /* Surfaces */
+    --background-page-rgb: 26 26 26;
+    --background-surface-rgb: 38 38 38;
+    --background-surface-raised-rgb: 64 64 64;
+    --background-surface-selected-rgb: 7 87 47;
+
+    /* Brand stays recognisable, actions brighten for the dark field */
+    --background-brand-rgb: 114 240 166;
+    --action-primary-rgb: 24 201 103;
+    --action-primary-hover-rgb: 61 223 130;
+    --action-primary-pressed-rgb: 168 251 199;
+    --text-on-action-rgb: 26 26 26;
+
+    /* Text */
+    --text-primary-rgb: 255 255 255;
+    --text-secondary-rgb: 184 184 184;
+    --text-tertiary-rgb: 191 191 191;
+    --text-link-default-rgb: 114 240 166;
+    --icon-accent-rgb: 114 240 166;
+
+    /* Borders and focus */
+    --border-default-rgb: 64 64 64;
+    --border-hover-rgb: 115 115 115;
+    --focus-ring: #72f0a6;
+
+    /* The wash reads as emitted light on near-black, so the alpha drops hard */
+    --ambient-primary: rgb(61 223 130 / 0.14);
+    --ambient-secondary: rgb(24 201 103 / 0.07);
+    --page-scrim: rgb(0 0 0 / 0.42);
+    --panel-glass-top: rgb(38 38 38 / 0.92);
+    --panel-glass-bottom: rgb(26 26 26 / 0.88);
+    --panel-border: rgb(255 255 255 / 0.08);
+    --panel-inner-light: rgb(255 255 255 / 0.08);
+    --shadow-panel: 0 20px 48px -28px rgb(0 0 0 / 0.6), 0 2px 8px -4px rgb(0 0 0 / 0.36);
+  }
 }
 
 @layer base {
+  html {
+    background-color: rgb(var(--background-page-rgb));
+    color: rgb(var(--text-primary-rgb));
+  }
+
   body {
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-    line-height: 1.6;
-    color: #1e293b;
+    margin: 0;
+    background-color: transparent;
+    color: inherit;
+    font-family: var(--font-family-base);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgb(var(--background-brand-rgb) / 0.35);
+    color: rgb(var(--text-primary-rgb));
+  }
+
+  /* One visible focus style for every control; nothing opts out of it. */
+  :focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
   }
 }
 
-/* ─── Background: Soft Gradient + Subtle Noise ─── */
-body {
-  background-color: #f6fafd;
-  background-image:
-    radial-gradient(ellipse 80% 60% at 0% -10%, rgba(186, 230, 253, 0.35) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 100% 20%, rgba(167, 243, 208, 0.2) 0%, transparent 50%),
-    radial-gradient(ellipse 70% 40% at 50% 100%, rgba(191, 219, 254, 0.2) 0%, transparent 50%),
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(148, 163, 184, 0.015) 2px,
-      rgba(148, 163, 184, 0.015) 4px
-    );
-  background-attachment: fixed;
-}
-
-/* ─── Scrollbar ─── */
-::-webkit-scrollbar { width: 7px; height: 7px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-/* ─── Glass Card ─── */
-.glass-card {
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--card-radius);
-  box-shadow: var(--glass-shadow);
-  padding: var(--card-padding);
-  transition: background var(--transition-default),
-              box-shadow var(--transition-default);
-}
-
-.glass-card:hover {
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: var(--glass-shadow-hover);
-}
-
-@media (max-width: 768px) {
-  .glass-card {
-    border-radius: 1rem;
-    padding: 1rem;
+@layer components {
+  /*
+   * Single-hue brand wash, lifted from the homepage token sheet (alpha <= 0.3).
+   * It is what makes the glass panel read as a material; without it the dialog
+   * is a white box on white.
+   */
+  .page-wash {
+    background-image:
+      radial-gradient(46rem 30rem at 8% -14%, var(--ambient-primary), transparent 62%), /* deslop-ignore 06 */
+      radial-gradient(38rem 26rem at 104% 8%, var(--ambient-secondary), transparent 58%); /* deslop-ignore 06 */
   }
-  :root {
-    --card-radius: 1rem;
-    --card-padding: 1rem;
+
+  .page-scrim {
+    background-color: var(--page-scrim);
+  }
+
+  /*
+   * Web approximation of frosted material: layered translucency plus a lit top
+   * edge. Not an Apple-issued material, just blur and highlight stacking. The
+   * gradient is the top light of the material, not an atmospheric background.
+   */
+  .dialog-glass {
+    border: 1px solid var(--panel-border);
+    background-image: linear-gradient(180deg, var(--panel-glass-top), var(--panel-glass-bottom)); /* deslop-ignore 06 */
+    -webkit-backdrop-filter: blur(26px) saturate(1.2);
+    backdrop-filter: blur(26px) saturate(1.2);
+    box-shadow:
+      inset 0 1px 0 var(--panel-inner-light),
+      var(--shadow-panel);
+  }
+
+  @supports not ((backdrop-filter: blur(20px)) or (-webkit-backdrop-filter: blur(20px))) {
+    .dialog-glass {
+      background-image: none;
+      background-color: rgb(var(--background-surface-raised-rgb) / 0.98);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .dialog-glass {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background-image: none;
+      background-color: rgb(var(--background-surface-raised-rgb) / 0.99);
+    }
   }
 }
 
-/* ─── Captcha Modal ─── */
-body.captcha-modal-open #root {
-  filter: blur(12px) saturate(1.05);
-  transform: scale(1.01);
-  transition: filter 180ms ease, transform 180ms ease;
-  will-change: filter, transform;
-}
-
-body:not(.captcha-modal-open) #root {
-  transition: filter 180ms ease, transform 180ms ease;
-}
-
-/* ─── Links ─── */
-a {
-  color: #0ea5e9;
-  transition: color 0.2s;
-}
-a:hover { color: #0284c7; }
-
-/* ─── Rating, Tags, Hidden Review ─── */
-.rating { color: #f59e0b; font-weight: 700; }
-
-.tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  background: #f1f5f9;
-  border-radius: 6px;
-  font-size: 10px;
-  color: #64748b;
-}
-
-.hidden-review {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(239, 68, 68, 0.02) 100%);
-  border-left: 3px solid #ef4444;
-}
-
-/* ─── Scrollbar utils ─── */
-.yourtj-md-overlay { scrollbar-width: none; -ms-overflow-style: none; }
-.yourtj-md-overlay::-webkit-scrollbar { display: none; }
-.yourtj-scrollbar-hidden { scrollbar-width: none; -ms-overflow-style: none; }
-.yourtj-scrollbar-hidden::-webkit-scrollbar { display: none; width: 0; height: 0; }
-
-/* ─── Markdown ─── */
-.yourtj-md-mirror { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-.yourtj-markdown { overflow-wrap: anywhere; word-break: break-word; }
-
-.yourtj-markdown .yourtj-md-table-wrap {
-  margin: 0.9rem 0;
-  overflow-x: auto;
-  border: 1px solid rgb(226 232 240);
-  border-radius: 0.9rem;
-  background: rgba(248, 250, 252, 0.75);
-}
-.yourtj-markdown table {
-  width: 100%;
-  min-width: 420px;
-  border-collapse: collapse;
-  font-size: 0.95em;
-}
-.yourtj-markdown thead { background: rgba(226, 232, 240, 0.55); }
-.yourtj-markdown th,
-.yourtj-markdown td {
-  padding: 0.7rem 0.85rem;
-  border-bottom: 1px solid rgb(226 232 240);
-  border-right: 1px solid rgb(226 232 240);
-  text-align: left;
-  vertical-align: top;
-}
-.yourtj-markdown th:last-child, .yourtj-markdown td:last-child { border-right: none; }
-.yourtj-markdown tbody tr:last-child td { border-bottom: none; }
-.yourtj-markdown blockquote {
-  margin: 0.9rem 0;
-  padding: 0.15rem 0 0.15rem 0.9rem;
-  border-left: 3px solid rgb(125 211 252);
-  color: rgb(71 85 105);
-  background: rgba(240, 249, 255, 0.55);
-}
-.yourtj-markdown hr {
-  margin: 1rem 0;
-  border: 0;
-  border-top: 1px solid rgb(226 232 240);
-}
-
-/* ─── Existing Animations ─── */
-@keyframes yourtjLogoSpin { to { transform: rotate(360deg); } }
-.yourtj-logo-spin { animation: yourtjLogoSpin 2s linear infinite; }
-
-@keyframes yourtjPaperReveal {
-  0% { opacity: 0; transform: translateY(-96px) scale(0.94); }
-  60% { opacity: 1; transform: translateY(8px) scale(1.01); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-.yourtj-share-paper {
-  animation: yourtjPaperReveal 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
-  transform-origin: top center;
-}
-
-.yourtj-share-printer {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.7) transparent;
-}
-.yourtj-share-printer::-webkit-scrollbar { width: 8px; }
-.yourtj-share-printer::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.7);
-  border-radius: 999px;
-}
-
-.yourtj-printer-bar { position: relative; overflow: hidden; }
-.yourtj-printer-bar::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, transparent 0%, rgba(125, 211, 252, 0.28) 25%, rgba(255, 255, 255, 0.85) 50%, rgba(125, 211, 252, 0.28) 75%, transparent 100%);
-  animation: yourtjPrinterSweep 2.2s ease-in-out infinite;
-}
-
-@keyframes yourtjPrinterSweep {
-  0% { transform: translateX(-120%); }
-  100% { transform: translateX(120%); }
-}
-
-/* ─── AI Summary Animations ─── */
-@keyframes summaryDot {
-  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1); }
-}
-.animate-summary-dot { animation: summaryDot 1.4s ease-in-out infinite; }
-
-@keyframes summaryShimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-.animate-summary-shimmer {
-  background-size: 200% 100%;
-  animation: summaryShimmer 2s ease-in-out infinite;
-}
-
-/* ─── ✨ NEW: Staggered Fade-Reveal ✨ ─── */
-@keyframes fadeSlideUp {
-  0% { opacity: 0; transform: translateY(12px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade-in {
-  opacity: 0;
-  animation: fadeSlideUp 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-
-/* ─── ✨ NEW: Scale In (for cards) ✨ ─── */
-@keyframes scaleIn {
-  0% { opacity: 0; transform: scale(0.96); }
-  100% { opacity: 1; transform: scale(1); }
-}
-
-.animate-scale-in {
-  opacity: 0;
-  animation: scaleIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
-}
-
-/* ─── ✨ NEW: Border Glow (for hover states) ✨ ─── */
-@keyframes borderGlow {
-  0%, 100% { border-color: rgba(14, 165, 233, 0.25); }
-  50% { border-color: rgba(14, 165, 233, 0.5); }
-}
-
-/* ─── Motion Sensitivity: Honor prefers-reduced-motion ─── */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+@layer utilities {
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
-}
 
-/* AI Summary loading — Gemini-style thinking dots */
-@keyframes summaryDot {
-  0%, 80%, 100% {
-    opacity: 0.2;
-    transform: scale(0.8);
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
-  40% {
-    opacity: 1;
-    transform: scale(1);
+
+  @keyframes tick-in {
+    from {
+      opacity: 0.45;
+    }
+    to {
+      opacity: 1;
+    }
   }
-}
 
-.animate-summary-dot {
-  animation: summaryDot 1.4s ease-in-out infinite;
-}
-
-/* AI Summary loading — shimmer sweep */
-@keyframes summaryShimmer {
-  0% {
-    background-position: -200% 0;
+  .animate-dialog-in {
+    animation: dialog-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
-  100% {
-    background-position: 200% 0;
+
+  .animate-rise-in {
+    animation: rise-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
-}
 
-.animate-summary-shimmer {
-  background-size: 200% 100%;
-  animation: summaryShimmer 2s ease-in-out infinite;
-}
+  .rise-delay-1 {
+    animation-delay: 70ms;
+  }
 
-/* ─── Motion Sensitivity: Honor prefers-reduced-motion ─── */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  .rise-delay-2 {
+    animation-delay: 140ms;
+  }
+
+  /*
+   * The ticking number is the only remaining-time signal on the page, so each
+   * second confirms itself with a soft breath. No sweeping bar: a coloured
+   * strip across a card reads as a page loading, not as a countdown.
+   */
+  .animate-tick-in {
+    animation: tick-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-dialog-in,
+    .animate-rise-in,
+    .animate-tick-in {
+      animation: none;
+    }
   }
 }
