@@ -32,6 +32,7 @@ const SERVICE_NOTICES: ServiceNotice[] = [
 export default function ForumRedirectPage() {
   const [remainingSeconds, setRemainingSeconds] = useState(REDIRECT_DELAY_SECONDS)
   const [isPaused, setIsPaused] = useState(false)
+  const [countdownRunId, setCountdownRunId] = useState(0)
 
   // Tells the inline fallback in index.html that the bundle booted, so only one
   // redirect timer is ever in flight.
@@ -55,9 +56,18 @@ export default function ForumRedirectPage() {
     window.location.replace(REDIRECT_TARGET)
   }, [])
 
+  /*
+   * Resuming re-derives the hairline for the seconds that are left, so the text
+   * and the line always describe the same wait.
+   */
   const togglePause = useCallback(() => {
-    setIsPaused((paused) => !paused)
-  }, [])
+    if (isPaused) {
+      setCountdownRunId((runId) => runId + 1)
+      setIsPaused(false)
+    } else {
+      setIsPaused(true)
+    }
+  }, [isPaused])
 
   return (
     <main className="relative flex min-h-[100dvh] items-center justify-center px-4 py-6 sm:px-6 sm:py-12">
@@ -122,31 +132,43 @@ export default function ForumRedirectPage() {
         <footer className="animate-rise-in rise-delay-2 border-t border-edge/70 bg-surface/40 px-4 py-4 sm:px-7 sm:py-5">
           <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
             {/* The pause control rides beside the countdown on phones, and drops under it once the panel is wide. */}
-            <div className="flex min-w-0 items-center justify-between gap-3 sm:block sm:space-y-1.5">
-              <p className="text-sm leading-6 text-secondary">
-                <span aria-hidden="true">
-                  {isPaused ? (
-                    '已暂停自动跳转'
-                  ) : (
-                    <>
-                      <span
-                        key={remainingSeconds}
-                        className="animate-tick-in inline-block font-semibold tabular-nums text-link"
-                      >
-                        {remainingSeconds}
-                      </span>{' '}
-                      秒后自动前往{' '}
-                      <span className="font-medium text-primary">{REDIRECT_TARGET_LABEL}</span>
-                    </>
-                  )}
+            <div className="flex min-w-0 items-center justify-between gap-3 sm:block sm:space-y-2.5">
+              <div className="min-w-0">
+                <p className="text-sm leading-6 text-secondary">
+                  <span aria-hidden="true">
+                    {isPaused ? (
+                      '已暂停自动跳转'
+                    ) : (
+                      <>
+                        <span className="font-semibold tabular-nums text-link">{remainingSeconds}</span> 秒后自动前往{' '}
+                        <span className="font-medium text-primary">{REDIRECT_TARGET_LABEL}</span>
+                      </>
+                    )}
+                  </span>
+                  {/* Static text, so the ticking number never spams a screen reader; it flips once on pause. */}
+                  <span role="status" className="sr-only">
+                    {isPaused
+                      ? '已暂停自动跳转'
+                      : `页面将在 ${REDIRECT_DELAY_SECONDS} 秒后自动前往新的 YourTJ 论坛 ${REDIRECT_TARGET_LABEL}`}
+                  </span>
+                </p>
+
+                {/*
+                 * Time left as a bare hairline under the sentence: no track, no
+                 * second colour, so it reads as the line running out rather than
+                 * as a page still loading.
+                 */}
+                <span aria-hidden="true" className="mt-2 block h-px w-44 max-w-full rounded-full">
+                  <span
+                    key={countdownRunId}
+                    className="countdown-line block h-full w-full rounded-full bg-link"
+                    style={{
+                      animationDuration: `${Math.max(remainingSeconds, 1)}s`,
+                      animationPlayState: isPaused ? 'paused' : 'running',
+                    }}
+                  />
                 </span>
-                {/* Static text, so the ticking number never spams a screen reader; it flips once on pause. */}
-                <span role="status" className="sr-only">
-                  {isPaused
-                    ? '已暂停自动跳转'
-                    : `页面将在 ${REDIRECT_DELAY_SECONDS} 秒后自动前往新的 YourTJ 论坛 ${REDIRECT_TARGET_LABEL}`}
-                </span>
-              </p>
+              </div>
 
               <Button
                 variant="ghost"
