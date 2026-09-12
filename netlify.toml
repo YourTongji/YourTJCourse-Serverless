@@ -1,12 +1,12 @@
 [build]
-  # 与 Cloudflare Pages 保持一致的构建链：frontend 构建会依赖 scheduler 与 wlc
-  command = "npm --prefix frontend ci && npm --prefix scheduler ci && npm --prefix frontend run build"
+  # 该分支的前端已收敛为纯前端重定向页，构建只依赖 frontend 自身
+  command = "npm --prefix frontend ci && npm --prefix frontend run build"
   publish = "frontend/dist"
 
 [build.environment]
   NODE_VERSION = "22"
 
-# SPA fallback：React Router 使用 BrowserRouter，深层 URL 直接刷新需重写到 index.html
+# 任意路径都渲染这张公告页，再由页面本身跳转到 f.yourtj.de
 [[redirects]]
   from = "/*"
   to = "/index.html"

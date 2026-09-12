@@ -4,9 +4,8 @@ on:
   push:
     branches: ["server"]
     paths:
+      # 该分支的前端已收敛为重定向页，构建只依赖 frontend 自身
       - "frontend/**"
-      - "scheduler/**"
-      - "wlc/**"
       - "netlify.toml"
       - ".github/workflows/deploy-netlify.yml"
   workflow_dispatch: {}
@@ -32,9 +31,6 @@ jobs:
 
       - name: Install frontend deps
         run: npm --prefix frontend ci --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=2
-
-      - name: Install scheduler deps
-        run: npm --prefix scheduler ci --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=2
 
       - name: Build frontend (injects VITE_* build vars)
         run: npm --prefix frontend run build
