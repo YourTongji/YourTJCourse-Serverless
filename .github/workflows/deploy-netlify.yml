@@ -6,6 +6,7 @@ on:
     paths:
       # 该分支的前端已收敛为重定向页，构建只依赖 frontend 自身
       - "frontend/**"
+      - "netlify/**"
       - "netlify.toml"
       - ".github/workflows/deploy-netlify.yml"
   workflow_dispatch: {}

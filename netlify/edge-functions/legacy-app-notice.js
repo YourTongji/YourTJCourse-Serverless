@@ -53,7 +53,13 @@ export default async (request) => {
   const payload = pathname.endsWith('/announcements')
     ? { announcements: [announcement] }
     : {
-        maintenance: { enabled: false, config: null },
+        maintenance: {
+          enabled: true,
+          config: {
+            title: 'YourTJ Course App已下线',
+            message: NOTICE.content,
+          },
+        },
         announcements: [announcement],
         updatedAt: Date.now(),
       }
