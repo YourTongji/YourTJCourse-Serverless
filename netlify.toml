@@ -6,6 +6,14 @@
 [build.environment]
   NODE_VERSION = "22"
 
+[[edge_functions]]
+  path = "/api/settings/runtime-state"
+  function = "legacy-app-notice"
+
+[[edge_functions]]
+  path = "/api/settings/announcements"
+  function = "legacy-app-notice"
+
 # 任意路径都渲染这张公告页，再由页面本身跳转到 f.yourtj.de
 [[redirects]]
   from = "/*"
