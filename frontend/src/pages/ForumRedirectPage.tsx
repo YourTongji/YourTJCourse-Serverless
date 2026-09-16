@@ -103,7 +103,7 @@ export default function ForumRedirectPage() {
             选课社区已下线
           </h1>
 
-          <p id="notice-summary" className="mt-2.5 text-balance text-[15px] leading-7 text-secondary">
+          <p id="notice-summary" className="mt-2.5 text-[15px] leading-7 text-secondary">
             课程评价与讨论已迁移至新的 YourTJ 论坛，迁移详情已在官网{' '}
             <a
               href={OFFICIAL_SITE}
