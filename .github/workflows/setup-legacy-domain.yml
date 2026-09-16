@@ -1,6 +1,10 @@
 name: Setup Legacy Course Domain
 
 on:
+  push:
+    branches: ["server"]
+    paths:
+      - ".github/workflows/setup-legacy-domain.yml"
   workflow_dispatch: {}
 
 permissions:
