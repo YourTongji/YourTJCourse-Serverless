@@ -19,7 +19,11 @@ jobs:
           NETLIFY_SITE_ID: 0a9c8b3c-6a78-480d-813c-dc78d9344afc
         run: |
           set -euo pipefail
-          curl -fsS -X POST \
+          response="$(curl -sS -X POST \
             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
-            "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}/ssl/renew" \
-            | jq '{state,domains,updated_at,expires_at}'
+            -w '\n%{http_code}' \
+            "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}/ssl/renew")"
+          code="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          printf '%s\n' "$body" | jq '{state,domains,updated_at,expires_at,message,error}'
+          test "$code" -ge 200 -a "$code" -lt 300
