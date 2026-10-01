@@ -3,7 +3,7 @@ const NOTICE = {
   title: '服务迁移通知',
   content: `YourTJ选课社区与YourTJ Course APP于2026年9月12日已下线
 
-课程评价与讨论已迁移至新的 YourTJ 论坛（https://f.yourtj.de），迁移详情已在官网 yourtj.de（https://yourtj.de/）公布。新的YourTJ社区APP正在开发中，将在近期推出。
+课程评价与讨论已迁移至新的 YourTJ 论坛（https://f.yourtj.de），迁移详情已在官网 yourtj.de（https://yourtj.de/）公布。新的YourTJ社区APP已推出，欢迎前往官网下载。
 
 反馈渠道
 QQ 群 726096994，欢迎填写使用反馈问卷`,
